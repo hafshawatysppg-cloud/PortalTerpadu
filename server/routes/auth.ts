@@ -116,26 +116,72 @@ router.get(['/github/callback', '/github/callback/'], async (req: Request, res: 
     return;
   }
 
-  // Generate SSO login for GitHub user
-  const demoUser = dbStore.users[0]; // Admin Penuh
+  let loggedUser = dbStore.users[0]; // Default: Admin Penuh
+  let githubLogin = '';
+
+  // Attempt real GitHub OAuth token exchange if credentials configured
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  if (clientId && clientSecret && !clientId.includes('DEMO')) {
+    try {
+      const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: String(code)
+        })
+      });
+
+      const tokenJson = await tokenResponse.json() as any;
+      if (tokenJson && tokenJson.access_token) {
+        const userProfileResponse = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `Bearer ${tokenJson.access_token}`,
+            'User-Agent': 'Portal-Administrasi-Terpadu'
+          }
+        });
+        const ghUser = await userProfileResponse.json() as any;
+        if (ghUser && ghUser.login) {
+          githubLogin = ghUser.login;
+          const found = dbStore.users.find(u => 
+            u.username.toLowerCase() === ghUser.login.toLowerCase() || 
+            (ghUser.email && u.email.toLowerCase() === ghUser.email.toLowerCase())
+          );
+          if (found) {
+            loggedUser = found;
+          }
+        }
+      }
+    } catch (exchangeErr) {
+      console.warn('GitHub token exchange notice:', exchangeErr);
+    }
+  }
+
+  // Generate SSO login token for user
   const token = jwt.sign(
     {
-      id: demoUser.id,
-      nama: demoUser.nama,
-      username: demoUser.username,
-      email: demoUser.email,
-      role: demoUser.role,
+      id: loggedUser.id,
+      nama: loggedUser.nama,
+      username: loggedUser.username,
+      email: loggedUser.email,
+      role: loggedUser.role,
+      githubUsername: githubLogin || undefined,
       iss: 'Portal-Administrasi-Terpadu'
     },
     JWT_SECRET,
-    { expiresIn: '12h' }
+    { expiresIn: '24h' }
   );
 
   res.send(`
     <html>
       <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
         <h2>Autentikasi GitHub Berhasil!</h2>
-        <p>Menghubungkan ke Portal Administrasi Terpadu...</p>
+        <p>Login sebagai <strong>${loggedUser.nama} (${loggedUser.role})</strong>...</p>
         <script>
           if (window.opener) {
             window.opener.postMessage({ type: 'GITHUB_OAUTH_SUCCESS', token: '${token}' }, '*');

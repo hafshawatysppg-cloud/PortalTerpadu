@@ -1,7 +1,27 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
+
+// Auto-configure FIREBASE_API_KEY from firebase-applet-config.json if not present
+try {
+  const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(cfgPath)) {
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    if (!process.env.FIREBASE_API_KEY && cfg.apiKey) {
+      process.env.FIREBASE_API_KEY = cfg.apiKey;
+    }
+  }
+} catch (_) {}
+
+// Default fallback for JWT Secret
+if (!process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = 'portal_bgn_terpadu_jwt_secret_token_secure_key_2026_prod';
+}
 
 import authRoutes from './server/routes/auth';
 import userRoutes from './server/routes/users';
