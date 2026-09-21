@@ -58,3 +58,186 @@
   background: #334155;
 }
 
+/* ==========================================================================
+   CSS Print Stylesheet for Physical Filing & PDF Document Generation
+   Tailored for Dashboard & Stock Opname / Inventarisasi Official Archival
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm 15mm 15mm;
+  }
+
+  /* Reset layout for clean paginated document print */
+  html, body {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+    font-size: 10.5pt !important;
+    line-height: 1.4 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide interactive, navigational, modal, and non-printable screen UI */
+  header,
+  nav,
+  aside,
+  #notification-bell-btn,
+  #notification-dropdown-panel,
+  .print\\:hidden,
+  button,
+  form input,
+  form textarea,
+  form select,
+  form button,
+  .fixed,
+  .sticky {
+    display: none !important;
+  }
+
+  /* Ensure main wrapper expands naturally without clipping or scrollbars */
+  main, .flex-1, .space-y-6, .space-y-8, .max-w-7xl {
+    overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Make sure print-only document elements are clearly visible */
+  .print\\:block {
+    display: block !important;
+  }
+
+  .print\\:flex {
+    display: flex !important;
+  }
+
+  .print\\:table {
+    display: table !important;
+  }
+
+  /* Clean up card containers for pristine printed paper */
+  .apple-card,
+  .rounded-\\[24px\\],
+  .rounded-2xl,
+  .rounded-xl,
+  .shadow-sm,
+  .shadow-xs,
+  .shadow-md,
+  .shadow-xl,
+  .shadow-2xl,
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl {
+    box-shadow: none !important;
+    border-radius: 4px !important;
+    backdrop-filter: none !important;
+    background: #FFFFFF !important;
+  }
+
+  /* Force borders to be crisp hairline rules */
+  .border,
+  .border-b,
+  .border-t,
+  .border-slate-200,
+  .border-slate-100,
+  .border-slate-800 {
+    border-color: #CBD5E1 !important;
+  }
+
+  /* Data tables formatting for archival physical filing */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    font-size: 9pt !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+    background-color: #F1F5F9 !important;
+  }
+
+  th {
+    background-color: #F1F5F9 !important;
+    color: #0F172A !important;
+    font-weight: 700 !important;
+    border-bottom: 1.5pt solid #94A3B8 !important;
+    padding: 6pt 4pt !important;
+    text-transform: uppercase !important;
+    font-size: 8pt !important;
+  }
+
+  td {
+    padding: 5pt 4pt !important;
+    border-bottom: 0.5pt solid #E2E8F0 !important;
+    color: #1E293B !important;
+  }
+
+  /* Prevent awkward page cutoffs */
+  .page-break-inside-avoid,
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .page-break-before-always {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  /* Format badges and labels for crisp monochrome/duotone readability */
+  .rounded-full {
+    border-radius: 3px !important;
+    border: 0.5pt solid #94A3B8 !important;
+    padding: 2pt 4pt !important;
+    font-size: 7.5pt !important;
+    font-weight: 600 !important;
+  }
+
+  /* Typography enhancements for physical reading */
+  h1, h2, h3, h4 {
+    color: #0F172A !important;
+    page-break-after: avoid !important;
+  }
+
+  p, span, div {
+    color: #1E293B !important;
+  }
+
+  /* Optimize charts/visual metrics in dashboard for printing */
+  .recharts-responsive-container {
+    max-height: 220px !important;
+  }
+
+  /* Print Header & Footer utilities */
+  .print-official-header {
+    border-bottom: 2pt solid #0F172A !important;
+    padding-bottom: 8pt !important;
+    margin-bottom: 12pt !important;
+  }
+
+  .print-official-footer {
+    border-top: 1pt solid #CBD5E1 !important;
+    padding-top: 8pt !important;
+    margin-top: 16pt !important;
+    font-size: 8pt !important;
+    color: #64748B !important;
+  }
+
+  .print-signatures {
+    margin-top: 20pt !important;
+    page-break-inside: avoid !important;
+  }
+}
+

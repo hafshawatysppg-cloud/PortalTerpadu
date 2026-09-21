@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardCheck, Plus, CheckCircle, Save, AlertTriangle, FileText, RefreshCw, Calendar, Building } from 'lucide-react';
+import { ClipboardCheck, Plus, CheckCircle, Save, AlertTriangle, FileText, RefreshCw, Calendar, Building, Printer } from 'lucide-react';
 import { MasterBarang, StockOpnameSession, MasterGudang } from '../../types';
+import { GlobalReportHeader } from '../../components/document/GlobalReportHeader';
+import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
+import { DocumentSignatures } from '../../components/document/DocumentSignatures';
 
 export const StockOpnamePhysicalView: React.FC = () => {
   const [sessions, setSessions] = useState<StockOpnameSession[]>([]);
@@ -110,8 +113,24 @@ export const StockOpnamePhysicalView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Official Letterhead Header for Print / PDF Archival */}
+      <div className="hidden print:block print-official-header">
+        <GlobalReportHeader
+          title="BERITA ACARA AUDIT STOCK OPNAME FISIK & REKONSILIASI PERSEDIAAN"
+          subTitle="Hasil Penghitungan Fisik Inventaris Gudang, Kalkulasi Selisih (Variance Gap), & Penyesuaian Saldo Sistem"
+          documentNumber={`BA-SOP/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/${new Date().getDate().toString().padStart(2, '0')}`}
+          documentDate={new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          metadata={[
+            { label: 'Gudang Objek Audit', value: gudangList.find(g => g.id === selectedGudangId)?.nama || 'Gudang Central Operasional' },
+            { label: 'Tim Auditor / Petugas', value: petugas },
+            { label: 'Sifat Dokumen', value: 'Berita Acara Resmi Persediaan (Arsip Fisik)' },
+            { label: 'Klasifikasi Rekonsiliasi', value: 'Audit Fisik Berkala Bulanan' }
+          ]}
+        />
+      </div>
+
       {/* Banner */}
-      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <ClipboardCheck className="w-5 h-5 text-amber-600" /> Sesi Opname Fisik & Penyesuaian Selisih
@@ -121,12 +140,23 @@ export const StockOpnamePhysicalView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsSessionOpen(true)}
-          className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Mulai Sesi Opname Fisik Baru
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.print()}
+            className="px-3.5 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs hover:shadow-xs transition flex items-center gap-2 cursor-pointer"
+            title="Cetak Berita Acara Opname Fisik (PDF / Kertas)"
+          >
+            <Printer className="w-4 h-4 text-amber-600" />
+            <span>Cetak Berita Acara (PDF)</span>
+          </button>
+
+          <button
+            onClick={() => setIsSessionOpen(true)}
+            className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Mulai Sesi Opname Fisik Baru
+          </button>
+        </div>
       </div>
 
       {successMsg && (
@@ -320,6 +350,24 @@ export const StockOpnamePhysicalView: React.FC = () => {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Official Signatures & Archival Footer for Print */}
+      <div className="hidden print:block print-signatures">
+        <DocumentSignatures
+          leftTitle="Tim Petugas Pelaksana Hitung Fisik"
+          leftName={petugas}
+          leftRole="Auditor Lapangan Gudang"
+          rightTitle="Penanggung Jawab Gudang & Logistik"
+          rightName="Hendra Kusuma, S.T."
+          rightRole="Kepala Seksi Manajemen Logistik & Gudang"
+          rightNip="19820719 200801 1 007"
+        />
+        <GlobalReportFooter
+          qrValue={`https://pat-bgn.go.id/verify/stock-opname/${selectedGudangId}-archival-2026`}
+          showSystemWatermark={true}
+          isPrintPreview={true}
+        />
       </div>
     </div>
   );

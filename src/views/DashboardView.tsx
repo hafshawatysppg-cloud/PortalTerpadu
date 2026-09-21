@@ -19,7 +19,8 @@ import {
   MessageSquare,
   Send,
   X,
-  FileText
+  FileText,
+  Printer
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -33,6 +34,9 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { PenerimaManfaatDashboardWidget } from '../components/dashboard/PenerimaManfaatDashboardWidget';
 import { KeteranganTugasDivisiWidget } from '../components/dashboard/KeteranganTugasDivisiWidget';
+import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
+import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
+import { DocumentSignatures } from '../components/document/DocumentSignatures';
 import logoImg from '../assets/images/badan_gizi_logo_1785799692960.jpg';
 
 interface DashboardViewProps {
@@ -159,8 +163,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-16">
+      {/* Official Letterhead Header for Print / PDF Archival */}
+      <div className="hidden print:block print-official-header">
+        <GlobalReportHeader
+          title="LAPORAN EKSEKUTIF OPERASIONAL & INVENTARISASI TERPADU"
+          subTitle="Ringkasan Kinerja Harian, Distribusi Penerima Manfaat, Logistik, dan Status Persediaan"
+          documentNumber={`LAP-EKS/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/${new Date().getDate().toString().padStart(2, '0')}`}
+          documentDate={new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          metadata={[
+            { label: 'Sifat Dokumen', value: 'Laporan Resmi Operasional (Arsip Fisik)' },
+            { label: 'Pencetak / Pemohon', value: user?.nama || 'Petugas Administrasi Portal' },
+            { label: 'Status Sistem', value: 'Online Cloud Real-time Synced' },
+            { label: 'Klasifikasi Pengarsipan', value: 'Eksekutif Manajerial & Audit' }
+          ]}
+        />
+      </div>
+
       {/* Large Greeting Section */}
-      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/60 dark:border-slate-800/80 rounded-[24px] p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-all">
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/60 dark:border-slate-800/80 rounded-[24px] p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-all print:hidden">
         <div className="space-y-1.5 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 text-xs font-medium rounded-full">
             <Sparkles className="w-3.5 h-3.5 text-blue-600" />
@@ -172,6 +192,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             Monitor inventory, fuel usage, and operational activities.
           </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.print()}
+            className="px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-full text-xs font-semibold shadow-2xs hover:shadow-sm transition-all duration-200 flex items-center gap-2 cursor-pointer"
+            title="Cetak format PDF / Berkas Fisik"
+          >
+            <Printer className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Cetak Rekap Dashboard (PDF)</span>
+          </button>
         </div>
       </div>
 
@@ -596,6 +627,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+
+      {/* Official Signatures & Archival Footer for Print */}
+      <div className="hidden print:block print-signatures">
+        <DocumentSignatures
+          leftTitle="Diperiksa & Diverifikasi Oleh"
+          leftName="Budi Santoso, S.E."
+          leftRole="Koordinator Verifikasi Logistik"
+          rightTitle="Mengetahui & Menyetujui"
+          rightName="Dr. H. Ahmad Pratama, M.Kom"
+          rightRole="Kepala Pusat Layanan Terpadu"
+          rightNip="19780512 200312 1 002"
+        />
+        <GlobalReportFooter
+          qrValue="https://pat-bgn.go.id/verify/dashboard/archival-summary-2026"
+          showSystemWatermark={true}
+          isPrintPreview={true}
+        />
+      </div>
     </div>
   );
 };
