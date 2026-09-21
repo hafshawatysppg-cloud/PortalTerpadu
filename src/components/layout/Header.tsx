@@ -100,15 +100,25 @@ export const Header: React.FC<HeaderProps> = ({
               {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {/* Notifications Dropdown Toggle */}
+            {/* Notifications Dropdown Toggle with Unread Count Badge */}
             <div className="relative">
               <button
+                id="notification-bell-btn"
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
-                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all duration-200 relative"
+                aria-label="Pusat Notifikasi dan Pembaruan Sistem"
+                className={`p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all duration-200 relative cursor-pointer ${
+                  isNotifOpen ? 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20' : ''
+                }`}
+                title={unreadNotifs > 0 ? `${unreadNotifs} Notifikasi baru` : 'Pusat Notifikasi Sistem'}
               >
-                <Bell className="w-4 h-4" />
+                <Bell className={`w-4 h-4 transition-transform duration-200 ${unreadNotifs > 0 ? 'text-slate-700 dark:text-slate-200 group-hover:rotate-12' : ''}`} />
                 {unreadNotifs > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 text-white rounded-full ring-2 ring-white dark:ring-slate-900" />
+                  <span
+                    id="notification-unread-badge"
+                    className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-red-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-sm animate-pulse"
+                  >
+                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
+                  </span>
                 )}
               </button>
               <NotificationDropdown
