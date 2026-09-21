@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "User profile data for SSO and access control",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "divisi": { "type": "string" },
+        "jabatan": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["nama", "email", "role"]
+    },
+    "barang": {
+      "title": "Master Barang Gudang",
+      "description": "Master inventory items dataset",
+      "type": "object",
+      "properties": {
+        "kodeBarang": { "type": "string" },
+        "namaBarang": { "type": "string" },
+        "kategoriNama": { "type": "string" },
+        "satuan": { "type": "string" },
+        "stokSekarang": { "type": "number" },
+        "stokMinimal": { "type": "number" },
+        "hargaSatuan": { "type": "number" },
+        "lokasiRak": { "type": "string" }
+      },
+      "required": ["kodeBarang", "namaBarang", "stokSekarang"]
+    },
+    "stockMovements": {
+      "title": "Stock Movements Log",
+      "description": "Inbound and outbound transaction movements log",
+      "type": "object",
+      "properties": {
+        "jenis": { "type": "string" },
+        "barangId": { "type": "string" },
+        "jumlah": { "type": "number" },
+        "referensiNota": { "type": "string" },
+        "petugas": { "type": "string" }
+      },
+      "required": ["jenis", "barangId", "jumlah"]
+    },
+    "opnameSessions": {
+      "title": "Stock Opname Sessions",
+      "description": "Physical stock count sessions and physical audit results",
+      "type": "object",
+      "properties": {
+        "kodeOpname": { "type": "string" },
+        "tanggal": { "type": "string" },
+        "status": { "type": "string" },
+        "petugas": { "type": "string" }
+      },
+      "required": ["kodeOpname", "tanggal", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/users" },
+      "description": "User profiles collection"
+    },
+    "/barang/{barangId}": {
+      "schema": { "$ref": "#/entities/barang" },
+      "description": "Master inventory items collection"
+    },
+    "/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/stockMovements" },
+      "description": "Stock movements log collection"
+    },
+    "/opnameSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/opnameSessions" },
+      "description": "Physical stock opname audit sessions collection"
+    }
+  }
+}

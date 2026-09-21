@@ -1,0 +1,8 @@
+{
+  "name": "TRIAL LAYANAN TERPADU",
+  "description": "Portal Administrasi Terpadu dengan SSO, Modul Perencanaan Gizi & Worksheet SPPG Badan Gizi Nasional (4 Kelompok Sasaran, Buffer 5%, Rencana Anggaran Belanja/RAB Sinkron Real-time, dan Cetak Dokumen Resmi), e-Surat Digital, dan Manajemen Logistik.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
