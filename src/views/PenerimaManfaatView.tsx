@@ -45,6 +45,12 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { ConfirmModal } from '../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../lib/useFirestoreRealtime';
+import {
+  PortionValidationBadge,
+  ValidatedPortionInput,
+  RealtimeValidationAuditBar,
+  calculatePortionValidation
+} from '../components/common/PortionValidationInput';
 
 interface PenerimaManfaatViewProps {
   currentPath?: string;
@@ -2223,13 +2229,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   value={editingRecord.namaInstansi || ''}
                   onChange={(e) => {
                     const selLoc = locations.find(l => l.namaInstansi === e.target.value);
+                    const defaultAwal = selLoc?.defaultJumlah !== undefined ? selLoc.defaultJumlah : 0;
                     setEditingRecord({
                       ...editingRecord,
                       namaInstansi: e.target.value,
                       locationId: selLoc?.id || '',
                       groupId: selLoc?.groupId || groups[0]?.id,
                       groupNama: selLoc?.groupNama || groups[0]?.nama,
-                      jumlahAwal: editingRecord.jumlahAwal || selLoc?.defaultJumlah || 100
+                      jumlahAwal: editingRecord.jumlahAwal !== undefined ? editingRecord.jumlahAwal : defaultAwal
                     });
                   }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
@@ -2281,47 +2288,47 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/60 space-y-3">
                 <span className="text-xs font-bold uppercase text-slate-400">Kalkulator Jumlah Penerima</span>
                 
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[11px] text-slate-500 font-semibold block">Awal</label>
-                    <input
-                      type="number"
-                      value={editingRecord.jumlahAwal ?? 0}
-                      onChange={(e) => setEditingRecord({ ...editingRecord, jumlahAwal: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-center"
-                      min={0}
-                    />
-                  </div>
+                {(() => {
+                  const awal = Number(editingRecord.jumlahAwal) || 0;
+                  const tambah = Number(editingRecord.penambahan) || 0;
+                  const kurang = Number(editingRecord.pengurangan) || 0;
+                  const finalPorsi = Math.max(0, awal + tambah - kurang);
+                  const formula = `${awal} (Awal) + ${tambah} (Tambah) - ${kurang} (Kurang) = ${finalPorsi} Porsi`;
 
-                  <div>
-                    <label className="text-[11px] text-emerald-600 font-semibold block">Penambahan (+)</label>
-                    <input
-                      type="number"
-                      value={editingRecord.penambahan ?? 0}
-                      onChange={(e) => setEditingRecord({ ...editingRecord, penambahan: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-xl text-sm font-bold text-center text-emerald-600"
-                      min={0}
-                    />
-                  </div>
+                  return (
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-3 gap-2">
+                        <ValidatedPortionInput
+                          label="Porsi Awal"
+                          value={awal}
+                          onChange={(val) => setEditingRecord({ ...editingRecord, jumlahAwal: val })}
+                        />
 
-                  <div>
-                    <label className="text-[11px] text-rose-600 font-semibold block">Pengurangan (-)</label>
-                    <input
-                      type="number"
-                      value={editingRecord.pengurangan ?? 0}
-                      onChange={(e) => setEditingRecord({ ...editingRecord, pengurangan: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-rose-300 rounded-xl text-sm font-bold text-center text-rose-600"
-                      min={0}
-                    />
-                  </div>
-                </div>
+                        <ValidatedPortionInput
+                          label="Penambahan (+)"
+                          value={tambah}
+                          onChange={(val) => setEditingRecord({ ...editingRecord, penambahan: val })}
+                          className="text-emerald-700 font-bold border-emerald-200"
+                        />
 
-                <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700">Total Hasil Akhir:</span>
-                  <span className="text-xl font-extrabold text-slate-900">
-                    {((editingRecord.jumlahAwal || 0) + (editingRecord.penambahan || 0) - (editingRecord.pengurangan || 0)).toLocaleString('id-ID')} Porsi
-                  </span>
-                </div>
+                        <ValidatedPortionInput
+                          label="Pengurangan (-)"
+                          value={kurang}
+                          onChange={(val) => setEditingRecord({ ...editingRecord, pengurangan: val })}
+                          className="text-rose-700 font-bold border-rose-200"
+                        />
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-200">
+                        <PortionValidationBadge
+                          subtotal={finalPorsi}
+                          formula={formula}
+                          showFormula={true}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>
@@ -2401,14 +2408,83 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Default Kuota Jumlah Porsi</label>
-                <input
-                  type="number"
-                  value={editingLocation.defaultJumlah ?? 100}
-                  onChange={(e) => setEditingLocation({ ...editingLocation, defaultJumlah: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm"
-                />
+              {/* Real-time Category Breakdown & Dynamic Subtotal Calculation */}
+              <div className="bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Rincian Sasaran & Subtotal Porsi Real-Time
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                    ✓ Validasi Otomatis
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <ValidatedPortionInput
+                    label="Sasaran Siswa"
+                    value={editingLocation.kategoriBreakdown?.siswa ?? 0}
+                    onChange={(val) => {
+                      const kb = { ...(editingLocation.kategoriBreakdown || {}), siswa: val };
+                      const sum = val + (kb.guru || 0) + (kb.balita || 0) + (kb.ibuHamil || 0) + (kb.ibuMenyusui || 0);
+                      setEditingLocation({
+                        ...editingLocation,
+                        kategoriBreakdown: kb,
+                        defaultJumlah: sum
+                      });
+                    }}
+                  />
+
+                  <ValidatedPortionInput
+                    label="Guru / Staf"
+                    value={editingLocation.kategoriBreakdown?.guru ?? 0}
+                    onChange={(val) => {
+                      const kb = { ...(editingLocation.kategoriBreakdown || {}), guru: val };
+                      const sum = (kb.siswa || 0) + val + (kb.balita || 0) + (kb.ibuHamil || 0) + (kb.ibuMenyusui || 0);
+                      setEditingLocation({
+                        ...editingLocation,
+                        kategoriBreakdown: kb,
+                        defaultJumlah: sum
+                      });
+                    }}
+                  />
+
+                  <ValidatedPortionInput
+                    label="Sasaran Balita"
+                    value={editingLocation.kategoriBreakdown?.balita ?? 0}
+                    onChange={(val) => {
+                      const kb = { ...(editingLocation.kategoriBreakdown || {}), balita: val };
+                      const sum = (kb.siswa || 0) + (kb.guru || 0) + val + (kb.ibuHamil || 0) + (kb.ibuMenyusui || 0);
+                      setEditingLocation({
+                        ...editingLocation,
+                        kategoriBreakdown: kb,
+                        defaultJumlah: sum
+                      });
+                    }}
+                  />
+
+                  <ValidatedPortionInput
+                    label="Ibu Hamil / Menyusui"
+                    value={(editingLocation.kategoriBreakdown?.ibuHamil || 0) + (editingLocation.kategoriBreakdown?.ibuMenyusui || 0)}
+                    onChange={(val) => {
+                      const kb = { ...(editingLocation.kategoriBreakdown || {}), ibuHamil: val, ibuMenyusui: 0 };
+                      const sum = (kb.siswa || 0) + (kb.guru || 0) + (kb.balita || 0) + val;
+                      setEditingLocation({
+                        ...editingLocation,
+                        kategoriBreakdown: kb,
+                        defaultJumlah: sum
+                      });
+                    }}
+                  />
+                </div>
+
+                <div className="pt-1">
+                  <PortionValidationBadge
+                    subtotal={editingLocation.defaultJumlah ?? 0}
+                    formula={`Subtotal Akumulasi: ${editingLocation.defaultJumlah ?? 0} Porsi`}
+                    showFormula={true}
+                  />
+                </div>
               </div>
 
               <div>
@@ -2579,10 +2655,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       }
 
                       const g = Number(item.targetGuru) || 0;
-                      const subTotal = targetVal + g;
+                      const validation = calculatePortionValidation({
+                        namaInstansi: item.namaInstansi,
+                        klasifikasiPorsi: itemKlasifikasi,
+                        targetMain: targetVal,
+                        targetGuru: g,
+                        targetBalita: isBalita ? targetVal : undefined,
+                        targetBumilBusui: isIbuHamilOrMenyusui ? targetVal : undefined
+                      });
 
                       return (
-                        <div key={idx} className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70 space-y-2 hover:border-slate-300 transition-all">
+                        <div key={idx} className="bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200/80 space-y-2 hover:border-emerald-300 transition-all">
                           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
                             {/* Nama Instansi */}
                             <div className="md:col-span-4">
@@ -2601,15 +2684,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                               />
                             </div>
 
-                            {/* Dynamic Target Column */}
+                            {/* Dynamic Target Column with Real-time Validated Input */}
                             <div className="md:col-span-2">
-                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5 text-center">{dynamicLabel}</label>
-                              <input
-                                type="number"
-                                min={0}
+                              <ValidatedPortionInput
+                                label={dynamicLabel}
                                 value={targetVal}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value) || 0;
+                                onChange={(val) => {
                                   const list = [...(editingGroup.lembagaList || [])];
                                   const newItem = { ...list[idx] };
                                   if (isBalita) {
@@ -2630,39 +2710,36 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                   list[idx] = newItem;
                                   setEditingGroup({ ...editingGroup, lembagaList: list });
                                 }}
-                                className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-center text-slate-900"
                               />
                             </div>
 
-                            {/* Target Guru */}
+                            {/* Target Guru with Real-time Validated Input */}
                             <div className="md:col-span-2">
-                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5 text-center">Guru / Staf</label>
-                              <input
-                                type="number"
-                                min={0}
+                              <ValidatedPortionInput
+                                label="Guru / Staf"
                                 value={item.targetGuru ?? 0}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value) || 0;
+                                onChange={(val) => {
                                   const list = [...(editingGroup.lembagaList || [])];
                                   const newItem = { ...list[idx], targetGuru: val };
                                   newItem.total = targetVal + val;
                                   list[idx] = newItem;
                                   setEditingGroup({ ...editingGroup, lembagaList: list });
                                 }}
-                                className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-center text-slate-900"
                               />
                             </div>
 
-                            {/* Subtotal Porsi */}
+                            {/* Subtotal Porsi with Real-Time Validation Badge */}
                             <div className="md:col-span-2">
                               <label className="text-[10px] font-bold text-slate-500 block mb-0.5 text-center">Subtotal Porsi</label>
-                              <div className="px-2 py-1.5 bg-emerald-100/70 border border-emerald-200 rounded-xl text-xs font-black text-center text-emerald-900">
-                                {subTotal} Porsi
-                              </div>
+                              <PortionValidationBadge
+                                subtotal={validation.subtotal}
+                                formula={validation.formula}
+                                compact={true}
+                              />
                             </div>
 
                             {/* Jenis Klasifikasi & Trash Button */}
-                            <div className="md:col-span-2 flex items-center justify-end gap-1">
+                            <div className="md:col-span-2 flex items-center justify-end gap-1 pt-3 md:pt-0">
                               <select
                                 value={item.klasifikasiPorsi || 'Porsi Besar'}
                                 onChange={(e) => {
@@ -2716,7 +2793,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   )}
                 </div>
 
-                {/* Live Summary Calculation Box */}
+                {/* Live Summary Calculation Box with RealtimeValidationAuditBar */}
                 {editingGroup.lembagaList && editingGroup.lembagaList.length > 0 && (() => {
                   const totalTargetMain = editingGroup.lembagaList.reduce((acc: number, l: any) => {
                     const k = l.klasifikasiPorsi || 'Porsi Besar';
@@ -2733,16 +2810,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   const totalPorsiAll = totalTargetMain + totalGuru;
 
                   return (
-                    <div className="p-3 bg-slate-900 text-white rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
-                      <div className="font-bold text-slate-300">
-                        Rangkuman Sasaran Kelompok ({editingGroup.lembagaList.length} Lembaga):
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span>👥 Total Sasaran: <strong className="text-emerald-400 font-extrabold">{totalTargetMain}</strong></span>
-                        <span>👨‍🏫 Guru / Staf: <strong className="text-emerald-400 font-extrabold">{totalGuru}</strong></span>
-                        <span>🍱 Total Porsi: <strong className="text-emerald-400 font-extrabold">{totalPorsiAll}</strong></span>
-                      </div>
-                    </div>
+                    <RealtimeValidationAuditBar
+                      totalItems={editingGroup.lembagaList.length}
+                      totalSubtotal={totalPorsiAll}
+                      isValid={true}
+                      unitLabel="Lembaga"
+                    />
                   );
                 })()}
               </div>
@@ -3052,20 +3125,76 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 </div>
               </div>
 
+              {/* Live Real-time Validation Audit Bar across All Institutions */}
+              {buatPenerimaLembagaList.length > 0 && (() => {
+                const totalAkumulasi = buatPenerimaLembagaList.reduce((acc, it) => {
+                  if (it.statusKbm === 'Libur Full') return acc;
+                  const s = Number(it.targetSiswa) || 0;
+                  const g = Number(it.targetGuru) || 0;
+                  const b = Number(it.targetBalita) || 0;
+                  const bb = Number(it.targetBumilBusui) || 0;
+                  const targetUtama = (it.klasifikasiPorsi || '').toLowerCase().includes('balita') ? (b || s)
+                    : (it.klasifikasiPorsi || '').toLowerCase().includes('hamil') || (it.klasifikasiPorsi || '').toLowerCase().includes('menyusui') ? (bb || s)
+                    : s;
+                  return acc + targetUtama + g;
+                }, 0);
+
+                return (
+                  <RealtimeValidationAuditBar
+                    totalItems={buatPenerimaLembagaList.length}
+                    totalSubtotal={totalAkumulasi}
+                    isValid={true}
+                    unitLabel="Lembaga Sasaran"
+                  />
+                );
+              })()}
+
               {/* Institution Rows List */}
               <div className="space-y-3">
                 {buatPenerimaLembagaList.map((item, idx) => {
-                  const s = Number(item.targetSiswa) || 0;
+                  const itemKlas = item.klasifikasiPorsi || 'Porsi Besar';
+                  const norm = (item.namaInstansi || '').trim().toLowerCase();
+                  let dynamicLabel = 'Siswa';
+                  let isBalita = false;
+                  let isBumil = false;
+
+                  if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
+                    dynamicLabel = 'Balita';
+                    isBalita = true;
+                  } else if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
+                    dynamicLabel = 'Ibu Hamil';
+                    isBumil = true;
+                  } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
+                    dynamicLabel = 'Ibu Menyusui';
+                    isBumil = true;
+                  } else if (itemKlas === 'Bumil & Busui') {
+                    dynamicLabel = 'Bumil / Busui';
+                    isBumil = true;
+                  }
+
+                  let targetVal = Number(item.targetSiswa) || 0;
+                  if (isBalita && item.targetBalita !== undefined) targetVal = Number(item.targetBalita);
+                  if (isBumil && item.targetBumilBusui !== undefined) targetVal = Number(item.targetBumilBusui);
+
                   const g = Number(item.targetGuru) || 0;
-                  const b = Number(item.targetBalita) || 0;
-                  const bb = Number(item.targetBumilBusui) || 0;
-                  const subtotalPorsi = item.statusKbm === 'Libur Full' ? 0 : (s + g + b + bb);
+                  const subtotalPorsi = item.statusKbm === 'Libur Full' ? 0 : (targetVal + g);
                   const selisihInfo = getSelisihDataPorsi(item.namaInstansi, subtotalPorsi, item.statusKbm);
+
+                  const validation = calculatePortionValidation({
+                    namaInstansi: item.namaInstansi,
+                    klasifikasiPorsi: itemKlas,
+                    targetMain: targetVal,
+                    targetGuru: g,
+                    targetBalita: isBalita ? targetVal : undefined,
+                    targetBumilBusui: isBumil ? targetVal : undefined,
+                    statusKbm: item.statusKbm,
+                    targetMaster: selisihInfo?.targetMaster
+                  });
 
                   return (
                     <div
                       key={item.id || idx}
-                      className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-2xs transition-all hover:border-slate-300"
+                      className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-2xs transition-all hover:border-emerald-300"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-bold text-slate-700">
@@ -3116,46 +3245,52 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           />
                         </div>
 
-                        {/* Siswa */}
+                        {/* Dynamic Target Input (Siswa / Balita / Ibu Hamil / Ibu Menyusui) */}
                         <div className="md:col-span-2">
-                          <label className="text-[10px] font-semibold text-slate-400 block mb-1 text-center">Siswa</label>
-                          <input
-                            type="number"
-                            min="0"
+                          <ValidatedPortionInput
+                            label={dynamicLabel}
                             disabled={item.statusKbm === 'Libur Full'}
-                            value={item.targetSiswa}
-                            onChange={(e) => {
+                            value={targetVal}
+                            onChange={(val) => {
                               const list = [...buatPenerimaLembagaList];
-                              list[idx].targetSiswa = Number(e.target.value) || 0;
+                              const updated = { ...list[idx] };
+                              if (isBalita) {
+                                updated.targetBalita = val;
+                                updated.targetSiswa = val;
+                              } else if (isBumil) {
+                                updated.targetBumilBusui = val;
+                                updated.targetSiswa = val;
+                              } else {
+                                updated.targetSiswa = val;
+                              }
+                              list[idx] = updated;
                               setBuatPenerimaLembagaList(list);
                             }}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 text-center font-mono disabled:bg-slate-100 disabled:text-slate-400"
                           />
                         </div>
 
                         {/* Guru / Staf */}
                         <div className="md:col-span-2">
-                          <label className="text-[10px] font-semibold text-slate-400 block mb-1 text-center">Guru / Staf</label>
-                          <input
-                            type="number"
-                            min="0"
+                          <ValidatedPortionInput
+                            label="Guru / Staf"
                             disabled={item.statusKbm === 'Libur Full'}
-                            value={item.targetGuru}
-                            onChange={(e) => {
+                            value={g}
+                            onChange={(val) => {
                               const list = [...buatPenerimaLembagaList];
-                              list[idx].targetGuru = Number(e.target.value) || 0;
+                              list[idx] = { ...list[idx], targetGuru: val };
                               setBuatPenerimaLembagaList(list);
                             }}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 text-center font-mono disabled:bg-slate-100 disabled:text-slate-400"
                           />
                         </div>
 
-                        {/* Subtotal Porsi */}
+                        {/* Subtotal Porsi with Real-Time Validation Badge */}
                         <div className="md:col-span-2">
                           <label className="text-[10px] font-semibold text-slate-400 block mb-1 text-center">Subtotal Porsi</label>
-                          <div className="px-3 py-2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-extrabold text-center font-mono flex items-center justify-center">
-                            {item.statusKbm === 'Libur Full' ? '0 Porsi' : `${subtotalPorsi} Porsi`}
-                          </div>
+                          <PortionValidationBadge
+                            subtotal={validation.subtotal}
+                            formula={validation.formula}
+                            compact={true}
+                          />
                         </div>
 
                         {/* Klasifikasi Porsi Badge & Delete */}
