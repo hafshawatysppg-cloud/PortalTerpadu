@@ -20,7 +20,8 @@ import {
   Send,
   X,
   FileText,
-  Printer
+  Printer,
+  Flame
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -37,6 +38,7 @@ import { KeteranganTugasDivisiWidget } from '../components/dashboard/KeteranganT
 import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../components/document/DocumentSignatures';
+import { FirebaseSetupGuide } from '../components/common/FirebaseSetupGuide';
 import logoImg from '../assets/images/badan_gizi_logo_1785799692960.jpg';
 
 interface DashboardViewProps {
@@ -47,6 +49,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
 
   // Recharts Monthly Statistics Data
   const monthlyAnalyticsData = [
@@ -204,6 +207,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <span>Cetak Rekap Dashboard (PDF)</span>
           </button>
         </div>
+      </div>
+
+      {/* 🔥 Firebase Clean Slate Quick Guide Alert Widget */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-blue-500/5 to-slate-50 dark:to-slate-900/40 border border-amber-300/70 dark:border-amber-700/60 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs print:hidden">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-2xs">
+            <Flame className="w-5 h-5 fill-amber-500" />
+          </div>
+          <div>
+            <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <span>Database Google Cloud Firestore Baru (Clean Slate)</span>
+              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-full text-[10px] font-bold">Online</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+              Instance database baru siap digunakan. Buka panduan langkah-demi-langkah untuk verifikasi kredensial, aturan keamanan, dan sinkronisasi data awal.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowGuideModal(true)}
+          className="w-full sm:w-auto px-4 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shrink-0 shadow-sm cursor-pointer"
+        >
+          <Flame className="w-4 h-4 fill-white" />
+          <span>Buka Panduan Firebase</span>
+        </button>
       </div>
 
       {/* 👥 Penerima Manfaat Hari Ini & Hari Selanjutnya */}
@@ -645,6 +674,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           isPrintPreview={true}
         />
       </div>
+
+      {/* Firebase Setup Guide Modal */}
+      {showGuideModal && (
+        <FirebaseSetupGuide
+          isModal={true}
+          onClose={() => setShowGuideModal(false)}
+        />
+      )}
     </div>
   );
 };

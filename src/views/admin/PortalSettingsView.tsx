@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Download, Upload, ShieldAlert, Database, Server, GitBranch, ExternalLink, CheckCircle, HelpCircle } from 'lucide-react';
+import { Settings, Save, Download, Upload, ShieldAlert, Database, Server, GitBranch, ExternalLink, CheckCircle, HelpCircle, Flame } from 'lucide-react';
 import { PortalSettings } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { FirebaseSetupGuide } from '../../components/common/FirebaseSetupGuide';
 
 export const PortalSettingsView: React.FC = () => {
   const { refreshSettings } = useAuth();
+  const [activeTab, setActiveTab] = useState<'firebase' | 'general' | 'backup' | 'github'>('firebase');
   const [form, setForm] = useState<PortalSettings>({
     namaPortal: 'Portal Administrasi Terpadu',
     deskripsi: 'Single Entry Point Enterprise & Module Integration Gateway (e-Surat & Stock Opname)',
@@ -101,13 +103,45 @@ export const PortalSettingsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-red-600" /> Konfigurasi Utama Portal & Backup System
-        </h2>
-        <p className="text-xs text-slate-500">
-          Pengaturan nama instansi, logo, SMTP server, maintenance mode, & backup / restore data JSON
-        </p>
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Settings className="w-5 h-5 text-blue-600" /> Konfigurasi Sistem & Database Portal Terpadu
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Kelola inisialisasi Firebase database baru, branding, konfigurasi SMTP, maintenance mode, dan backup snapshot.
+          </p>
+        </div>
+
+        {/* Tab Buttons */}
+        <div className="flex items-center flex-wrap gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setActiveTab('firebase')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              activeTab === 'firebase'
+                ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+            <span>Panduan Firebase</span>
+            <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] rounded-full font-bold">Baru</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('general')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              activeTab === 'general'
+                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Pengaturan Portal</span>
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -115,6 +149,14 @@ export const PortalSettingsView: React.FC = () => {
           {message}
         </div>
       )}
+
+      {/* TAB 1: FIREBASE SETUP GUIDE */}
+      {activeTab === 'firebase' && (
+        <FirebaseSetupGuide isModal={false} />
+      )}
+
+      {/* TAB 2: GENERAL SETTINGS & PANELS */}
+      {activeTab === 'general' && (
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <form onSubmit={handleSave} className="lg:col-span-2 p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs space-y-4">
@@ -298,6 +340,7 @@ export const PortalSettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

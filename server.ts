@@ -42,7 +42,7 @@ import barangDatangRoutes from './server/routes/barangDatang';
 import documentTemplateRoutes from './server/routes/documentTemplate';
 import distribusiRoutes from './server/routes/distribusi';
 import { swaggerSpec } from './server/docs/swagger';
-import { initFirestoreSync, getCloudInfo } from './server/db/firestore';
+import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './server/db/firestore';
 
 async function startServer() {
   const app = express();
@@ -72,6 +72,29 @@ async function startServer() {
       success: true,
       cloud: getCloudInfo()
     });
+  });
+
+  // Google Cloud Database Live Connection Test Probe
+  app.post('/api/v1/cloud/test-connection', async (req: Request, res: Response) => {
+    const result = await testFirestoreConnection();
+    res.json(result);
+  });
+
+  // Re-seed clean slate master collections to Firestore
+  app.post('/api/v1/cloud/reseed-clean-slate', async (req: Request, res: Response) => {
+    try {
+      await initFirestoreSync();
+      res.json({
+        success: true,
+        message: 'Koleksi database berhasil diinisialisasi dan disinkronisasi ke Firebase!',
+        cloud: getCloudInfo()
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        message: err?.message || 'Gagal sinkronisasi data ke Firebase'
+      });
+    }
   });
 
   // Swagger Specs Endpoint

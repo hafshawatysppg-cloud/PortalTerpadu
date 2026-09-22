@@ -77,12 +77,61 @@ export function getCloudInfo() {
     databaseId: configData?.firestoreDatabaseId || 'default',
     authDomain: configData?.authDomain || '',
     appId: configData?.appId || '',
+    apiKey: configData?.apiKey || '',
     firebaseApiKeyConfigured: Boolean(process.env.FIREBASE_API_KEY || configData?.apiKey),
     jwtSecretConfigured: Boolean(process.env.JWT_SECRET),
     githubOAuthConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     syncedCollectionsCount: SYNCED_COLLECTIONS.length,
+    collections: SYNCED_COLLECTIONS.map(s => s.coll),
     mode: 'Google Cloud Firestore Real-time Primary Database'
   };
+}
+
+export async function testFirestoreConnection(): Promise<{
+  success: boolean;
+  latencyMs: number;
+  message: string;
+  projectId?: string;
+  databaseId?: string;
+  probeTimestamp?: string;
+}> {
+  const start = Date.now();
+  const db = getFirestoreDb();
+  if (!db) {
+    return {
+      success: false,
+      latencyMs: Date.now() - start,
+      message: 'Konfigurasi Firebase belum dimuat di server.'
+    };
+  }
+
+  try {
+    const probeRef = doc(db, 'system_health', 'connection_probe');
+    const nowIso = new Date().toISOString();
+    await setDoc(probeRef, {
+      lastPing: nowIso,
+      probeOrigin: 'firebase-setup-guide',
+      status: 'healthy'
+    }, { merge: true });
+    
+    await getDoc(probeRef);
+    const latency = Date.now() - start;
+
+    return {
+      success: true,
+      latencyMs: latency,
+      message: 'Koneksi read & write ke Google Cloud Firestore berhasil 100%!',
+      projectId: configData?.projectId,
+      databaseId: configData?.firestoreDatabaseId,
+      probeTimestamp: nowIso
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      latencyMs: Date.now() - start,
+      message: err?.message || 'Gagal menghubungkan ke Firestore'
+    };
+  }
 }
 
 // Sync helper functions to write changes to Firestore in realtime

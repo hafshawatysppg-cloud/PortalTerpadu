@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Search, Bell, Moon, Sun, Shield, LogOut, Menu, MoreVertical, UserCheck, LogIn, Eye } from 'lucide-react';
+import { Search, Bell, Moon, Sun, Shield, LogOut, Menu, MoreVertical, UserCheck, LogIn, Eye, Flame } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { MenuItem } from '../../types';
 import { NotificationDropdown } from '../common/NotificationDropdown';
 import { GlobalSearchModal } from '../common/GlobalSearchModal';
+import { FirebaseSetupGuide } from '../common/FirebaseSetupGuide';
 import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
 
 interface HeaderProps {
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showFirebaseGuide, setShowFirebaseGuide] = useState(false);
 
   const unreadNotifs = notifications.filter(n => !n.isRead).length;
 
@@ -89,6 +91,16 @@ export const Header: React.FC<HeaderProps> = ({
               className="md:hidden p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
             >
               <Search className="w-5 h-5" />
+            </button>
+
+            {/* Firebase Setup Guide Quick Button */}
+            <button
+              onClick={() => setShowFirebaseGuide(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 rounded-full text-xs font-semibold border border-amber-200/80 dark:border-amber-800/80 transition shadow-2xs cursor-pointer group"
+              title="Panduan Inisialisasi Database Firebase Baru"
+            >
+              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500 group-hover:scale-110 transition-transform" />
+              <span className="hidden sm:inline">Panduan Firebase</span>
             </button>
 
             {/* Dark Mode Toggle */}
@@ -228,6 +240,14 @@ export const Header: React.FC<HeaderProps> = ({
         onClose={() => setIsSearchOpen(false)}
         onNavigate={onNavigate}
       />
+
+      {/* Firebase Setup Guide Dialog Modal */}
+      {showFirebaseGuide && (
+        <FirebaseSetupGuide
+          isModal={true}
+          onClose={() => setShowFirebaseGuide(false)}
+        />
+      )}
     </>
   );
 };
