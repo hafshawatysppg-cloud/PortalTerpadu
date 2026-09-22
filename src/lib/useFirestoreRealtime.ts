@@ -42,14 +42,20 @@ export function useFirestoreRealtime<T extends { id: string }>(
             setLoading(false);
           },
           (err) => {
-            console.warn(`Firestore onSnapshot error on [${collectionName}]:`, err?.message);
+            const isTransientStreamDrop = err?.message?.includes('RST_STREAM') || 
+                                          err?.message?.includes('Code: 13') ||
+                                          err?.message?.includes('client is offline') ||
+                                          err?.message?.includes('Internal server error');
+            if (!isTransientStreamDrop) {
+              console.warn(`Firestore onSnapshot notice on [${collectionName}]:`, err?.message);
+            }
             if (isMounted) {
-              setError(err.message);
               // Fallback to fetch if available
               if (fallbackFetch) {
                 fallbackFetch().then((res) => {
                   if (isMounted && res) {
                     setData(res);
+                    setError(null);
                     setLoading(false);
                   }
                 }).catch(() => {

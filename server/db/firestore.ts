@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
+  setLogLevel,
   Firestore, 
   doc, 
   getDoc, 
@@ -16,6 +18,11 @@ import fs from 'fs';
 import path from 'path';
 import { dbStore } from './store';
 import { MasterBarang } from '../../src/types';
+
+// Suppress internal gRPC stream reset noise from the Node runtime
+try {
+  setLogLevel('silent');
+} catch (_) {}
 
 let firestoreDb: Firestore | null = null;
 let isConnected = false;
@@ -37,9 +44,21 @@ export function getFirestoreDb(): Firestore | null {
       const existingApps = getApps();
       const app = existingApps.find(a => a.name === 'server-firestore') || initializeApp(configData, 'server-firestore');
 
-      firestoreDb = configData.firestoreDatabaseId 
-        ? getFirestore(app, configData.firestoreDatabaseId)
-        : getFirestore(app);
+      try {
+        if (configData.firestoreDatabaseId) {
+          firestoreDb = initializeFirestore(app, {
+            experimentalForceLongPolling: true,
+          }, configData.firestoreDatabaseId);
+        } else {
+          firestoreDb = initializeFirestore(app, {
+            experimentalForceLongPolling: true,
+          });
+        }
+      } catch (_initErr) {
+        firestoreDb = configData.firestoreDatabaseId 
+          ? getFirestore(app, configData.firestoreDatabaseId)
+          : getFirestore(app);
+      }
       isConnected = true;
       console.log('🔥 Connected to Google Cloud Firestore (Primary Database):', configData.projectId, configData.firestoreDatabaseId);
     }
@@ -444,6 +463,7 @@ export async function initFirestoreSync() {
           console.warn(`⚠️ Firestore quota warning for ${item.coll}:`, err.message);
           return;
         }
+        // Transport, stream drops, or internal gRPC disconnects are automatically retried by the SDK
       });
 
     } catch (err: any) {

@@ -528,13 +528,10 @@ router.delete('/records/date/:tanggal', (req: Request, res: Response): void => {
   const { tanggal } = req.params;
   const toDelete = dbStore.dailyBeneficiaryRecords.filter(r => r.tanggal === tanggal);
   
-  if (toDelete.length === 0) {
-    res.status(404).json({ success: false, message: 'Tidak ada data penerima pada tanggal ini' });
-    return;
+  if (toDelete.length > 0) {
+    dbStore.dailyBeneficiaryRecords = dbStore.dailyBeneficiaryRecords.filter(r => r.tanggal !== tanggal);
+    toDelete.forEach(r => syncDeleteDoc('dailyBeneficiaryRecords', r.id));
   }
-
-  dbStore.dailyBeneficiaryRecords = dbStore.dailyBeneficiaryRecords.filter(r => r.tanggal !== tanggal);
-  toDelete.forEach(r => syncDeleteDoc('dailyBeneficiaryRecords', r.id));
 
   delete dbStore.beneficiaryLockStatus[tanggal];
   syncDeleteDoc('beneficiaryLocks', tanggal);
@@ -543,7 +540,7 @@ router.delete('/records/date/:tanggal', (req: Request, res: Response): void => {
 
   res.json({
     success: true,
-    message: `Seluruh data penerima tanggal ${tanggal} berhasil dihapus`
+    message: `Data rekap harian tanggal ${tanggal} berhasil dihapus`
   });
 });
 
