@@ -5,7 +5,7 @@ import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../db/firestore';
 
 const router = Router();
 
-// Helper to clean and deduplicate groups and locations in memory and Firestore
+// Helper to clean and deduplicate groups and locations in memory and Firestore, and sanitize subtotal portion counts
 function cleanDuplicateGroupsAndLocations() {
   // 1. Deduplicate beneficiaryGroups by normalized ID or normalized name
   const uniqueGroups: BeneficiaryGroup[] = [];
@@ -30,6 +30,62 @@ function cleanDuplicateGroupsAndLocations() {
     } else {
       groupNameMap.set(normName, g);
       uniqueGroups.push(g);
+    }
+  });
+
+  // Sanitize every group's lembagaList and sync corresponding location data
+  uniqueGroups.forEach((g) => {
+    if (Array.isArray(g.lembagaList) && g.lembagaList.length > 0) {
+      g.lembagaList.forEach((item: any, lIdx: number) => {
+        const itemKlas = item.klasifikasiPorsi || g.klasifikasiPorsi || 'Porsi Besar';
+        const normInstansi = (item.namaInstansi || '').trim().toLowerCase();
+
+        // Harmonize target fields based on classification or name
+        if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+          const val = Number(item.targetBumilBusui) || Number(item.targetSiswa) || 0;
+          item.targetBumilBusui = val;
+          item.targetSiswa = 0;
+          item.targetBalita = 0;
+        } else if (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
+          const val = Number(item.targetBumilBusui) || Number(item.targetSiswa) || 0;
+          item.targetBumilBusui = val;
+          item.targetSiswa = 0;
+          item.targetBalita = 0;
+        } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
+          const val = Number(item.targetBalita) || Number(item.targetSiswa) || 0;
+          item.targetBalita = val;
+          item.targetSiswa = 0;
+          item.targetBumilBusui = 0;
+        }
+
+        const s = Number(item.targetSiswa) || 0;
+        const guru = Number(item.targetGuru) || 0;
+        const balita = Number(item.targetBalita) || 0;
+        const bumil = Number(item.targetBumilBusui) || 0;
+        const accurateTotal = s + guru + balita + bumil;
+        item.total = accurateTotal;
+
+        // Also fix the matching location if it exists
+        const locId = item.id || `LOC-${g.id}-${lIdx + 1}`;
+        const locIdx = dbStore.beneficiaryLocations.findIndex(
+          l => l.id === locId || (l.groupId === g.id && l.namaInstansi.trim().toLowerCase() === item.namaInstansi.trim().toLowerCase())
+        );
+
+        if (locIdx !== -1) {
+          const loc = dbStore.beneficiaryLocations[locIdx];
+          loc.defaultJumlah = accurateTotal;
+          loc.klasifikasiPorsi = itemKlas;
+          loc.kategoriBreakdown = {
+            siswa: s,
+            guru: guru,
+            balita: balita,
+            ibuHamil: (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('hamil')) ? bumil : (itemKlas === 'Bumil & Busui' ? Math.ceil(bumil / 2) : 0),
+            ibuMenyusui: (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('menyusui')) ? bumil : (itemKlas === 'Bumil & Busui' ? Math.floor(bumil / 2) : 0)
+          };
+          syncSaveDoc('beneficiaryLocations', loc.id, loc);
+        }
+      });
+      syncSaveDoc('beneficiaryGroups', g.id, g);
     }
   });
 
@@ -103,11 +159,54 @@ function updateGroupHandler(id: string, body: any, res: Response) {
     const updatedLocIds = new Set<string>();
 
     lembagaList.forEach((item: any, lIdx: number) => {
-      const targetSiswa = Number(item.targetSiswa) || 0;
-      const targetGuru = Number(item.targetGuru) || 0;
-      const targetBalita = Number(item.targetBalita) || 0;
-      const targetBumilBusui = Number(item.targetBumilBusui) || 0;
-      const defaultJumlah = item.total !== undefined ? Number(item.total) : (targetSiswa + targetGuru + targetBalita + targetBumilBusui);
+      const itemKlas = item.klasifikasiPorsi || klasifikasiPorsi || updatedGroup.klasifikasiPorsi || 'Porsi Besar';
+      let targetSiswa = Number(item.targetSiswa) || 0;
+      let targetGuru = Number(item.targetGuru) || 0;
+      let targetBalita = Number(item.targetBalita) || 0;
+      let targetBumilBusui = Number(item.targetBumilBusui) || 0;
+
+      const normInstansi = (item.namaInstansi || '').trim().toLowerCase();
+      let ibuHamil = 0;
+      let ibuMenyusui = 0;
+      let balita = 0;
+      let siswa = 0;
+
+      if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuHamil = val;
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuMenyusui = val;
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Bumil & Busui') {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuHamil = Math.ceil(val / 2);
+        ibuMenyusui = Math.floor(val / 2);
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
+        const val = targetBalita || targetSiswa || 0;
+        balita = val;
+        targetBalita = val;
+        targetSiswa = 0;
+        targetBumilBusui = 0;
+      } else {
+        siswa = targetSiswa;
+      }
+
+      const accurateTotal = targetSiswa + targetGuru + targetBalita + targetBumilBusui;
+      item.total = accurateTotal;
+      item.targetSiswa = targetSiswa;
+      item.targetGuru = targetGuru;
+      item.targetBalita = targetBalita;
+      item.targetBumilBusui = targetBumilBusui;
+      item.klasifikasiPorsi = itemKlas;
 
       // Match existing location by item.id, or by namaInstansi, or by position index
       const matchedLoc = groupLocs.find(l => 
@@ -123,15 +222,15 @@ function updateGroupHandler(id: string, body: any, res: Response) {
         groupId: id,
         groupNama: updatedNama,
         namaInstansi: item.namaInstansi || `${updatedNama} - Instansi ${lIdx + 1}`,
-        klasifikasiPorsi: item.klasifikasiPorsi || klasifikasiPorsi || updatedGroup.klasifikasiPorsi || 'Porsi Besar',
+        klasifikasiPorsi: itemKlas,
         kategoriBreakdown: {
-          siswa: targetSiswa,
+          siswa,
           guru: targetGuru,
-          balita: targetBalita,
-          ibuHamil: Math.floor(targetBumilBusui / 2),
-          ibuMenyusui: Math.ceil(targetBumilBusui / 2)
+          balita,
+          ibuHamil,
+          ibuMenyusui
         },
-        defaultJumlah: defaultJumlah > 0 ? defaultJumlah : 100,
+        defaultJumlah: accurateTotal,
         status: 'Aktif'
       };
 
@@ -213,11 +312,54 @@ router.post('/groups', (req: Request, res: Response): void => {
 
   if (Array.isArray(lembagaList) && lembagaList.length > 0) {
     lembagaList.forEach((item: any, idx: number) => {
-      const targetSiswa = Number(item.targetSiswa) || 0;
-      const targetGuru = Number(item.targetGuru) || 0;
-      const targetBalita = Number(item.targetBalita) || 0;
-      const targetBumilBusui = Number(item.targetBumilBusui) || 0;
-      const defaultJumlah = item.total !== undefined ? Number(item.total) : (targetSiswa + targetGuru + targetBalita + targetBumilBusui);
+      const itemKlas = item.klasifikasiPorsi || klasifikasiPorsi || 'Porsi Besar';
+      let targetSiswa = Number(item.targetSiswa) || 0;
+      let targetGuru = Number(item.targetGuru) || 0;
+      let targetBalita = Number(item.targetBalita) || 0;
+      let targetBumilBusui = Number(item.targetBumilBusui) || 0;
+
+      const normInstansi = (item.namaInstansi || '').trim().toLowerCase();
+      let ibuHamil = 0;
+      let ibuMenyusui = 0;
+      let balita = 0;
+      let siswa = 0;
+
+      if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuHamil = val;
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuMenyusui = val;
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Bumil & Busui') {
+        const val = targetBumilBusui || targetSiswa || 0;
+        ibuHamil = Math.ceil(val / 2);
+        ibuMenyusui = Math.floor(val / 2);
+        targetBumilBusui = val;
+        targetSiswa = 0;
+        targetBalita = 0;
+      } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
+        const val = targetBalita || targetSiswa || 0;
+        balita = val;
+        targetBalita = val;
+        targetSiswa = 0;
+        targetBumilBusui = 0;
+      } else {
+        siswa = targetSiswa;
+      }
+
+      const accurateTotal = targetSiswa + targetGuru + targetBalita + targetBumilBusui;
+      item.total = accurateTotal;
+      item.targetSiswa = targetSiswa;
+      item.targetGuru = targetGuru;
+      item.targetBalita = targetBalita;
+      item.targetBumilBusui = targetBumilBusui;
+      item.klasifikasiPorsi = itemKlas;
 
       const locId = item.id || `LOC-${groupId}-${idx + 1}`;
       item.id = locId;
@@ -227,15 +369,15 @@ router.post('/groups', (req: Request, res: Response): void => {
         groupId: groupId,
         groupNama: nama,
         namaInstansi: item.namaInstansi || `${nama} - Instansi ${idx + 1}`,
-        klasifikasiPorsi: item.klasifikasiPorsi || klasifikasiPorsi || 'Porsi Besar',
+        klasifikasiPorsi: itemKlas,
         kategoriBreakdown: {
-          siswa: targetSiswa,
+          siswa,
           guru: targetGuru,
-          balita: targetBalita,
-          ibuHamil: Math.floor(targetBumilBusui / 2),
-          ibuMenyusui: Math.ceil(targetBumilBusui / 2)
+          balita,
+          ibuHamil,
+          ibuMenyusui
         },
-        defaultJumlah: defaultJumlah > 0 ? defaultJumlah : 100,
+        defaultJumlah: accurateTotal,
         status: 'Aktif'
       };
 

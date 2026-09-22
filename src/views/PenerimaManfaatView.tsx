@@ -186,13 +186,19 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               keteranganLibur = savedRec.catatan.replace('Libur Sebagian:', '').trim();
             }
 
-            let targetSiswa = Number(l.targetSiswa) || 0;
+            const itemKlas = (l.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar';
+            let targetMain = Number(l.targetSiswa) || 0;
+            if (itemKlas === 'Porsi Ibu Hamil' || itemKlas === 'Porsi Ibu Menyusui' || itemKlas === 'Bumil & Busui') {
+              targetMain = Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0;
+            } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita') {
+              targetMain = Number(l.targetBalita) || Number(l.targetSiswa) || 0;
+            }
             let targetGuru = Number(l.targetGuru) || 0;
             if (savedRec) {
-              const masterTotal = targetSiswa + targetGuru;
+              const masterTotal = targetMain + targetGuru;
               const recTotal = Number(savedRec.jumlahAwal) || 0;
               if (recTotal !== masterTotal && recTotal > 0) {
-                targetSiswa = recTotal;
+                targetMain = recTotal;
                 targetGuru = 0;
               }
             }
@@ -203,9 +209,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               statusKbm,
               keteranganLibur,
               keterangan: l.keterangan || '',
-              targetSiswa,
+              targetSiswa: targetMain,
               targetGuru,
-              klasifikasiPorsi: (l.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar'
+              klasifikasiPorsi: itemKlas
             });
           });
         }
@@ -231,15 +237,27 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           }
 
           const kb = loc.kategoriBreakdown || {};
+          const locKlas = (loc.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar';
+          let locMain = 0;
+          if (locKlas === 'Porsi Ibu Hamil') locMain = Number(kb.ibuHamil) || Number(kb.siswa) || 0;
+          else if (locKlas === 'Porsi Ibu Menyusui') locMain = Number(kb.ibuMenyusui) || Number(kb.siswa) || 0;
+          else if (locKlas === 'Bumil & Busui') locMain = (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0) || Number(kb.siswa) || 0;
+          else if (locKlas === 'Porsi Balita' || locKlas === 'Balita') locMain = Number(kb.balita) || Number(kb.siswa) || 0;
+          else locMain = Number(kb.siswa) || 0;
+
+          if (!locMain && !savedRec) {
+            locMain = Number(loc.defaultJumlah) || 0;
+          }
+
           list.push({
             id: loc.id,
             namaInstansi: loc.namaInstansi,
             statusKbm,
             keteranganLibur,
             keterangan: '',
-            targetSiswa: savedRec ? Number(savedRec.jumlahAwal) || 0 : (Number(kb.siswa) || Number(loc.defaultJumlah) || 0),
+            targetSiswa: savedRec ? Number(savedRec.jumlahAwal) || 0 : locMain,
             targetGuru: savedRec ? 0 : (Number(kb.guru) || 0),
-            klasifikasiPorsi: (loc.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar'
+            klasifikasiPorsi: locKlas
           });
         });
       });
@@ -266,15 +284,27 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         }
 
         const kb = loc.kategoriBreakdown || {};
+        const locKlas = (loc.klasifikasiPorsi as any) || 'Porsi Besar';
+        let locMain = 0;
+        if (locKlas === 'Porsi Ibu Hamil') locMain = Number(kb.ibuHamil) || Number(kb.siswa) || 0;
+        else if (locKlas === 'Porsi Ibu Menyusui') locMain = Number(kb.ibuMenyusui) || Number(kb.siswa) || 0;
+        else if (locKlas === 'Bumil & Busui') locMain = (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0) || Number(kb.siswa) || 0;
+        else if (locKlas === 'Porsi Balita' || locKlas === 'Balita') locMain = Number(kb.balita) || Number(kb.siswa) || 0;
+        else locMain = Number(kb.siswa) || 0;
+
+        if (!locMain && !savedRec) {
+          locMain = Number(loc.defaultJumlah) || 0;
+        }
+
         list.push({
           id: loc.id,
           namaInstansi: loc.namaInstansi,
           statusKbm,
           keteranganLibur,
           keterangan: '',
-          targetSiswa: savedRec ? Number(savedRec.jumlahAwal) || 0 : (Number(kb.siswa) || Number(loc.defaultJumlah) || 0),
+          targetSiswa: savedRec ? Number(savedRec.jumlahAwal) || 0 : locMain,
           targetGuru: savedRec ? 0 : (Number(kb.guru) || 0),
-          klasifikasiPorsi: (loc.klasifikasiPorsi as any) || 'Porsi Besar'
+          klasifikasiPorsi: locKlas
         });
       });
     }
@@ -725,6 +755,53 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     if (!editingGroup || !editingGroup.nama) return;
 
     try {
+      const sanitizedLembagaList = (editingGroup.lembagaList || []).map((l: any) => {
+        const itemKlas = l.klasifikasiPorsi || editingGroup.klasifikasiPorsi || 'Porsi Besar';
+        const norm = (l.namaInstansi || '').trim().toLowerCase();
+        let s = Number(l.targetSiswa) || 0;
+        let g = Number(l.targetGuru) || 0;
+        let b = Number(l.targetBalita) || 0;
+        let bb = Number(l.targetBumilBusui) || 0;
+
+        if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
+          const val = bb || s || 0;
+          bb = val;
+          s = 0;
+          b = 0;
+        } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
+          const val = bb || s || 0;
+          bb = val;
+          s = 0;
+          b = 0;
+        } else if (itemKlas === 'Bumil & Busui') {
+          const val = bb || s || 0;
+          bb = val;
+          s = 0;
+          b = 0;
+        } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
+          const val = b || s || 0;
+          b = val;
+          s = 0;
+          bb = 0;
+        }
+
+        const total = s + g + b + bb;
+        return {
+          ...l,
+          targetSiswa: s,
+          targetGuru: g,
+          targetBalita: b,
+          targetBumilBusui: bb,
+          total,
+          klasifikasiPorsi: itemKlas
+        };
+      });
+
+      const payload = {
+        ...editingGroup,
+        lembagaList: sanitizedLembagaList
+      };
+
       const isEdit = Boolean(editingGroup.id);
       const url = isEdit ? `/api/v1/penerima-manfaat/groups/${editingGroup.id}` : '/api/v1/penerima-manfaat/groups';
       const method = isEdit ? 'PUT' : 'POST';
@@ -732,7 +809,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingGroup)
+        body: JSON.stringify(payload)
       });
       const result = await res.json();
       if (result.success) {
@@ -1880,7 +1957,23 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               const totalGuru = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0), 0);
               const totalBalita = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.balita || 0), 0);
               const totalBumil = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0), 0);
-              const totalPorsi = grpLocs.reduce((acc, l) => acc + (l.defaultJumlah || 0), 0) || (grp.lembagaList?.reduce((a, b) => a + (b.total || 0), 0) || 0);
+              const totalPorsi = (grp.lembagaList && grp.lembagaList.length > 0)
+                ? grp.lembagaList.reduce((acc: number, l: any) => {
+                    const s = Number(l.targetSiswa) || 0;
+                    const g = Number(l.targetGuru) || 0;
+                    const b = Number(l.targetBalita) || 0;
+                    const bb = Number(l.targetBumilBusui) || 0;
+                    const sum = s + g + b + bb;
+                    return acc + (sum > 0 ? sum : (Number(l.total) || 0));
+                  }, 0)
+                : grpLocs.reduce((acc: number, l: any) => {
+                    const s = l.kategoriBreakdown?.siswa || 0;
+                    const g = l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0;
+                    const b = l.kategoriBreakdown?.balita || 0;
+                    const bb = (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0);
+                    const sum = s + g + b + bb;
+                    return acc + (sum > 0 ? sum : (l.defaultJumlah || 0));
+                  }, 0);
 
               const portionCategory = grp.klasifikasiPorsi || (
                 grp.nama.toUpperCase().includes('PAUD') || grp.nama.toUpperCase().includes('1-3') ? 'Porsi Kecil' :
@@ -1933,17 +2026,68 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           onClick={() => {
                             const groupLocs = locations.filter(l => l.groupId === grp.id || l.groupNama === grp.nama);
                             const lembagaList = (grp.lembagaList && grp.lembagaList.length > 0)
-                              ? grp.lembagaList
-                              : groupLocs.map(l => ({
-                                  id: l.id,
-                                  namaInstansi: l.namaInstansi,
-                                  targetSiswa: l.kategoriBreakdown?.siswa || 0,
-                                  targetGuru: l.kategoriBreakdown?.guru || (l.kategoriBreakdown?.staf || 0),
-                                  targetBalita: l.kategoriBreakdown?.balita || 0,
-                                  targetBumilBusui: (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0),
-                                  total: l.defaultJumlah || 0,
-                                  klasifikasiPorsi: l.klasifikasiPorsi || grp.klasifikasiPorsi || 'Porsi Besar'
-                                }));
+                              ? grp.lembagaList.map(l => {
+                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || 'Porsi Besar';
+                                  const norm = (l.namaInstansi || '').trim().toLowerCase();
+                                  let s = Number(l.targetSiswa) || 0;
+                                  let g = Number(l.targetGuru) || 0;
+                                  let b = Number(l.targetBalita) || 0;
+                                  let bb = Number(l.targetBumilBusui) || 0;
+                                  if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
+                                    bb = bb || s || 0;
+                                    s = 0;
+                                    b = 0;
+                                  } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
+                                    bb = bb || s || 0;
+                                    s = 0;
+                                    b = 0;
+                                  } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
+                                    b = b || s || 0;
+                                    s = 0;
+                                    bb = 0;
+                                  }
+                                  return {
+                                    ...l,
+                                    targetSiswa: s,
+                                    targetGuru: g,
+                                    targetBalita: b,
+                                    targetBumilBusui: bb,
+                                    total: s + g + b + bb,
+                                    klasifikasiPorsi: itemKlas
+                                  };
+                                })
+                              : groupLocs.map(l => {
+                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || 'Porsi Besar';
+                                  const norm = (l.namaInstansi || '').trim().toLowerCase();
+                                  let s = l.kategoriBreakdown?.siswa || 0;
+                                  let g = l.kategoriBreakdown?.guru || (l.kategoriBreakdown?.staf || 0);
+                                  let b = l.kategoriBreakdown?.balita || 0;
+                                  let bb = (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0);
+                                  if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
+                                    bb = bb || l.kategoriBreakdown?.ibuHamil || s || 0;
+                                    s = 0;
+                                    b = 0;
+                                  } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
+                                    bb = bb || l.kategoriBreakdown?.ibuMenyusui || s || 0;
+                                    s = 0;
+                                    b = 0;
+                                  } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
+                                    b = b || l.kategoriBreakdown?.balita || s || 0;
+                                    s = 0;
+                                    bb = 0;
+                                  }
+                                  const tot = s + g + b + bb;
+                                  return {
+                                    id: l.id,
+                                    namaInstansi: l.namaInstansi,
+                                    targetSiswa: s,
+                                    targetGuru: g,
+                                    targetBalita: b,
+                                    targetBumilBusui: bb,
+                                    total: tot > 0 ? tot : (l.defaultJumlah || 0),
+                                    klasifikasiPorsi: itemKlas
+                                  };
+                                });
 
                             setEditingGroup({
                               ...grp,
@@ -1951,11 +2095,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                               lembagaList: lembagaList.length > 0 ? lembagaList : [
                                 {
                                   namaInstansi: `${grp.nama} - Instansi 1`,
-                                  targetSiswa: 100,
-                                  targetGuru: 10,
+                                  targetSiswa: 0,
+                                  targetGuru: 0,
                                   targetBalita: 0,
                                   targetBumilBusui: 0,
-                                  total: 110,
+                                  total: 0,
                                   klasifikasiPorsi: portionCategory as any
                                 }
                               ]
@@ -2002,12 +2146,29 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           </tr>
                         ) : (
                           (grpLocs.length > 0 ? grpLocs : grp.lembagaList || []).map((loc: any, idx: number) => {
-                            const s = loc.kategoriBreakdown?.siswa !== undefined ? loc.kategoriBreakdown.siswa : (loc.targetSiswa || 0);
-                            const g = loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0);
-                            const b = loc.kategoriBreakdown?.balita !== undefined ? loc.kategoriBreakdown.balita : (loc.targetBalita || 0);
-                            const bb = (loc.kategoriBreakdown?.ibuHamil || 0) + (loc.kategoriBreakdown?.ibuMenyusui || 0) || (loc.targetBumilBusui || 0);
-                            const tot = loc.defaultJumlah || loc.total || (s + g + b + bb);
                             const pCat = loc.klasifikasiPorsi || portionCategory;
+                            const norm = (loc.namaInstansi || loc.nama || '').trim().toLowerCase();
+                            let s = loc.kategoriBreakdown?.siswa !== undefined ? loc.kategoriBreakdown.siswa : (loc.targetSiswa || 0);
+                            let g = loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0);
+                            let b = loc.kategoriBreakdown?.balita !== undefined ? loc.kategoriBreakdown.balita : (loc.targetBalita || 0);
+                            let bb = (loc.kategoriBreakdown?.ibuHamil || 0) + (loc.kategoriBreakdown?.ibuMenyusui || 0) || (loc.targetBumilBusui || 0);
+
+                            if (pCat === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
+                              bb = bb || (loc.kategoriBreakdown?.ibuHamil || 0) || s || 0;
+                              s = 0;
+                              b = 0;
+                            } else if (pCat === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
+                              bb = bb || (loc.kategoriBreakdown?.ibuMenyusui || 0) || s || 0;
+                              s = 0;
+                              b = 0;
+                            } else if (pCat === 'Porsi Balita' || pCat === 'Balita' || norm.includes('balita')) {
+                              b = b || (loc.kategoriBreakdown?.balita || 0) || s || 0;
+                              s = 0;
+                              bb = 0;
+                            }
+
+                            const calculatedSum = s + g + b + bb;
+                            const tot = calculatedSum > 0 ? calculatedSum : (loc.total || loc.defaultJumlah || 0);
 
                             return (
                               <tr key={loc.id || idx} className="hover:bg-white transition-all">
@@ -2362,12 +2523,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         ...currentList,
                         {
                           namaInstansi: `${editingGroup.nama || 'Instansi'} ${nextNum}`,
-                          targetSiswa: 100,
-                          targetGuru: 10,
+                          targetSiswa: 0,
+                          targetGuru: 0,
                           targetBalita: 0,
                           targetBumilBusui: 0,
-                          total: 110,
-                          klasifikasiPorsi: 'Porsi Besar'
+                          total: 0,
+                          klasifikasiPorsi: editingGroup.klasifikasiPorsi || 'Porsi Besar'
                         }
                       ];
                       setEditingGroup({ ...editingGroup, lembagaList: newList });
@@ -2388,30 +2549,37 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   ) : (
                     editingGroup.lembagaList.map((item: any, idx: number) => {
                       const itemKlasifikasi = item.klasifikasiPorsi || 'Porsi Besar';
+                      const normInstansi = (item.namaInstansi || '').trim().toLowerCase();
+
                       let dynamicLabel = 'Siswa';
-                      if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita') {
+                      let isIbuHamilOrMenyusui = false;
+                      let isBalita = false;
+
+                      if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita' || normInstansi.includes('balita')) {
                         dynamicLabel = 'Balita';
-                      } else if (itemKlasifikasi === 'Porsi Ibu Hamil') {
+                        isBalita = true;
+                      } else if (itemKlasifikasi === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
                         dynamicLabel = 'Ibu Hamil';
-                      } else if (itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui') {
+                        isIbuHamilOrMenyusui = true;
+                      } else if (itemKlasifikasi === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
                         dynamicLabel = 'Ibu Menyusui';
+                        isIbuHamilOrMenyusui = true;
+                      } else if (itemKlasifikasi === 'Bumil & Busui') {
+                        dynamicLabel = 'Bumil / Busui';
+                        isIbuHamilOrMenyusui = true;
                       }
 
-                      let targetVal = Number(item.targetSiswa) || 0;
-                      if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita') {
-                        targetVal = Number(item.targetBalita) || Number(item.targetSiswa) || 0;
-                      } else if (itemKlasifikasi === 'Porsi Ibu Hamil' || itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui') {
-                        targetVal = Number(item.targetBumilBusui) || Number(item.targetSiswa) || 0;
+                      let targetVal = 0;
+                      if (isBalita) {
+                        targetVal = item.targetBalita !== undefined ? Number(item.targetBalita) : (Number(item.targetSiswa) || 0);
+                      } else if (isIbuHamilOrMenyusui) {
+                        targetVal = item.targetBumilBusui !== undefined ? Number(item.targetBumilBusui) : (Number(item.targetSiswa) || 0);
+                      } else {
+                        targetVal = Number(item.targetSiswa) || 0;
                       }
 
-                      const s = Number(item.targetSiswa) || 0;
                       const g = Number(item.targetGuru) || 0;
-                      const b = Number(item.targetBalita) || 0;
-                      const bb = Number(item.targetBumilBusui) || 0;
-
-                      let subTotal = s + g;
-                      if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita') subTotal = (b || s) + g;
-                      if (itemKlasifikasi === 'Porsi Ibu Hamil' || itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui') subTotal = (bb || s) + g;
+                      const subTotal = targetVal + g;
 
                       return (
                         <div key={idx} className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70 space-y-2 hover:border-slate-300 transition-all">
@@ -2441,27 +2609,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 min={0}
                                 value={targetVal}
                                 onChange={(e) => {
-                                  const val = Number(e.target.value);
+                                  const val = Number(e.target.value) || 0;
                                   const list = [...(editingGroup.lembagaList || [])];
                                   const newItem = { ...list[idx] };
-                                  if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita') {
+                                  if (isBalita) {
                                     newItem.targetBalita = val;
-                                    newItem.targetSiswa = val;
-                                  } else if (itemKlasifikasi === 'Porsi Ibu Hamil' || itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui') {
+                                    newItem.targetSiswa = 0;
+                                    newItem.targetBumilBusui = 0;
+                                  } else if (isIbuHamilOrMenyusui) {
                                     newItem.targetBumilBusui = val;
-                                    newItem.targetSiswa = val;
+                                    newItem.targetSiswa = 0;
+                                    newItem.targetBalita = 0;
                                   } else {
                                     newItem.targetSiswa = val;
+                                    newItem.targetBalita = 0;
+                                    newItem.targetBumilBusui = 0;
                                   }
-                                  const numS = Number(newItem.targetSiswa) || 0;
                                   const numG = Number(newItem.targetGuru) || 0;
-                                  const numB = Number(newItem.targetBalita) || 0;
-                                  const numBB = Number(newItem.targetBumilBusui) || 0;
-                                  newItem.total = (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita')
-                                    ? (numB || numS) + numG
-                                    : (itemKlasifikasi === 'Porsi Ibu Hamil' || itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui')
-                                    ? (numBB || numS) + numG
-                                    : numS + numG;
+                                  newItem.total = val + numG;
                                   list[idx] = newItem;
                                   setEditingGroup({ ...editingGroup, lembagaList: list });
                                 }}
@@ -2477,17 +2642,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 min={0}
                                 value={item.targetGuru ?? 0}
                                 onChange={(e) => {
-                                  const val = Number(e.target.value);
+                                  const val = Number(e.target.value) || 0;
                                   const list = [...(editingGroup.lembagaList || [])];
                                   const newItem = { ...list[idx], targetGuru: val };
-                                  const numS = Number(newItem.targetSiswa) || 0;
-                                  const numB = Number(newItem.targetBalita) || 0;
-                                  const numBB = Number(newItem.targetBumilBusui) || 0;
-                                  newItem.total = (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita')
-                                    ? (numB || numS) + val
-                                    : (itemKlasifikasi === 'Porsi Ibu Hamil' || itemKlasifikasi === 'Porsi Ibu Menyusui' || itemKlasifikasi === 'Bumil & Busui')
-                                    ? (numBB || numS) + val
-                                    : numS + val;
+                                  newItem.total = targetVal + val;
                                   list[idx] = newItem;
                                   setEditingGroup({ ...editingGroup, lembagaList: list });
                                 }}
@@ -2510,7 +2668,23 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 onChange={(e) => {
                                   const newKlas = e.target.value as any;
                                   const list = [...(editingGroup.lembagaList || [])];
-                                  list[idx] = { ...list[idx], klasifikasiPorsi: newKlas };
+                                  const cur = { ...list[idx], klasifikasiPorsi: newKlas };
+                                  const currentVal = Number(cur.targetBumilBusui) || Number(cur.targetBalita) || Number(cur.targetSiswa) || 0;
+                                  if (newKlas === 'Porsi Balita' || newKlas === 'Balita') {
+                                    cur.targetBalita = currentVal;
+                                    cur.targetSiswa = 0;
+                                    cur.targetBumilBusui = 0;
+                                  } else if (newKlas === 'Porsi Ibu Hamil' || newKlas === 'Porsi Ibu Menyusui' || newKlas === 'Bumil & Busui') {
+                                    cur.targetBumilBusui = currentVal;
+                                    cur.targetSiswa = 0;
+                                    cur.targetBalita = 0;
+                                  } else {
+                                    cur.targetSiswa = currentVal;
+                                    cur.targetBalita = 0;
+                                    cur.targetBumilBusui = 0;
+                                  }
+                                  cur.total = currentVal + (Number(cur.targetGuru) || 0);
+                                  list[idx] = cur;
                                   setEditingGroup({ ...editingGroup, lembagaList: list });
                                 }}
                                 className="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 max-w-[125px]"
@@ -2546,18 +2720,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 {editingGroup.lembagaList && editingGroup.lembagaList.length > 0 && (() => {
                   const totalTargetMain = editingGroup.lembagaList.reduce((acc: number, l: any) => {
                     const k = l.klasifikasiPorsi || 'Porsi Besar';
-                    if (k === 'Porsi Balita' || k === 'Balita') return acc + (Number(l.targetBalita) || Number(l.targetSiswa) || 0);
-                    if (k === 'Porsi Ibu Hamil' || k === 'Porsi Ibu Menyusui' || k === 'Bumil & Busui') return acc + (Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0);
+                    const norm = (l.namaInstansi || '').trim().toLowerCase();
+                    if (k === 'Porsi Balita' || k === 'Balita' || norm.includes('balita')) {
+                      return acc + (Number(l.targetBalita) || Number(l.targetSiswa) || 0);
+                    }
+                    if (k === 'Porsi Ibu Hamil' || k === 'Porsi Ibu Menyusui' || k === 'Bumil & Busui' || norm.includes('hamil') || norm.includes('menyusui')) {
+                      return acc + (Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0);
+                    }
                     return acc + (Number(l.targetSiswa) || 0);
                   }, 0);
                   const totalGuru = editingGroup.lembagaList.reduce((acc: number, l: any) => acc + (Number(l.targetGuru) || 0), 0);
-                  const totalPorsiAll = editingGroup.lembagaList.reduce((acc: number, l: any) => {
-                    const k = l.klasifikasiPorsi || 'Porsi Besar';
-                    const g = Number(l.targetGuru) || 0;
-                    if (k === 'Porsi Balita' || k === 'Balita') return acc + (Number(l.targetBalita) || Number(l.targetSiswa) || 0) + g;
-                    if (k === 'Porsi Ibu Hamil' || k === 'Porsi Ibu Menyusui' || k === 'Bumil & Busui') return acc + (Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0) + g;
-                    return acc + (Number(l.targetSiswa) || 0) + g;
-                  }, 0);
+                  const totalPorsiAll = totalTargetMain + totalGuru;
 
                   return (
                     <div className="p-3 bg-slate-900 text-white rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
