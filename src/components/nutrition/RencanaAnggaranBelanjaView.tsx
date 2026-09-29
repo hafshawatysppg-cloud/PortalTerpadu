@@ -16,6 +16,8 @@ import {
   Utensils,
   Plus,
   Trash2,
+  Edit3,
+  X,
   FileSpreadsheet,
   PieChart as PieChartIcon,
   HelpCircle,
@@ -77,6 +79,8 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
   const [savedRABList, setSavedRABList] = useState<RABPlan[]>([]);
   const [showTarifModal, setShowTarifModal] = useState<boolean>(false);
   const [showPrintPreview, setShowPrintPreview] = useState<boolean>(false);
+  const [editingOpsIdx, setEditingOpsIdx] = useState<number | null>(null);
+  const [editingOpsForm, setEditingOpsForm] = useState<RABBiayaItem | null>(null);
 
   // Temporary edit states for Tarifs & Composition
   const [customTarif, setCustomTarif] = useState<RABTarifConfig>({
@@ -154,10 +158,23 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
   // Recalculate local state on-the-fly when item prices or counts change
   const recalculateCurrentRAB = async (updatedFields: Partial<RABPlan>) => {
     if (!rabData) return;
+    // Optimistically update local state so inputs and totals stay immediately responsive
+    const nextOpsItems = updatedFields.biayaOperasionalItems ?? rabData.biayaOperasionalItems;
+    const nextBahanItems = updatedFields.itemsBahanBaku ?? rabData.itemsBahanBaku;
+    const nextTotalOps = nextOpsItems.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+    const nextTotalBahan = nextBahanItems.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+    const optimisticRAB: RABPlan = {
+      ...rabData,
+      ...updatedFields,
+      totalBiayaOperasional: nextTotalOps,
+      totalBiayaBahanBaku: nextTotalBahan,
+      grandTotalRAB: nextTotalBahan + nextTotalOps + (rabData.cadanganTakTerduga || 0)
+    };
+    setRabData(optimisticRAB);
+
     try {
       const payload = {
-        ...rabData,
-        ...updatedFields,
+        ...optimisticRAB,
         tanggal
       };
       const res = await fetch('/api/v1/nutrition-plans/rab/calculate', {
@@ -213,17 +230,56 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
   const handleBiayaItemChange = (
     _listType: 'operasional',
     idx: number,
-    field: 'volume' | 'hargaSatuan' | 'namaItem',
+    field: 'volume' | 'hargaSatuan' | 'namaItem' | 'satuan' | 'keterangan',
     val: any
   ) => {
     if (!rabData) return;
     const items = [...rabData.biayaOperasionalItems];
+    const nextVolume = field === 'volume' ? Number(val) : items[idx].volume;
+    const nextHarga = field === 'hargaSatuan' ? Number(val) : items[idx].hargaSatuan;
     items[idx] = {
       ...items[idx],
       [field]: val,
-      subtotal: Math.round((field === 'volume' ? Number(val) : items[idx].volume) * (field === 'hargaSatuan' ? Number(val) : items[idx].hargaSatuan))
+      subtotal: Math.round(nextVolume * nextHarga)
     };
     recalculateCurrentRAB({ biayaOperasionalItems: items });
+  };
+
+  // Remove Operasional Item
+  const handleRemoveOperasionalItem = (idx: number) => {
+    if (!rabData) return;
+    const removedItem = rabData.biayaOperasionalItems[idx];
+    const newItems = rabData.biayaOperasionalItems.filter((_, i) => i !== idx);
+    recalculateCurrentRAB({ biayaOperasionalItems: newItems });
+    showToast(`Item operasional "${removedItem?.namaItem || ''}" berhasil dihapus`, 'info');
+  };
+
+  // Open Edit Operasional Modal
+  const handleOpenEditOperasional = (idx: number) => {
+    if (!rabData) return;
+    const target = rabData.biayaOperasionalItems[idx];
+    if (!target) return;
+    setEditingOpsIdx(idx);
+    setEditingOpsForm({ ...target });
+  };
+
+  // Save Edit Operasional Modal
+  const handleSaveEditOperasional = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rabData || editingOpsIdx === null || !editingOpsForm) return;
+    const items = [...rabData.biayaOperasionalItems];
+    const vol = Number(editingOpsForm.volume) || 0;
+    const price = Number(editingOpsForm.hargaSatuan) || 0;
+    items[editingOpsIdx] = {
+      ...editingOpsForm,
+      volume: vol,
+      hargaSatuan: price,
+      subtotal: Math.round(vol * price)
+    };
+    recalculateCurrentRAB({ biayaOperasionalItems: items });
+    setEditingOpsIdx(null);
+    setEditingOpsForm(null);
+    showToast('Data item operasional berhasil diperbarui', 'success');
   };
 
   // Add Operasional Item
@@ -240,6 +296,48 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
       keterangan: 'Kebutuhan tambahan operasional dapur'
     };
     recalculateCurrentRAB({ biayaOperasionalItems: [...rabData.biayaOperasionalItems, newItem] });
+  };
+
+  // Save Operasional Changes & Added Items
+  const handleSaveOperasional = async () => {
+    if (!rabData) return;
+    setIsSaving(true);
+    try {
+      const sanitizedOps = (rabData.biayaOperasionalItems || []).map(item => {
+        const vol = Number(item.volume) || 0;
+        const price = Number(item.hargaSatuan) || 0;
+        return {
+          ...item,
+          volume: vol,
+          hargaSatuan: price,
+          subtotal: Math.round(vol * price)
+        };
+      });
+      const totalOps = sanitizedOps.reduce((sum, item) => sum + item.subtotal, 0);
+      const res = await fetch('/api/v1/nutrition-plans/rab/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...rabData,
+          biayaOperasionalItems: sanitizedOps,
+          totalBiayaOperasional: totalOps,
+          tanggalPelaksanaan: tanggal
+        })
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        setRabData(json.data);
+        showToast('Perubahan dan data Biaya Operasional Dapur berhasil disimpan!', 'success');
+        fetchSavedRABList();
+      } else {
+        showToast(json.message || 'Gagal menyimpan data Biaya Operasional Dapur', 'error');
+      }
+    } catch (err) {
+      console.error('Error saving operasional RAB:', err);
+      showToast('Terjadi kesalahan saat menyimpan Biaya Operasional Dapur', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Save RAB
@@ -860,17 +958,48 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                 Komponen utilitas energi gas memasak, listrik, air bersih standar hygiene, dan upah tim juru masak/pemorsian.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleAddOperasionalItem}
-              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Item Operasional</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleAddOperasionalItem}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Tambah Item Operasional</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveOperasional}
+                disabled={isSaving}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                title="Simpan perubahan dan data yang telah ditambahkan pada Biaya Operasional Dapur"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSaving ? 'Menyimpan...' : 'Simpan'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <datalist id="satuan-operasional-options">
+              <option value="Tabung" />
+              <option value="Hari" />
+              <option value="Orang/Hari" />
+              <option value="Paket" />
+              <option value="Pcs" />
+              <option value="Liter" />
+              <option value="Kg" />
+              <option value="Galon" />
+              <option value="Botol" />
+              <option value="Pack" />
+              <option value="Box" />
+              <option value="Roll" />
+              <option value="Unit" />
+              <option value="Bulan" />
+              <option value="Shift" />
+              <option value="kWh" />
+              <option value="m3" />
+            </datalist>
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-800 text-white dark:bg-slate-950 text-[11px] uppercase tracking-wider">
@@ -880,7 +1009,8 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                   <th className="py-3 px-3 border-r border-slate-700 text-center">Satuan</th>
                   <th className="py-3 px-4 border-r border-slate-700 text-right">Tarif / Harga Satuan</th>
                   <th className="py-3 px-4 border-r border-slate-700 text-right">Subtotal</th>
-                  <th className="py-3 px-4">Keterangan</th>
+                  <th className="py-3 px-4 border-r border-slate-700">Keterangan</th>
+                  <th className="py-3 px-3 text-center w-24">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
@@ -904,7 +1034,17 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                         className="w-16 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold text-xs"
                       />
                     </td>
-                    <td className="py-3 px-3 text-center uppercase font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">{item.satuan}</td>
+                    <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800">
+                      <input
+                        type="text"
+                        list="satuan-operasional-options"
+                        value={item.satuan}
+                        onChange={(e) => handleBiayaItemChange('operasional', idx, 'satuan', e.target.value)}
+                        placeholder="Satuan..."
+                        className="w-24 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-semibold uppercase text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        title="Klik untuk mengubah jenis satuan"
+                      />
+                    </td>
                     <td className="py-3 px-4 text-right border-r border-slate-200 dark:border-slate-800">
                       <div className="flex items-center justify-end gap-1">
                         <span className="text-[11px] text-slate-400">Rp</span>
@@ -920,7 +1060,35 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                     <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
                       Rp {item.subtotal.toLocaleString('id-ID')}
                     </td>
-                    <td className="py-3 px-4 text-slate-500 text-[11px]">{item.keterangan || '-'}</td>
+                    <td className="py-3 px-4 text-slate-500 text-[11px] border-r border-slate-200 dark:border-slate-800">
+                      <input
+                        type="text"
+                        value={item.keterangan || ''}
+                        onChange={(e) => handleBiayaItemChange('operasional', idx, 'keterangan', e.target.value)}
+                        placeholder="Keterangan..."
+                        className="w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 text-[11px] text-slate-600 dark:text-slate-400"
+                      />
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditOperasional(idx)}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60 rounded-lg transition-colors cursor-pointer"
+                          title="Edit rincian item operasional"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOperasionalItem(idx)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus baris item operasional"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -932,7 +1100,7 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                   <td className="py-3 px-4 text-right text-amber-700 dark:text-amber-300 font-extrabold text-sm">
                     Rp {rabData.totalBiayaOperasional.toLocaleString('id-ID')}
                   </td>
-                  <td className="py-3 px-4" />
+                  <td colSpan={2} className="py-3 px-4" />
                 </tr>
               </tfoot>
             </table>
@@ -1162,6 +1330,132 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                 </tfoot>
               )}
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT ITEM OPERASIONAL DAPUR */}
+      {editingOpsIdx !== null && editingOpsForm && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-amber-500" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 uppercase">
+                  Edit Item Biaya Operasional Dapur
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingOpsIdx(null);
+                  setEditingOpsForm(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditOperasional} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Nama Item Operasional
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingOpsForm.namaItem}
+                  onChange={(e) => setEditingOpsForm({ ...editingOpsForm, namaItem: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Volume
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={editingOpsForm.volume}
+                    onChange={(e) => setEditingOpsForm({ ...editingOpsForm, volume: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Jenis Satuan
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    list="satuan-operasional-options"
+                    value={editingOpsForm.satuan}
+                    onChange={(e) => setEditingOpsForm({ ...editingOpsForm, satuan: e.target.value })}
+                    placeholder="Contoh: Tabung, Hari, Paket..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold uppercase text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Tarif / Harga Satuan (Rp)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={editingOpsForm.hargaSatuan}
+                  onChange={(e) => setEditingOpsForm({ ...editingOpsForm, hargaSatuan: Number(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Keterangan
+                </label>
+                <input
+                  type="text"
+                  value={editingOpsForm.keterangan || ''}
+                  onChange={(e) => setEditingOpsForm({ ...editingOpsForm, keterangan: e.target.value })}
+                  placeholder="Keterangan tambahan..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
+                <span className="font-semibold text-amber-800 dark:text-amber-300">Estimasi Subtotal:</span>
+                <span className="font-black text-sm text-amber-700 dark:text-amber-300">
+                  Rp {Math.round((Number(editingOpsForm.volume) || 0) * (Number(editingOpsForm.hargaSatuan) || 0)).toLocaleString('id-ID')}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingOpsIdx(null);
+                    setEditingOpsForm(null);
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold cursor-pointer shadow-xs"
+                >
+                  Simpan Perubahan
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

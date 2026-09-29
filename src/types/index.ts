@@ -61,7 +61,7 @@ export interface MenuItem {
   icon: string; // Lucide icon identifier
   color?: string; // CSS color or Tailwind class
   order: number;
-  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'external';
+  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'external';
   requiredRole?: UserRole[];
   parentId?: string;
   isActive: boolean;
@@ -251,7 +251,7 @@ export interface StockSummaryMetrics {
 // --- Central Features ---
 export interface NotificationItem {
   id: string;
-  modul: 'e-Surat' | 'Stock Opname' | 'System' | 'Master Data' | 'Tugas Divisi' | 'Penerima Manfaat' | 'Perencanaan Bahan';
+  modul: 'e-Surat' | 'Stock Opname' | 'System' | 'Master Data' | 'Tugas Divisi' | 'Penerima Manfaat' | 'Perencanaan Bahan' | 'Menu Harian';
   judul: string;
   pesan: string;
   tipe: 'info' | 'warning' | 'success' | 'error';
@@ -851,6 +851,7 @@ export interface PurchaseOrderDocument {
 }
 
 export type JenisBarangDatang = 'Bahan Baku' | 'Operasional';
+export type KualitasProdukBarangDatang = 'Baik' | 'Lumayan' | 'Jelek';
 
 export interface DriverStaff {
   id: string;
@@ -895,8 +896,49 @@ export interface BarangDatang {
   jumlahMasuk: number;
   satuan: string;
   jenisBarang: JenisBarangDatang;
+  kualitasProduk?: KualitasProdukBarangDatang;
   dokumentasiUrl?: string; // URL foto / base64 dokumentasi
   keterangan?: string;
+  petugas?: string;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy?: string;
+}
+
+export interface NilaiGiziPorsi {
+  energiKkal: number;
+  proteinGram: number;
+  lemakGram: number;
+  karbohidratGram: number;
+  seratGram?: number;
+  keterangan?: string;
+}
+
+export interface MenuHarianRecord {
+  id: string;
+  tanggalOperasional: string; // Format YYYY-MM-DD
+  hari?: string; // e.g. "Selasa"
+  hariTanggalFormatted?: string; // e.g. "Selasa, 29 September 2026"
+  namaMenu: string;
+  kategoriPorsi?: string; // e.g. "Standar / Umum" | "Porsi Besar & Porsi Kecil" | "Porsi Besar" | "Porsi Kecil"
+  energiKkal: number;
+  proteinGram: number;
+  lemakGram: number;
+  karbohidratGram: number;
+  seratGram?: number;
+  giziPorsiBesar?: NilaiGiziPorsi;
+  giziPorsiKecil?: NilaiGiziPorsi;
+  rincianKomponen?: {
+    karbohidrat?: string;
+    laukHewani?: string;
+    laukNabati?: string;
+    sayur?: string;
+    buahSusu?: string;
+  };
+  catatanGizi?: string;
+  fotoMenuUrl?: string;
+  fotoFileName?: string;
+  fotoFileSizeKb?: number;
   petugas?: string;
   createdAt: string;
   updatedAt?: string;

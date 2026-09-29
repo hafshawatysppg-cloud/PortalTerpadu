@@ -34,6 +34,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { PenerimaManfaatDashboardWidget } from '../components/dashboard/PenerimaManfaatDashboardWidget';
+import { DaftarMenuHarianDashboardWidget } from '../components/dashboard/DaftarMenuHarianDashboardWidget';
 import { KeteranganTugasDivisiWidget } from '../components/dashboard/KeteranganTugasDivisiWidget';
 import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
@@ -234,6 +235,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <span>Buka Panduan Firebase</span>
         </button>
       </div>
+
+      {/* 🍱 Daftar Menu Harian Makan Bergizi Gratis (MBG) */}
+      <DaftarMenuHarianDashboardWidget onNavigate={onNavigate} />
 
       {/* 👥 Penerima Manfaat Hari Ini & Hari Selanjutnya */}
       <PenerimaManfaatDashboardWidget onNavigate={onNavigate} />

@@ -55,6 +55,24 @@
         "petugas": { "type": "string" }
       },
       "required": ["kodeOpname", "tanggal", "status"]
+    },
+    "menuHarian": {
+      "title": "Menu Harian SPPG",
+      "description": "Daily operational menu, nutritional content for Porsi Besar and Porsi Kecil, and menu photo records",
+      "type": "object",
+      "properties": {
+        "tanggalOperasional": { "type": "string" },
+        "namaMenu": { "type": "string" },
+        "energiKkal": { "type": "number" },
+        "proteinGram": { "type": "number" },
+        "lemakGram": { "type": "number" },
+        "karbohidratGram": { "type": "number" },
+        "seratGram": { "type": "number" },
+        "giziPorsiBesar": { "type": "object" },
+        "giziPorsiKecil": { "type": "object" },
+        "fotoMenuUrl": { "type": "string" }
+      },
+      "required": ["tanggalOperasional", "namaMenu"]
     }
   },
   "firestore": {
@@ -73,6 +91,10 @@
     "/opnameSessions/{sessionId}": {
       "schema": { "$ref": "#/entities/opnameSessions" },
       "description": "Physical stock opname audit sessions collection"
+    },
+    "/menuHarian/{menuId}": {
+      "schema": { "$ref": "#/entities/menuHarian" },
+      "description": "Daily operational menu and nutritional value collection"
     }
   }
 }

@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import fs from 'fs';
 import path from 'path';
-import { dbStore } from './store';
+import { dbStore, initialMenus } from './store';
 import { MasterBarang } from '../../src/types';
 
 // Suppress internal gRPC stream reset noise from the Node runtime
@@ -44,21 +44,9 @@ export function getFirestoreDb(): Firestore | null {
       const existingApps = getApps();
       const app = existingApps.find(a => a.name === 'server-firestore') || initializeApp(configData, 'server-firestore');
 
-      try {
-        if (configData.firestoreDatabaseId) {
-          firestoreDb = initializeFirestore(app, {
-            experimentalForceLongPolling: true,
-          }, configData.firestoreDatabaseId);
-        } else {
-          firestoreDb = initializeFirestore(app, {
-            experimentalForceLongPolling: true,
-          });
-        }
-      } catch (_initErr) {
-        firestoreDb = configData.firestoreDatabaseId 
-          ? getFirestore(app, configData.firestoreDatabaseId)
-          : getFirestore(app);
-      }
+      firestoreDb = configData.firestoreDatabaseId 
+        ? getFirestore(app, configData.firestoreDatabaseId)
+        : getFirestore(app);
       isConnected = true;
       console.log('🔥 Connected to Google Cloud Firestore (Primary Database):', configData.projectId, configData.firestoreDatabaseId);
     }
@@ -413,6 +401,7 @@ export const SYNCED_COLLECTIONS = [
   { key: 'laporanBbm', coll: 'laporanBbm' },
   { key: 'barang', coll: 'barang' },
   { key: 'barangDatang', coll: 'barangDatang' },
+  { key: 'menuHarian', coll: 'menuHarian' },
   { key: 'stockMovements', coll: 'stockMovements' },
   { key: 'opnameSessions', coll: 'opnameSessions' },
   { key: 'tugasDivisiRecords', coll: 'tugasDivisi' },
@@ -437,88 +426,137 @@ export const SYNCED_COLLECTIONS = [
   { key: 'documentTemplate', coll: 'documentTemplate', isSingleDoc: true }
 ];
 
+let isSyncing = false;
+
 export async function initFirestoreSync() {
+  if (isSyncing) return;
   const db = getFirestoreDb();
   if (!db) {
     console.warn('⚠️ Firestore initialization skipped: config not found');
     return;
   }
 
-  console.log('🔄 Initializing Google Cloud Firestore Live Real-time Synchronization...');
+  isSyncing = true;
+  console.log('🔄 Initializing Google Cloud Firestore Synchronization...');
 
-  for (const item of SYNCED_COLLECTIONS) {
-    try {
-      const collRef = collection(db, item.coll);
+  try {
+    const syncSingleItem = async (item: { key: string; coll: string; isSingleDoc?: boolean }) => {
+      try {
+        const collRef = collection(db, item.coll);
 
-      if (item.isSingleDoc) {
-        // Single document collection (e.g. portal settings)
-        const docRef = doc(db, item.coll, 'main');
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists()) {
-          const initialSettings = (dbStore as any)[item.key];
-          if (initialSettings) {
-            console.log(`🌱 Seeding initial settings to Firestore '${item.coll}/main'...`);
-            await setDoc(docRef, JSON.parse(JSON.stringify(initialSettings))).catch(() => {});
-          }
-        } else {
-          (dbStore as any)[item.key] = docSnap.data();
-        }
-
-        onSnapshot(docRef, (sn) => {
-          if (sn && sn.exists()) {
-            (dbStore as any)[item.key] = sn.data();
-          }
-        }, () => {});
-        continue;
-      }
-
-      const snapshot = await getDocs(collRef);
-
-      if (snapshot.empty) {
-        // Seed initial data to Cloud Firestore ONCE if collection is completely empty
-        const initialItems = (dbStore as any)[item.key];
-        if (Array.isArray(initialItems) && initialItems.length > 0) {
-          console.log(`🌱 Seeding ${initialItems.length} items to Firestore collection '${item.coll}'...`);
-          // Batch write initial seed to ensure efficiency
-          const batchSize = 100;
-          for (let i = 0; i < initialItems.length; i += batchSize) {
-            const batch = writeBatch(db);
-            const chunk = initialItems.slice(i, i + batchSize);
-            for (const docData of chunk) {
-              const docId = docData.id || generateUniqueId('DOC');
-              const dRef = doc(db, item.coll, docId);
-              batch.set(dRef, JSON.parse(JSON.stringify(docData)));
+        if (item.isSingleDoc) {
+          const docRef = doc(db, item.coll, 'main');
+          const docSnap = await getDoc(docRef);
+          if (!docSnap.exists()) {
+            const initialSettings = (dbStore as any)[item.key];
+            if (initialSettings) {
+              await setDoc(docRef, JSON.parse(JSON.stringify(initialSettings))).catch(() => {});
             }
-            await batch.commit().catch(() => {});
+          } else {
+            (dbStore as any)[item.key] = docSnap.data();
           }
-        }
-      } else {
-        // Single Source of Truth: Load existing Firestore data into dbStore
-        const docsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        if (docsData.length > 0) {
-          (dbStore as any)[item.key] = docsData;
-          console.log(`📥 Loaded ${docsData.length} items from Firestore '${item.coll}' (Single Source of Truth)`);
-        }
-      }
-
-      // Realtime listener for snapshot updates across devices
-      onSnapshot(collRef, (sn) => {
-        if (sn && !sn.empty) {
-          const updated = sn.docs.map(d => ({ id: d.id, ...d.data() }));
-          (dbStore as any)[item.key] = updated;
-        }
-      }, (err: any) => {
-        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
-          console.warn(`⚠️ Firestore quota warning for ${item.coll}:`, err.message);
           return;
         }
-        // Transport, stream drops, or internal gRPC disconnects are automatically retried by the SDK
-      });
 
-    } catch (err: any) {
-      console.error(`⚠️ Error syncing collection ${item.coll}:`, err?.message || err);
+        const snapshot = await getDocs(collRef);
+
+        if (snapshot.empty) {
+          const initialItems = (dbStore as any)[item.key];
+          if (Array.isArray(initialItems) && initialItems.length > 0) {
+            const batchSize = 100;
+            for (let i = 0; i < initialItems.length; i += batchSize) {
+              const batch = writeBatch(db);
+              const chunk = initialItems.slice(i, i + batchSize);
+              for (const docData of chunk) {
+                const docId = docData.id || generateUniqueId('DOC');
+                const dRef = doc(db, item.coll, docId);
+                batch.set(dRef, JSON.parse(JSON.stringify(docData)));
+              }
+              await batch.commit().catch(() => {});
+            }
+          }
+        } else {
+          const docsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          if (docsData.length > 0) {
+            (dbStore as any)[item.key] = docsData;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ Warning syncing collection ${item.coll}:`, err?.message || err);
+      }
+    };
+
+    // Process in controlled parallel batches of 7 to finish quickly with low memory usage
+    const concurrency = 7;
+    for (let i = 0; i < SYNCED_COLLECTIONS.length; i += concurrency) {
+      const batch = SYNCED_COLLECTIONS.slice(i, i + concurrency);
+      await Promise.allSettled(batch.map(item => syncSingleItem(item)));
     }
+
+    // Ensure default menus (including Menu Harian) are always present in dbStore.menus
+    for (const defMenu of initialMenus) {
+      if (!dbStore.menus.some(m => m.id === defMenu.id || m.path === defMenu.path)) {
+        dbStore.menus.push({ ...defMenu });
+      }
+    }
+
+    // Ensure initial sample Menu Harian items (Previous & Today) exist if collection only had 1 default record
+    if (dbStore.menuHarian.length === 1 && dbStore.menuHarian[0].id === 'MH-20260929-001') {
+      const prevDefault: any = {
+        id: 'MH-20260928-001',
+        tanggalOperasional: (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          return d.toISOString().split('T')[0];
+        })(),
+        hari: 'Senin',
+        hariTanggalFormatted: 'Senin, 28 September 2026',
+        namaMenu: 'Nasi Putih, Ayam Krispy & Saus Tomat, Tempe Balado, Acar Timun & Wortel, Jeruk Madu',
+        kategoriPorsi: 'Porsi Besar & Porsi Kecil',
+        energiKkal: 698.9,
+        proteinGram: 26.3,
+        lemakGram: 27.9,
+        karbohidratGram: 87.27,
+        seratGram: 2.62,
+        giziPorsiBesar: {
+          energiKkal: 698.9,
+          proteinGram: 26.3,
+          lemakGram: 27.9,
+          karbohidratGram: 87.27,
+          seratGram: 2.62,
+          keterangan: 'Sasaran SD Kelas 4-6, SMP, SMA / Bumil & Busui'
+        },
+        giziPorsiKecil: {
+          energiKkal: 609,
+          proteinGram: 24.8,
+          lemakGram: 27.75,
+          karbohidratGram: 67.37,
+          seratGram: 2.62,
+          keterangan: 'Sasaran PAUD, TK, SD Kelas 1-3 / Balita'
+        },
+        rincianKomponen: {
+          karbohidrat: 'Nasi Putih',
+          laukHewani: 'Ayam Krispy & Saus Tomat',
+          laukNabati: 'Tempe Balado',
+          sayur: 'Acar Timun & Wortel',
+          buahSusu: 'Jeruk Madu'
+        },
+        catatanGizi: 'Memenuhi standar AKG harian program Makan Bergizi Gratis (MBG) Badan Gizi Nasional.',
+        fotoMenuUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+        fotoFileName: 'menu-mbg-ayam-krispy.jpg',
+        fotoFileSizeKb: 230,
+        petugas: 'Ahli Gizi SPPG',
+        createdAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+        createdBy: 'Ahli Gizi SPPG'
+      };
+      dbStore.menuHarian.unshift(prevDefault);
+      await syncSaveDoc('menuHarian', prevDefault.id, prevDefault).catch(() => {});
+    }
+
+    dbStore.sanitizeCategories();
+    console.log(`✅ Google Cloud Firestore Sync Complete (${SYNCED_COLLECTIONS.length} collections)!`);
+  } finally {
+    isSyncing = false;
   }
-  dbStore.sanitizeCategories();
-  console.log('✅ Google Cloud Firestore Live Real-time Sync Active for all 34 collections!');
 }

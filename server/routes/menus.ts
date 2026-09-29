@@ -1,11 +1,17 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore, initialMenus } from '../db/store';
 import { MenuItem } from '../../src/types';
 
 const router = Router();
 
 // Get dynamic menus (sorted by order)
 router.get('/', (req: Request, res: Response): void => {
+  // Ensure essential default menus (like Menu Harian) exist even if loaded from an older snapshot
+  for (const defMenu of initialMenus) {
+    if (!dbStore.menus.some(m => m.id === defMenu.id || m.path === defMenu.path)) {
+      dbStore.menus.push({ ...defMenu });
+    }
+  }
   const sortedMenus = [...dbStore.menus].sort((a, b) => a.order - b.order);
   res.json({ success: true, data: sortedMenus });
 });

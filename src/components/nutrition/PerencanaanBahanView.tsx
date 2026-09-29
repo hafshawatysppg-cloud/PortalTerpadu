@@ -62,7 +62,6 @@ import { MultiGroupWorksheetTable } from './MultiGroupWorksheetTable';
 import { RekapBufferTable } from './RekapBufferTable';
 import { OfficialPdfPrintModal } from './OfficialPdfPrintModal';
 import { RencanaAnggaranBelanjaView } from './RencanaAnggaranBelanjaView';
-import { PurchaseOrderView } from './PurchaseOrderView';
 
 interface PerencanaanBahanViewProps {
   currentPath?: string;
@@ -73,14 +72,13 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   // Determine active sub-tab based on route or state
   const getSubTabFromPath = (path: string) => {
     if (path.includes('rab') || path.includes('anggaran')) return 'rab';
-    if (path.includes('po') || path.includes('purchase-order')) return 'po';
     if (path.includes('riwayat')) return 'riwayat';
     if (path.includes('rekap')) return 'rekap';
     if (path.includes('master-bahan')) return 'master-bahan';
     return 'kalkulator';
   };
 
-  const [activeTab, setActiveTab] = useState<'kalkulator' | 'rab' | 'po' | 'riwayat' | 'rekap' | 'master-bahan'>(getSubTabFromPath(currentPath));
+  const [activeTab, setActiveTab] = useState<'kalkulator' | 'rab' | 'riwayat' | 'rekap' | 'master-bahan'>(getSubTabFromPath(currentPath));
 
 
   useEffect(() => {
@@ -766,23 +764,6 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
         </button>
 
         <button
-          onClick={() => setActiveTab('po')}
-          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'po'
-              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          <FileCheck className="w-4 h-4 text-blue-600" />
-          <span className="flex items-center gap-1.5">
-            <span>Purchase Order (PO) 5 Hari</span>
-            <span className="px-1.5 py-0.2 bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 text-[10px] font-black rounded-full">
-              Periode
-            </span>
-          </span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('rekap')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer shrink-0 ${
             activeTab === 'rekap'
@@ -827,12 +808,6 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           masterBahan={masterBahan}
         />
       )}
-
-      {/* TAB CONTENT: PURCHASE ORDER (PO) 5 HARI */}
-      {activeTab === 'po' && (
-        <PurchaseOrderView onNavigate={onNavigate} />
-      )}
-
 
       {/* TAB CONTENT: 1. KALKULATOR & WORKSHEET */}
       {activeTab === 'kalkulator' && (

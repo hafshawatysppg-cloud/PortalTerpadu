@@ -50,6 +50,7 @@ import {
   POShipTo,
   BarangDatang,
   JenisBarangDatang,
+  MenuHarianRecord,
   DriverStaff,
   DistributionReport,
   MasterDocumentTemplateConfig,
@@ -464,6 +465,17 @@ export const initialMenus: MenuItem[] = [
     color: '#10B981',
     order: 3.8,
     targetModule: 'portal',
+    requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+    isActive: true
+  },
+  {
+    id: 'MNU-003-MENU-HARIAN',
+    title: 'Menu Harian',
+    path: '/menu-harian',
+    icon: 'Utensils',
+    color: '#F59E0B',
+    order: 3.85,
+    targetModule: 'menuHarian',
     requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
     isActive: true
   },
@@ -1699,6 +1711,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 200,
     satuan: 'Kg',
     jenisBarang: 'Bahan Baku',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600',
     keterangan: 'Penerimaan beras karung 25kg x 8 karung, kemasan utuh dan kering',
     petugas: 'Dapur Hafshawaty',
@@ -1714,6 +1727,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 75,
     satuan: 'Kg',
     jenisBarang: 'Bahan Baku',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1604503468506-a8da13d82791?w=600',
     keterangan: 'Kondisi dingin segar, sertifikat halal terlampir',
     petugas: 'Staff Logistik',
@@ -1729,6 +1743,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 8,
     satuan: 'Tabung',
     jenisBarang: 'Operasional',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=600',
     keterangan: 'Tabung terisi penuh, segel terpasang rapat dan aman',
     petugas: 'Dapur Hafshawaty',
@@ -1744,6 +1759,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 15,
     satuan: 'Roll',
     jenisBarang: 'Operasional',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1607344645866-009c320c5ab8?w=600',
     keterangan: 'Food grade wrapping untuk kemasan box makanan',
     petugas: 'Staff Logistik',
@@ -1759,6 +1775,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 60,
     satuan: 'Tray',
     jenisBarang: 'Bahan Baku',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=600',
     keterangan: 'Telur utuh tidak ada yang retak, grade A',
     petugas: 'Dapur Hafshawaty',
@@ -1774,6 +1791,7 @@ export const initialBarangDatang: BarangDatang[] = [
     jumlahMasuk: 6,
     satuan: 'Jerigen',
     jenisBarang: 'Operasional',
+    kualitasProduk: 'Baik',
     dokumentasiUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600',
     keterangan: 'Kebutuhan divisi cuci ompreng dan sanitasi dapur',
     petugas: 'Staff Logistik',
@@ -1818,6 +1836,102 @@ class EnterpriseDataStore {
 
   // --- KEDATANGAN BARANG STORE ---
   public barangDatang: BarangDatang[] = [...initialBarangDatang];
+
+  // --- MENU HARIAN STORE ---
+  public menuHarian: MenuHarianRecord[] = [
+    {
+      id: 'MH-20260928-001',
+      tanggalOperasional: (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+      })(),
+      hari: 'Senin',
+      hariTanggalFormatted: 'Senin, 28 September 2026',
+      namaMenu: 'Nasi Putih, Ayam Krispy & Saus Tomat, Tempe Balado, Acar Timun & Wortel, Jeruk Madu',
+      kategoriPorsi: 'Porsi Besar & Porsi Kecil',
+      energiKkal: 698.9,
+      proteinGram: 26.3,
+      lemakGram: 27.9,
+      karbohidratGram: 87.27,
+      seratGram: 2.62,
+      giziPorsiBesar: {
+        energiKkal: 698.9,
+        proteinGram: 26.3,
+        lemakGram: 27.9,
+        karbohidratGram: 87.27,
+        seratGram: 2.62,
+        keterangan: 'Sasaran SD Kelas 4-6, SMP, SMA / Bumil & Busui'
+      },
+      giziPorsiKecil: {
+        energiKkal: 609,
+        proteinGram: 24.8,
+        lemakGram: 27.75,
+        karbohidratGram: 67.37,
+        seratGram: 2.62,
+        keterangan: 'Sasaran PAUD, TK, SD Kelas 1-3 / Balita'
+      },
+      rincianKomponen: {
+        karbohidrat: 'Nasi Putih',
+        laukHewani: 'Ayam Krispy & Saus Tomat',
+        laukNabati: 'Tempe Balado',
+        sayur: 'Acar Timun & Wortel',
+        buahSusu: 'Jeruk Madu'
+      },
+      catatanGizi: 'Memenuhi standar AKG harian program Makan Bergizi Gratis (MBG) Badan Gizi Nasional.',
+      fotoMenuUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+      fotoFileName: 'menu-mbg-ayam-krispy.jpg',
+      fotoFileSizeKb: 230,
+      petugas: 'Ahli Gizi SPPG',
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      updatedAt: new Date(Date.now() - 86400000).toISOString(),
+      createdBy: 'Ahli Gizi SPPG'
+    },
+    {
+      id: 'MH-20260929-001',
+      tanggalOperasional: new Date().toISOString().split('T')[0],
+      hari: 'Selasa',
+      hariTanggalFormatted: 'Selasa, 29 September 2026',
+      namaMenu: 'Nasi Putih, Telur Ceplok Bumbu Balado, Tahu Krispy & Abon Sapi, Tumis Sawi Putih & Wortel, Apel Red',
+      kategoriPorsi: 'Porsi Besar & Porsi Kecil',
+      energiKkal: 610.2,
+      proteinGram: 13.1,
+      lemakGram: 21.9,
+      karbohidratGram: 88.34,
+      seratGram: 3.66,
+      giziPorsiBesar: {
+        energiKkal: 610.2,
+        proteinGram: 13.1,
+        lemakGram: 21.9,
+        karbohidratGram: 88.34,
+        seratGram: 3.66,
+        keterangan: 'Sasaran SD Kelas 4-6, SMP, SMA / Bumil & Busui'
+      },
+      giziPorsiKecil: {
+        energiKkal: 520,
+        proteinGram: 11.6,
+        lemakGram: 21.75,
+        karbohidratGram: 68.44,
+        seratGram: 3.66,
+        keterangan: 'Sasaran PAUD, TK, SD Kelas 1-3 / Balita'
+      },
+      rincianKomponen: {
+        karbohidrat: 'Nasi Putih',
+        laukHewani: 'Telur Ceplok Bumbu Balado',
+        laukNabati: 'Tahu Krispy & Abon Sapi',
+        sayur: 'Tumis Sawi Putih & Wortel',
+        buahSusu: 'Apel Red'
+      },
+      catatanGizi: 'Memenuhi standar AKG harian program Makan Bergizi Gratis (MBG) Badan Gizi Nasional.',
+      fotoMenuUrl: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
+      fotoFileName: 'menu-mbg-telur-balado.jpg',
+      fotoFileSizeKb: 245,
+      petugas: 'Ahli Gizi SPPG',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: 'Ahli Gizi SPPG'
+    }
+  ];
 
   // --- PENERIMA MANFAAT STORE DATA & METHODS ---
   public beneficiaryGroups: BeneficiaryGroup[] = [...initialBeneficiaryGroups];
@@ -2919,6 +3033,38 @@ class EnterpriseDataStore {
     const prevLen = this.barangDatang.length;
     this.barangDatang = this.barangDatang.filter(b => b.id !== id);
     return this.barangDatang.length < prevLen;
+  }
+
+  public addMenuHarian(item: Omit<MenuHarianRecord, 'id' | 'createdAt'>): MenuHarianRecord {
+    const now = new Date();
+    const cleanDate = (item.tanggalOperasional || now.toISOString().split('T')[0]).replace(/-/g, '');
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const id = `MH-${cleanDate}-${rand}`;
+    const newItem: MenuHarianRecord = {
+      ...item,
+      id,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    this.menuHarian.unshift(newItem);
+    return newItem;
+  }
+
+  public updateMenuHarian(id: string, updates: Partial<MenuHarianRecord>): MenuHarianRecord | null {
+    const idx = this.menuHarian.findIndex(m => m.id === id);
+    if (idx === -1) return null;
+    this.menuHarian[idx] = {
+      ...this.menuHarian[idx],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    return this.menuHarian[idx];
+  }
+
+  public deleteMenuHarian(id: string): boolean {
+    const prevLen = this.menuHarian.length;
+    this.menuHarian = this.menuHarian.filter(m => m.id !== id);
+    return this.menuHarian.length < prevLen;
   }
 }
 

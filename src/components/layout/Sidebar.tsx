@@ -26,6 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     esurat: true,
     stock: true,
     barangDatang: true,
+    menuHarian: true,
     penerima: true,
     perencanaanBahan: true,
     po: true,
@@ -84,6 +85,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
       { title: 'Riwayat Perencanaan', path: '/perencanaan-bahan/riwayat', icon: Icons.History },
       { title: 'Master Data Bahan Pangan', path: '/perencanaan-bahan/master-bahan', icon: Icons.Apple },
     ],
+    menuHarian: [
+      { title: 'Form Menu Harian', path: '/menu-harian/form', icon: Icons.ClipboardEdit },
+    ],
     po: [
       { title: 'Konsolidasi PO 5-Hari', path: '/purchase-order', icon: Icons.FileCheck },
       { title: 'Riwayat & Daftar PO', path: '/purchase-order/riwayat', icon: Icons.History },
@@ -126,8 +130,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     return <IconComponent className={className} />;
   };
 
+  // Ensure Menu Harian is always available in menu list
+  const effectiveMenus: MenuItem[] = React.useMemo(() => {
+    const list = [...menus];
+    if (!list.some(m => m.path === '/menu-harian' || m.targetModule === 'menuHarian')) {
+      list.push({
+        id: 'MNU-003-MENU-HARIAN',
+        title: 'Menu Harian',
+        path: '/menu-harian',
+        icon: 'Utensils',
+        color: '#F59E0B',
+        order: 3.85,
+        targetModule: 'menuHarian',
+        requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+        isActive: true
+      });
+    }
+    return list.sort((a, b) => a.order - b.order);
+  }, [menus]);
+
   // Filter menus based on user role
-  const allowedMenus = menus.filter(m => {
+  const allowedMenus = effectiveMenus.filter(m => {
     if (!m.isActive) return false;
     if (!m.requiredRole || m.requiredRole.length === 0) return true;
     if (!user) return false;
@@ -138,6 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
   const getModuleKey = (menu: MenuItem): string => {
     if (menu.targetModule === 'esurat' || menu.path.includes('esurat')) return 'esurat';
     if (menu.targetModule === 'barangDatang' || menu.path.includes('barang-datang')) return 'barangDatang';
+    if (menu.targetModule === 'menuHarian' || menu.path.includes('menu-harian')) return 'menuHarian';
     if (menu.targetModule === 'stock' || menu.path.includes('stock')) return 'stock';
     if (menu.path.includes('penerima-manfaat')) return 'penerima';
     if (menu.targetModule === 'po' || menu.path.includes('purchase-order') || menu.path === '/po') return 'po';
@@ -295,6 +319,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                             handleNav('/esurat/masuk');
                           } else if (moduleKey === 'barangDatang') {
                             handleNav('/barang-datang/form');
+                          } else if (moduleKey === 'menuHarian') {
+                            handleNav('/menu-harian/form');
                           } else if (moduleKey === 'tugas') {
                             handleNav('/tugas-divisi/hari-ini');
                           } else if (moduleKey === 'stock') {
@@ -351,7 +377,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                     {hasSubmenus && isExpanded && (
                       <div className="ml-4 pl-3 border-l-2 border-blue-200/80 dark:border-blue-900/60 space-y-1 py-1">
                         {subitems.map((sub) => {
-                          const isSubActive = currentPath === sub.path || (sub.path === '/esurat/masuk' && currentPath === '/esurat');
+                          const isSubActive = currentPath === sub.path || (sub.path === '/esurat/masuk' && currentPath === '/esurat') || (sub.path === '/menu-harian/form' && currentPath === '/menu-harian');
                           const SubIcon = sub.icon;
 
                           return (

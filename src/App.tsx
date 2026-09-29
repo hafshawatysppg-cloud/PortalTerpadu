@@ -32,6 +32,7 @@ import { PerencanaanBahanView } from './components/nutrition/PerencanaanBahanVie
 import { PurchaseOrderView } from './components/nutrition/PurchaseOrderView';
 import { PortalSupplierView } from './views/supplier/PortalSupplierView';
 import { BarangDatangView } from './views/stock/BarangDatangView';
+import { MenuHarianView } from './views/menuHarian/MenuHarianView';
 import { LaporanDistribusiView } from './views/distribusi/LaporanDistribusiView';
 
 const PortalMain: React.FC = () => {
@@ -105,12 +106,12 @@ const PortalMain: React.FC = () => {
 
     // Staff Kantor
     if (role === 'Staff Kantor') {
-      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path === '/dashboard';
+      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path === '/dashboard';
     }
 
     // Distribusi
     if (role === 'Distribusi') {
-      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path === '/dashboard';
+      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path === '/dashboard';
     }
 
     // Role specific default fallback
@@ -264,7 +265,6 @@ const PortalMain: React.FC = () => {
       case '/perencanaan-bahan':
       case '/perencanaan-bahan/kalkulator':
       case '/perencanaan-bahan/rab':
-      case '/perencanaan-bahan/po':
       case '/perencanaan-bahan/riwayat':
       case '/perencanaan-bahan/rekap':
       case '/perencanaan-bahan/master-bahan':
@@ -292,6 +292,9 @@ const PortalMain: React.FC = () => {
       case '/barang-datang/form':
       case '/barang-datang/data':
         return <BarangDatangView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+      case '/menu-harian':
+      case '/menu-harian/form':
+        return <MenuHarianView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       case '/laporan-distribusi':
       case '/laporan-distribusi/form':
       case '/laporan-distribusi/data':

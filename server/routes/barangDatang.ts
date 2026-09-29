@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
-import { BarangDatang, JenisBarangDatang } from '../../src/types';
+import { BarangDatang, JenisBarangDatang, KualitasProdukBarangDatang } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc } from '../db/firestore';
 
 const router = Router();
@@ -36,7 +36,7 @@ function formatIndonesianDate(dateStr: string): string {
 
 // GET all barang datang with optional filters
 router.get('/', (req: Request, res: Response): void => {
-  const { tanggal, startDate, endDate, jenisBarang, search } = req.query;
+  const { tanggal, startDate, endDate, jenisBarang, kualitasProduk, search } = req.query;
 
   let results = [...dbStore.barangDatang];
 
@@ -58,6 +58,11 @@ router.get('/', (req: Request, res: Response): void => {
     results = results.filter(b => b.jenisBarang === jenisBarang.trim());
   }
 
+  // Kualitas produk filter: 'Baik' | 'Lumayan' | 'Jelek'
+  if (kualitasProduk && typeof kualitasProduk === 'string' && kualitasProduk !== 'Semua' && kualitasProduk.trim() !== '') {
+    results = results.filter(b => (b.kualitasProduk || 'Baik') === kualitasProduk.trim());
+  }
+
   // Search filter
   if (search && typeof search === 'string' && search.trim() !== '') {
     const q = search.toLowerCase().trim();
@@ -65,7 +70,8 @@ router.get('/', (req: Request, res: Response): void => {
       b.namaBarang?.toLowerCase().includes(q) ||
       b.satuan?.toLowerCase().includes(q) ||
       b.petugas?.toLowerCase().includes(q) ||
-      b.keterangan?.toLowerCase().includes(q)
+      b.keterangan?.toLowerCase().includes(q) ||
+      (b.kualitasProduk || 'Baik').toLowerCase().includes(q)
     );
   }
 
@@ -107,6 +113,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       jumlahMasuk,
       satuan,
       jenisBarang,
+      kualitasProduk,
       dokumentasiUrl,
       keterangan,
       petugas
@@ -132,6 +139,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const validKualitas: KualitasProdukBarangDatang =
+      kualitasProduk === 'Baik' || kualitasProduk === 'Lumayan' || kualitasProduk === 'Jelek'
+        ? kualitasProduk
+        : 'Baik';
+
     const todayStr = new Date().toISOString().split('T')[0];
     const finalTanggal = tanggal && tanggal.trim() !== '' ? tanggal.trim() : todayStr;
     const finalHari = hari && hari.trim() !== '' ? hari.trim() : getIndonesianDay(finalTanggal);
@@ -145,6 +157,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       jumlahMasuk: Number(jumlahMasuk),
       satuan: satuan.trim(),
       jenisBarang: jenisBarang as JenisBarangDatang,
+      kualitasProduk: validKualitas,
       dokumentasiUrl: dokumentasiUrl || '',
       keterangan: keterangan?.trim() || '',
       petugas: petugas?.trim() || 'Petugas Logistik',
@@ -163,13 +176,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       newItem.petugas || 'Petugas Logistik',
       'Kedatangan Barang',
       'Input Barang Datang',
-      `Mencatat kedatangan ${newItem.jenisBarang}: ${newItem.namaBarang} (${newItem.jumlahMasuk} ${newItem.satuan}) pada ${newItem.hariTanggalFormatted}`
+      `Mencatat kedatangan ${newItem.jenisBarang}: ${newItem.namaBarang} (${newItem.jumlahMasuk} ${newItem.satuan}, Kualitas: ${newItem.kualitasProduk}) pada ${newItem.hariTanggalFormatted}`
     );
 
     dbStore.addNotification(
       'Stock Opname',
       `Barang Datang: ${newItem.namaBarang}`,
-      `Penerimaan ${newItem.jumlahMasuk} ${newItem.satuan} (${newItem.jenisBarang}) berhasil dicatat.`,
+      `Penerimaan ${newItem.jumlahMasuk} ${newItem.satuan} (${newItem.jenisBarang} - Kualitas: ${newItem.kualitasProduk}) berhasil dicatat.`,
       'success',
       '/barang-datang/data'
     );

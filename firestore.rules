@@ -110,6 +110,12 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Menu Harian
+    match /menuHarian/{menuId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // e-Surat
     match /suratMasuk/{suratId} {
       allow read: if true;

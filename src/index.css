@@ -88,7 +88,7 @@
   aside,
   #notification-bell-btn,
   #notification-dropdown-panel,
-  .print\\:hidden,
+  .print\:hidden,
   button,
   form input,
   form textarea,
@@ -110,21 +110,21 @@
   }
 
   /* Make sure print-only document elements are clearly visible */
-  .print\\:block {
+  .print\:block {
     display: block !important;
   }
 
-  .print\\:flex {
+  .print\:flex {
     display: flex !important;
   }
 
-  .print\\:table {
+  .print\:table {
     display: table !important;
   }
 
   /* Clean up card containers for pristine printed paper */
   .apple-card,
-  .rounded-\\[24px\\],
+  .rounded-\[24px\],
   .rounded-2xl,
   .rounded-xl,
   .shadow-sm,

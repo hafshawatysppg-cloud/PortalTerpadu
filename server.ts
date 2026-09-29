@@ -5,7 +5,14 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
-import { createServer as createViteServer } from 'vite';
+
+// Prevent unhandled background Firestore stream rejections from crashing the process
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Process Warning] Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.warn('[Process Warning] Uncaught Exception:', err?.message || err);
+});
 
 // Auto-configure FIREBASE_API_KEY from firebase-applet-config.json if not present
 try {
@@ -39,6 +46,7 @@ import tugasDivisiRoutes from './server/routes/tugasDivisi';
 import penerimaManfaatRoutes from './server/routes/penerimaManfaat';
 import nutritionPlansRoutes from './server/routes/nutritionPlans';
 import barangDatangRoutes from './server/routes/barangDatang';
+import menuHarianRoutes from './server/routes/menuHarian';
 import documentTemplateRoutes from './server/routes/documentTemplate';
 import distribusiRoutes from './server/routes/distribusi';
 import { swaggerSpec } from './server/docs/swagger';
@@ -46,10 +54,7 @@ import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './serv
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
-
-  // Initialize Google Cloud Firestore Realtime Synchronization
-  initFirestoreSync().catch(err => console.error('Firestore initialization warning:', err));
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Middleware
   app.use(cors());
@@ -120,19 +125,25 @@ async function startServer() {
   app.use('/api/v1/nutrition-plans', nutritionPlansRoutes);
   app.use('/api/nutrition', nutritionPlansRoutes);
   app.use('/api/v1/barang-datang', barangDatangRoutes);
+  app.use('/api/v1/menu-harian', menuHarianRoutes);
   app.use('/api/v1/document-template', documentTemplateRoutes);
   app.use('/api/v1/distribusi', distribusiRoutes);
 
+  const distPath = path.join(process.cwd(), 'dist');
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.K_SERVICE) ||
+    process.argv[1]?.includes('server.cjs');
 
   // Development vs Production Environment Setup
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa'
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -141,6 +152,10 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Portal Enterprise Gateway] Running on http://0.0.0.0:${PORT}`);
+    // Initialize Google Cloud Firestore synchronization in background after port is bound
+    setTimeout(() => {
+      initFirestoreSync().catch(err => console.error('Firestore initialization warning:', err));
+    }, 200);
   });
 }
 
