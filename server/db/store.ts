@@ -1561,145 +1561,9 @@ export const initialMasterMenuResep: MasterMenuResep[] = [
   }
 ];
 
-export const initialNutritionPlans: NutritionPlan[] = [
-  {
-    id: 'PLAN-20260812-001',
-    tanggalPerencanaan: '2026-08-12',
-    tanggalPelaksanaan: '2026-08-12',
-    menuId: 'MNR-001',
-    menuName: 'Menu A (Nasi + Telur Balado + Tahu + Tumis Wortel & Sawi + Susu + Kerupuk)',
-    targetGroup: 'Porsi Kecil',
-    targetCount: 471,
-    periode: 'Harian',
-    keterangan: 'Perencanaan distribusi makan siang bergizi sekolah SD Hafshawaty',
-    nutritionistId: 'USR-006',
-    nutritionistName: 'Rina Wijaya, S.Gz., M.Gizi',
-    status: 'Final',
-    totalCost: 1850400,
-    totalWeightKg: 102.35,
-    createdAt: '2026-08-12T07:00:00Z',
-    updatedAt: '2026-08-12T07:30:00Z',
-    finalizedAt: '2026-08-12T07:30:00Z',
-    finalizedBy: 'Rina Wijaya, S.Gz., M.Gizi'
-  }
-];
+export const initialNutritionPlans: NutritionPlan[] = [];
 
-export const initialNutritionPlanItems: NutritionPlanItem[] = [
-  {
-    id: 'PLI-001',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-001',
-    ingredientName: 'Beras Medium Premium',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 50,
-    bddPercent: 100,
-    grossWeightGram: 50,
-    targetCount: 471,
-    requiredKg: 23.55,
-    pricePerKg: 14800,
-    totalPrice: 348540,
-    stockAvailable: 100,
-    shortageKg: 0,
-    status: 'CUKUP',
-    notes: 'Stok beras aman'
-  },
-  {
-    id: 'PLI-002',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-003',
-    ingredientName: 'Telur Ayam Ras',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 50,
-    bddPercent: 89,
-    grossWeightGram: 56.18,
-    targetCount: 471,
-    requiredKg: 26.46,
-    pricePerKg: 28000,
-    totalPrice: 740880,
-    stockAvailable: 25,
-    shortageKg: 1.46,
-    status: 'PERLU PENGADAAN',
-    notes: 'Defisit 1.46 kg (perlu tambahan 24 butir telur)'
-  },
-  {
-    id: 'PLI-003',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-004',
-    ingredientName: 'Tahu Putih Sutra',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 50,
-    bddPercent: 100,
-    grossWeightGram: 50,
-    targetCount: 471,
-    requiredKg: 23.55,
-    pricePerKg: 12000,
-    totalPrice: 282600,
-    stockAvailable: 30,
-    shortageKg: 0,
-    status: 'CUKUP',
-    notes: 'Stok cukup'
-  },
-  {
-    id: 'PLI-004',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-006',
-    ingredientName: 'Wortel Lokal Organik',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 20,
-    bddPercent: 88,
-    grossWeightGram: 22.73,
-    targetCount: 471,
-    requiredKg: 10.71,
-    pricePerKg: 14000,
-    totalPrice: 149940,
-    stockAvailable: 12,
-    shortageKg: 0,
-    status: 'CUKUP',
-    notes: 'Stok segar di chiller'
-  },
-  {
-    id: 'PLI-005',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-007',
-    ingredientName: 'Sawi Putih Segar',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 20,
-    bddPercent: 80,
-    grossWeightGram: 25,
-    targetCount: 471,
-    requiredKg: 11.78,
-    pricePerKg: 10000,
-    totalPrice: 117800,
-    stockAvailable: 8,
-    shortageKg: 3.78,
-    status: 'PERLU PENGADAAN',
-    notes: 'Defisit 3.78 kg'
-  },
-  {
-    id: 'PLI-006',
-    planId: 'PLAN-20260812-001',
-    menuName: 'Menu A (Nasi + Telur Balado)',
-    ingredientId: 'ING-012',
-    ingredientName: 'Susu UHT 200ml Kemasan',
-    targetGroup: 'Porsi Kecil',
-    netWeightGram: 100,
-    bddPercent: 100,
-    grossWeightGram: 100,
-    targetCount: 471,
-    requiredKg: 47.1,
-    pricePerKg: 4500,
-    totalPrice: 211950,
-    stockAvailable: 50,
-    shortageKg: 0,
-    status: 'CUKUP',
-    notes: '471 kotak susu UHT'
-  }
-];
+export const initialNutritionPlanItems: NutritionPlanItem[] = [];
 
 export const initialBarangDatang: BarangDatang[] = [
   {
@@ -1936,10 +1800,7 @@ class EnterpriseDataStore {
   // --- PENERIMA MANFAAT STORE DATA & METHODS ---
   public beneficiaryGroups: BeneficiaryGroup[] = [...initialBeneficiaryGroups];
   public beneficiaryLocations: BeneficiaryLocation[] = [...initialBeneficiaryLocations];
-  public dailyBeneficiaryRecords: DailyBeneficiaryRecord[] = ((): DailyBeneficiaryRecord[] => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return createInitialBeneficiariesForDate(todayStr);
-  })();
+  public dailyBeneficiaryRecords: DailyBeneficiaryRecord[] = [];
   public beneficiaryAuditLogs: BeneficiaryAuditLog[] = [];
   public beneficiaryLockStatus: Record<string, { status: 'DRAFT' | 'FINAL'; finalizedBy?: string; finalizedAt?: string }> = {};
 
@@ -1970,21 +1831,33 @@ class EnterpriseDataStore {
       kemasanDistribusiPersen: 0
     };
 
-    // 1. Get real-time beneficiary target counts
+    // 1. Get real-time beneficiary target counts & existing nutrition plan
+    const existingPlan = this.nutritionPlans.find(p => p.tanggalPelaksanaan === tanggal);
     const benSummary = this.getBeneficiarySummaryForDate(tanggal);
     const pb = benSummary.portionBreakdown || {
-      porsiBesar: 2220,
-      porsiKecil: 471,
-      balita: 75,
-      bumilBusui: 43
+      porsiBesar: 0,
+      porsiKecil: 0,
+      balita: 0,
+      bumilBusui: 0
     };
 
-    const targetCounts = customData?.targetCounts || {
-      porsiKecil: pb.porsiKecil || 471,
-      porsiBesar: pb.porsiBesar || 2220,
-      balita: pb.balita || 75,
-      bumilBusui: pb.bumilBusui || 43,
-      total: (pb.porsiKecil || 471) + (pb.porsiBesar || 2220) + (pb.balita || 75) + (pb.bumilBusui || 43)
+    const planTargets = existingPlan?.targetCountsConfig;
+    const hasAnyPlanning = Boolean(
+      existingPlan ||
+      (customData && ((customData.itemsBahanBaku && customData.itemsBahanBaku.length > 0) || (customData.biayaOperasionalItems && customData.biayaOperasionalItems.length > 0) || customData.namaMenu))
+    );
+
+    const resolvedKecil = customData?.targetCounts?.porsiKecil ?? planTargets?.porsiKecil ?? (hasAnyPlanning ? (pb.porsiKecil || 0) : 0);
+    const resolvedBesar = customData?.targetCounts?.porsiBesar ?? planTargets?.porsiBesar ?? (hasAnyPlanning ? (pb.porsiBesar || 0) : 0);
+    const resolvedBalita = customData?.targetCounts?.balita ?? planTargets?.balita ?? (hasAnyPlanning ? (pb.balita || 0) : 0);
+    const resolvedBumil = customData?.targetCounts?.bumilBusui ?? planTargets?.bumilBusui ?? (hasAnyPlanning ? (pb.bumilBusui || 0) : 0);
+
+    const targetCounts = {
+      porsiKecil: resolvedKecil,
+      porsiBesar: resolvedBesar,
+      balita: resolvedBalita,
+      bumilBusui: resolvedBumil,
+      total: customData?.targetCounts?.total ?? (resolvedKecil + resolvedBesar + resolvedBalita + resolvedBumil)
     };
 
     const tarifConfig = customData?.tarifConfig || defaultTarif;
@@ -2002,12 +1875,8 @@ class EnterpriseDataStore {
     const targetPenyerapanPagu = totalPaguAnggaran;
     const targetPlafondBahan = totalPaguAnggaran;
 
-    // 2. Get menu name and ingredients from Nutrition Plan or fallback
-    const existingPlan = this.nutritionPlans.find(p => p.tanggalPelaksanaan === tanggal);
-    const tugasRecs = this.getTugasDivisiForDate(tanggal);
-    const tugasMenu = tugasRecs.find(t => t.menuHarian)?.menuHarian;
-
-    const namaMenu = customData?.namaMenu || existingPlan?.menuName || tugasMenu || 'CHICKEN KATSU SAUS KARI JEPANG + TAHU GORENG + TUMIS SAYUR + BUAH KELENGKENG';
+    // 2. Get menu name and ingredients from Nutrition Plan only (empty if no planning activity)
+    const namaMenu = customData?.namaMenu ?? existingPlan?.menuName ?? '';
 
     // 3. Build Items Bahan Baku
     let itemsBahanBaku: RABItemBahan[] = [];
@@ -2056,7 +1925,15 @@ class EnterpriseDataStore {
           } else if (ing.totalKebutuhan && !isNaN(Number(ing.totalKebutuhan)) && Number(ing.totalKebutuhan) > 0) {
             kebutuhan = Number(ing.totalKebutuhan);
           } else {
-            kebutuhan = isTahu ? 142 : 10;
+            // Compute from net weights and targetCounts if needed
+            const bdd = Number(ing.bddPercent) || 100;
+            const safeBdd = bdd > 0 ? bdd / 100 : 1;
+            const reqKecil = ((Number(ing.porsiKecilNet || 0) / safeBdd) * targetCounts.porsiKecil) / 1000;
+            const reqBesar = ((Number(ing.porsiBesarNet || 0) / safeBdd) * targetCounts.porsiBesar) / 1000;
+            const reqBalita = ((Number(ing.balitaNet || 0) / safeBdd) * targetCounts.balita) / 1000;
+            const reqBumil = ((Number(ing.bumilBusuiNet || 0) / safeBdd) * targetCounts.bumilBusui) / 1000;
+            const totalKg = reqKecil + reqBesar + reqBalita + reqBumil;
+            kebutuhan = Number((totalKg * 1.05).toFixed(2));
           }
         }
 
@@ -2075,32 +1952,8 @@ class EnterpriseDataStore {
         };
       });
     } else {
-      // Default standard menu items
-      const defaultItems = [
-        { namaBahan: 'Beras kepompong 25kg', kategori: 'Sembako', kebutuhanKg: 190, satuan: 'Kg', hargaSatuan: 15000 },
-        { namaBahan: 'Daging ayam fillet', kategori: 'Lauk Hewani', kebutuhanKg: 113, satuan: 'Kg', hargaSatuan: 38000 },
-        { namaBahan: 'Tepung terigu Segitiga Biru 1 Kg', kategori: 'Bahan Olahan', kebutuhanKg: 50, satuan: 'Kg', hargaSatuan: 13000 },
-        { namaBahan: 'Tepung panir 10Kg', kategori: 'Bahan Olahan', kebutuhanKg: 30, satuan: 'Kg', hargaSatuan: 22000 },
-        { namaBahan: 'Tahu', kategori: 'Lauk Nabati', kebutuhanKg: 142, satuan: 'Kg', hargaSatuan: 10000 },
-        { namaBahan: 'Wortel', kategori: 'Sayuran', kebutuhanKg: 60, satuan: 'Kg', hargaSatuan: 14000 },
-        { namaBahan: 'Kentang', kategori: 'Sayuran', kebutuhanKg: 60, satuan: 'Kg', hargaSatuan: 18000 },
-        { namaBahan: 'Kelengkeng', kategori: 'Buah Segar', kebutuhanKg: 130, satuan: 'Kg', hargaSatuan: 35000 },
-        { namaBahan: 'Minyak goreng filma 2ltr', kategori: 'Minyak & Lemak', kebutuhanKg: 50, satuan: 'Liter', hargaSatuan: 36000 },
-        { namaBahan: 'Bumbu kari jepang 40g', kategori: 'Bumbu & Rempah', kebutuhanKg: 10, satuan: 'Pack', hargaSatuan: 12000 },
-        { namaBahan: 'Bawang putih & merah kupas', kategori: 'Bumbu & Rempah', kebutuhanKg: 6, satuan: 'Kg', hargaSatuan: 36000 },
-        { namaBahan: 'Bumbu pelengkap & garam', kategori: 'Bumbu & Rempah', kebutuhanKg: 5, satuan: 'Kg', hargaSatuan: 15000 }
-      ];
-
-      itemsBahanBaku = defaultItems.map((it, idx) => ({
-        no: idx + 1,
-        namaBahan: it.namaBahan,
-        kategori: it.kategori,
-        kebutuhanKg: it.kebutuhanKg,
-        satuan: it.satuan,
-        hargaSatuan: it.hargaSatuan,
-        subtotal: Math.round(it.kebutuhanKg * it.hargaSatuan),
-        sumberHarga: 'Harga Acuan Pasar'
-      }));
+      // No planning activity: keep itemsBahanBaku empty
+      itemsBahanBaku = [];
     }
 
     const totalBiayaBahanBaku = itemsBahanBaku.reduce((acc, it) => acc + it.subtotal, 0);
@@ -2111,20 +1964,20 @@ class EnterpriseDataStore {
       bobotPersen: totalBiayaBahanBaku > 0 ? Number(((it.subtotal / totalBiayaBahanBaku) * 100).toFixed(1)) : 0
     }));
 
-    // 4. Build Biaya Operasional (Menu Kemasan & BBM Distribusi Dihapus)
+    // 4. Build Biaya Operasional (Empty if no planning activity)
     const defaultOperasionalItems: RABBiayaItem[] = [
       { id: 'OPS-01', namaItem: 'Gas LPG 50 Kg / 12 Kg Dapur Industri SPPG', kategori: 'OPERASIONAL', volume: 2, satuan: 'Tabung', hargaSatuan: 850000, subtotal: 1700000, keterangan: 'Bahan bakar memasak kapasitas besar' },
       { id: 'OPS-02', namaItem: 'Listrik, Air Bersih & Sanitasi Dapur', kategori: 'OPERASIONAL', volume: 1, satuan: 'Hari', hargaSatuan: 650000, subtotal: 650000, keterangan: 'Utilitas dapur dan kebersihan standar HACCP' },
       { id: 'OPS-03', namaItem: 'Insentif & Upah Juru Masak / Tim Dapur (15 Orang)', kategori: 'OPERASIONAL', volume: 15, satuan: 'Orang/Hari', hargaSatuan: 175000, subtotal: 2625000, keterangan: 'Tenaga persiapan, pengolahan, dan pemorsian' }
     ];
 
-    const biayaOperasionalItems = customData?.biayaOperasionalItems || defaultOperasionalItems;
+    const biayaOperasionalItems = customData?.biayaOperasionalItems ?? (existingPlan ? defaultOperasionalItems : []);
     const biayaKemasanDistribusiItems: RABBiayaItem[] = []; // Kemasan & BBM Distribusi Dihapus
 
     const totalBiayaOperasional = biayaOperasionalItems.reduce((acc, it) => acc + it.subtotal, 0);
     const totalBiayaKemasanDistribusi = 0; // Dihapus
 
-    const cadanganTakTerduga = customData?.cadanganTakTerduga ?? Math.round(totalPaguAnggaran * 0.02); // 2% buffer
+    const cadanganTakTerduga = customData?.cadanganTakTerduga ?? (hasAnyPlanning ? Math.round(totalPaguAnggaran * 0.02) : 0);
     const grandTotalRAB = totalBiayaBahanBaku + totalBiayaOperasional + cadanganTakTerduga;
 
     const sisaAnggaranPagu = totalPaguAnggaran - totalBiayaBahanBaku;
@@ -2134,18 +1987,20 @@ class EnterpriseDataStore {
     const biayaPerPorsiRataRata = targetCounts.total > 0 ? Math.round(grandTotalRAB / targetCounts.total) : 0;
 
     // Status Evaluation: Penyerapan PAGU Anggaran harus 100%
-    let statusKelayakan: 'HEMAT_EFISIEN' | 'OPTIMAL_SESUAI_PAGU' | 'PERINGATAN_OVER_BUDGET' = 'OPTIMAL_SESUAI_PAGU';
-    let keteranganStatus = `Penyerapan Pagu Anggaran optimal mencapai ${persentaseSerapanPagu}% dari target 100%.`;
+    let statusKelayakan: 'HEMAT_EFISIEN' | 'OPTIMAL_SESUAI_PAGU' | 'PERINGATAN_OVER_BUDGET' = 'HEMAT_EFISIEN';
+    let keteranganStatus = 'Belum ada aktivitas perencanaan kebutuhan bahan pangan untuk tanggal ini.';
 
-    if (persentaseSerapanPagu > 100) {
-      statusKelayakan = 'PERINGATAN_OVER_BUDGET';
-      keteranganStatus = `Belanja bahan baku (${persentaseSerapanPagu}%) melebihi Pagu Anggaran 100% (Defisit Rp ${Math.abs(sisaAnggaranPagu).toLocaleString('id-ID')}). Perlu penyesuaian gramatur atau harga satuan.`;
-    } else if (persentaseSerapanPagu < 98) {
-      statusKelayakan = 'HEMAT_EFISIEN';
-      keteranganStatus = `Penyerapan Pagu Anggaran baru mencapai ${persentaseSerapanPagu}% (Target: 100%). Terdapat sisa alokasi Rp ${sisaAnggaranPagu.toLocaleString('id-ID')} yang belum terserap maksimal untuk bahan baku.`;
-    } else {
-      statusKelayakan = 'OPTIMAL_SESUAI_PAGU';
-      keteranganStatus = `Penyerapan Pagu Anggaran sangat presisi & optimal 100% (${persentaseSerapanPagu}%). Seluruh pagu teralokasikan tuntas untuk belanja bahan baku.`;
+    if (itemsBahanBaku.length > 0 || totalPaguAnggaran > 0) {
+      if (persentaseSerapanPagu > 100) {
+        statusKelayakan = 'PERINGATAN_OVER_BUDGET';
+        keteranganStatus = `Belanja bahan baku (${persentaseSerapanPagu}%) melebihi Pagu Anggaran 100% (Defisit Rp ${Math.abs(sisaAnggaranPagu).toLocaleString('id-ID')}). Perlu penyesuaian gramatur atau harga satuan.`;
+      } else if (persentaseSerapanPagu < 98) {
+        statusKelayakan = 'HEMAT_EFISIEN';
+        keteranganStatus = `Penyerapan Pagu Anggaran baru mencapai ${persentaseSerapanPagu}% (Target: 100%). Terdapat sisa alokasi Rp ${sisaAnggaranPagu.toLocaleString('id-ID')} yang belum terserap maksimal untuk bahan baku.`;
+      } else {
+        statusKelayakan = 'OPTIMAL_SESUAI_PAGU';
+        keteranganStatus = `Penyerapan Pagu Anggaran sangat presisi & optimal 100% (${persentaseSerapanPagu}%). Seluruh pagu teralokasikan tuntas untuk belanja bahan baku.`;
+      }
     }
 
     // Pareto Top Cost Drivers
@@ -2272,7 +2127,9 @@ class EnterpriseDataStore {
     }
 
     const computed = this.calculateRABPlan(tanggal);
-    this.rabPlans.push(computed);
+    if (existingPlan) {
+      this.rabPlans.push(computed);
+    }
     return computed;
   }
 
@@ -2806,15 +2663,48 @@ class EnterpriseDataStore {
   }
 
   public getBeneficiaryRecordsForDate(tanggal: string): DailyBeneficiaryRecord[] {
-    return this.dailyBeneficiaryRecords.filter(r => r.tanggal === tanggal);
+    return this.dailyBeneficiaryRecords.filter(
+      r => r.tanggal === tanggal && r.createdBy !== 'System Copy' && !(r.createdBy === 'USR-001' && r.createdAt?.endsWith('06:30:00'))
+    );
   }
 
   public getBeneficiarySummaryForDate(tanggal: string): DailyBeneficiarySummary {
-    let recs = this.getBeneficiaryRecordsForDate(tanggal);
+    const recs = this.getBeneficiaryRecordsForDate(tanggal);
+
     if (recs.length === 0) {
-      recs = this.copyBeneficiaryFromPreviousDay(tanggal);
+      return {
+        tanggal,
+        hasPlanning: false,
+        totalPenerima: 0,
+        totalPorsi: 0,
+        totalKelompok: 0,
+        totalInstansi: 0,
+        totalBalita: 0,
+        totalIbuHamil: 0,
+        totalIbuMenyusui: 0,
+        totalSiswa: 0,
+        totalGuru: 0,
+        portionBreakdown: {
+          porsiBesar: 0,
+          porsiKecil: 0,
+          porsiBalita: 0,
+          porsiIbuHamil: 0,
+          porsiIbuMenyusui: 0,
+          balita: 0,
+          bumilBusui: 0
+        },
+        statusLock: 'DRAFT'
+      };
     }
-    const lockInfo = this.beneficiaryLockStatus[tanggal] || { status: 'DRAFT' };
+
+    const allFinal = recs.every(r => r.status === 'FINAL');
+    const lockInfo = this.beneficiaryLockStatus[tanggal] || {
+      status: allFinal ? 'FINAL' : 'DRAFT',
+      finalizedBy: allFinal ? recs.find(r => r.finalizedBy)?.finalizedBy : undefined,
+      finalizedAt: allFinal ? recs.find(r => r.finalizedAt)?.finalizedAt : undefined
+    };
+    const effectiveStatusLock: 'DRAFT' | 'FINAL' =
+      lockInfo.status === 'FINAL' || allFinal ? 'FINAL' : 'DRAFT';
 
     let totalPenerima = 0;
     let totalBalita = 0;
@@ -2831,19 +2721,60 @@ class EnterpriseDataStore {
 
     recs.forEach(r => {
       totalPenerima += r.totalPenerima;
-      groupSet.add(r.groupId);
+      groupSet.add(r.groupNama || r.groupId);
       instansiSet.add(r.namaInstansi);
 
       const upperGroup = (r.groupNama || '').toUpperCase();
-
       const loc = this.beneficiaryLocations.find(l => l.id === r.locationId || l.namaInstansi === r.namaInstansi);
       const grp = this.beneficiaryGroups.find(g => g.id === r.groupId || g.nama.toUpperCase() === upperGroup);
-      const klas = loc?.klasifikasiPorsi || grp?.klasifikasiPorsi;
+      const klas = r.klasifikasiPorsi || loc?.klasifikasiPorsi || grp?.klasifikasiPorsi || r.groupNama;
 
-      if (klas === 'Balita' || r.kategori === 'Balita' || upperGroup.includes('BALITA')) {
+      if (r.rincianSasaran) {
+        const delta = (Number(r.penambahan) || 0) - (Number(r.pengurangan) || 0);
+        let s = Number(r.rincianSasaran.siswa) || 0;
+        let g = Number(r.rincianSasaran.guru) || 0;
+        let b = Number(r.rincianSasaran.balita) || 0;
+        let ih = Number(r.rincianSasaran.ibuHamil) || 0;
+        let im = Number(r.rincianSasaran.ibuMenyusui) || 0;
+
+        if (r.statusKbm === 'Libur Full' || r.totalPenerima === 0) {
+          s = 0;
+          g = 0;
+          b = 0;
+          ih = 0;
+          im = 0;
+        } else if (delta !== 0) {
+          if (b > 0 || r.kategori === 'Balita') b = Math.max(0, b + delta);
+          else if (ih > 0 || r.kategori === 'Ibu Hamil') ih = Math.max(0, ih + delta);
+          else if (im > 0 || r.kategori === 'Ibu Menyusui') im = Math.max(0, im + delta);
+          else if (s > 0 || r.kategori === 'Siswa') s = Math.max(0, s + delta);
+          else g = Math.max(0, g + delta);
+        }
+
+        totalSiswa += s;
+        totalGuru += g;
+        totalBalita += b;
+        totalIbuHamil += ih;
+        totalIbuMenyusui += im;
+
+        if (klas === 'Porsi Kecil' || upperGroup.includes('KECIL') || upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('1-3')) {
+          porsiKecil += s + g;
+        } else if (klas === 'Porsi Besar' || upperGroup.includes('BESAR') || (s + g > 0)) {
+          porsiBesar += s + g;
+        }
+      } else if (klas === 'Balita' || klas === 'Porsi Balita' || r.kategori === 'Balita' || upperGroup.includes('BALITA')) {
         totalBalita += r.totalPenerima;
-      } else if (klas === 'Bumil & Busui' || r.kategori === 'Ibu Hamil' || r.kategori === 'Ibu Menyusui' || upperGroup.includes('HAMIL') || upperGroup.includes('MENYUSUI') || upperGroup.includes('BUSUI')) {
-        if (r.kategori === 'Ibu Menyusui' || upperGroup.includes('MENYUSUI')) {
+      } else if (
+        klas === 'Bumil & Busui' ||
+        klas === 'Porsi Ibu Hamil' ||
+        klas === 'Porsi Ibu Menyusui' ||
+        r.kategori === 'Ibu Hamil' ||
+        r.kategori === 'Ibu Menyusui' ||
+        upperGroup.includes('HAMIL') ||
+        upperGroup.includes('MENYUSUI') ||
+        upperGroup.includes('BUSUI')
+      ) {
+        if (klas === 'Porsi Ibu Menyusui' || r.kategori === 'Ibu Menyusui' || upperGroup.includes('MENYUSUI')) {
           totalIbuMenyusui += r.totalPenerima;
         } else {
           totalIbuHamil += r.totalPenerima;
@@ -2856,8 +2787,16 @@ class EnterpriseDataStore {
           porsiBesar += r.totalPenerima;
         }
       } else {
-        totalSiswa += r.totalPenerima;
-        if (klas === 'Porsi Kecil' || upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('KELAS 1-3')) {
+        // Check if location has guru breakdown
+        const locGuru = loc?.kategoriBreakdown?.guru || 0;
+        const locSiswa = loc?.kategoriBreakdown?.siswa || 0;
+        if (locGuru > 0 && locSiswa > 0 && r.totalPenerima >= locGuru) {
+          totalGuru += locGuru;
+          totalSiswa += Math.max(0, r.totalPenerima - locGuru);
+        } else {
+          totalSiswa += r.totalPenerima;
+        }
+        if (klas === 'Porsi Kecil' || upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('KELAS 1-3') || upperGroup.includes('KECIL')) {
           porsiKecil += r.totalPenerima;
         } else {
           porsiBesar += r.totalPenerima;
@@ -2867,6 +2806,7 @@ class EnterpriseDataStore {
 
     return {
       tanggal,
+      hasPlanning: true,
       totalPenerima,
       totalPorsi: totalPenerima,
       totalKelompok: groupSet.size,
@@ -2879,10 +2819,13 @@ class EnterpriseDataStore {
       portionBreakdown: {
         porsiBesar,
         porsiKecil,
+        porsiBalita: totalBalita,
+        porsiIbuHamil: totalIbuHamil,
+        porsiIbuMenyusui: totalIbuMenyusui,
         balita: totalBalita,
         bumilBusui: totalIbuHamil + totalIbuMenyusui
       },
-      statusLock: lockInfo.status,
+      statusLock: effectiveStatusLock,
       finalizedBy: lockInfo.finalizedBy,
       finalizedAt: lockInfo.finalizedAt
     };
@@ -2893,21 +2836,23 @@ class EnterpriseDataStore {
     if (sourceDate) {
       sourceRecs = this.getBeneficiaryRecordsForDate(sourceDate);
     } else {
-      const availableDates = Array.from(new Set(this.dailyBeneficiaryRecords.map(r => r.tanggal)))
+      const availableDates = Array.from(
+        new Set(
+          this.dailyBeneficiaryRecords
+            .filter(r => r.createdBy !== 'System Copy' && !(r.createdBy === 'USR-001' && r.createdAt?.endsWith('06:30:00')))
+            .map(r => r.tanggal)
+        )
+      )
         .filter(d => d < targetDate)
         .sort((a, b) => b.localeCompare(a));
 
       if (availableDates.length > 0) {
         sourceRecs = this.getBeneficiaryRecordsForDate(availableDates[0]);
-      } else if (this.dailyBeneficiaryRecords.length > 0) {
-        sourceRecs = this.dailyBeneficiaryRecords;
       }
     }
 
     if (sourceRecs.length === 0) {
-      const created = createInitialBeneficiariesForDate(targetDate);
-      this.dailyBeneficiaryRecords.push(...created);
-      return created;
+      return [];
     }
 
     this.dailyBeneficiaryRecords = this.dailyBeneficiaryRecords.filter(r => r.tanggal !== targetDate);
@@ -2921,7 +2866,7 @@ class EnterpriseDataStore {
       pengurangan: 0,
       totalPenerima: src.jumlahAwal,
       status: 'DRAFT',
-      createdBy: 'System Copy',
+      createdBy: 'Operator (Salin Data)',
       createdAt: nowStr,
       updatedBy: undefined,
       updatedAt: undefined

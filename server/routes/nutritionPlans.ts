@@ -116,13 +116,13 @@ router.get('/sync-context', (req: Request, res: Response): void => {
   const tugasRecords = dbStore.getTugasDivisiForDate(tanggal);
   const foundMenuTugas = tugasRecords.find(r => r.menuHarian && r.menuHarian.trim() !== '')?.menuHarian || '';
 
-  // 2. Get beneficiary summary & target counts
+  // 2. Get beneficiary summary & target counts (0 if no beneficiary planning exists)
   const summary = dbStore.getBeneficiarySummaryForDate(tanggal);
   const pb = summary.portionBreakdown || {
-    porsiBesar: 2220,
-    porsiKecil: 471,
-    balita: 75,
-    bumilBusui: 43
+    porsiBesar: 0,
+    porsiKecil: 0,
+    balita: 0,
+    bumilBusui: 0
   };
 
   const targetCounts = {
@@ -130,7 +130,7 @@ router.get('/sync-context', (req: Request, res: Response): void => {
     porsiBesar: pb.porsiBesar || 0,
     balita: pb.balita || 0,
     bumilBusui: pb.bumilBusui || 0,
-    total: summary.totalPenerima || (pb.porsiKecil + pb.porsiBesar + pb.balita + pb.bumilBusui)
+    total: summary.totalPenerima ?? ((pb.porsiKecil || 0) + (pb.porsiBesar || 0) + (pb.balita || 0) + (pb.bumilBusui || 0))
   };
 
   // 3. Existing plan
@@ -139,6 +139,7 @@ router.get('/sync-context', (req: Request, res: Response): void => {
   res.json({
     success: true,
     tanggal,
+    hasPlanningActivity: Boolean(existingPlan),
     menuTugasDivisi: foundMenuTugas,
     hasTugasDivisiMenu: Boolean(foundMenuTugas && foundMenuTugas.trim().length > 0),
     targetCounts,
@@ -327,8 +328,8 @@ router.post('/save-by-date', (req: Request, res: Response): void => {
   const execDate = tanggalPelaksanaan;
 
   const totalSasaran = targetCountsConfig 
-    ? (targetCountsConfig.porsiKecil + targetCountsConfig.porsiBesar + targetCountsConfig.balita + targetCountsConfig.bumilBusui)
-    : (Number(targetCount) || 2809);
+    ? ((Number(targetCountsConfig.porsiKecil) || 0) + (Number(targetCountsConfig.porsiBesar) || 0) + (Number(targetCountsConfig.balita) || 0) + (Number(targetCountsConfig.bumilBusui) || 0))
+    : (Number(targetCount) || 0);
 
   // Check if an existing plan exists for this tanggalPelaksanaan
   const existingIdx = dbStore.nutritionPlans.findIndex(p => p.tanggalPelaksanaan === execDate);
@@ -858,6 +859,7 @@ router.delete('/:id', (req: Request, res: Response): void => {
 
   const removed = dbStore.nutritionPlans.splice(idx, 1)[0];
   dbStore.nutritionPlanItems = dbStore.nutritionPlanItems.filter(i => i.planId !== id);
+  syncDeleteDoc('nutritionPlans', id);
 
   dbStore.addLog('USR-SYSTEM', 'Ahli Gizi', 'Perencanaan Bahan', 'Hapus Perencanaan', `Menghapus perencanaan: ${removed.menuName}`);
 
@@ -967,10 +969,15 @@ router.get('/rab/sync-context', (req: Request, res: Response): void => {
   const todayStr = new Date().toISOString().split('T')[0];
   const tanggal = (req.query.tanggal as string) || todayStr;
 
+  const hasPlan = dbStore.nutritionPlans.some(p => p.tanggalPelaksanaan === tanggal);
+  const hasSavedRab = dbStore.rabPlans.some(
+    r => r.tanggalPelaksanaan === tanggal && ((r.itemsBahanBaku && r.itemsBahanBaku.length > 0) || (r.biayaOperasionalItems && r.biayaOperasionalItems.length > 0))
+  );
   const rabPlan = dbStore.getOrCreateRABForDate(tanggal);
 
   res.json({
     success: true,
+    hasPlanningActivity: hasPlan || hasSavedRab,
     data: rabPlan,
     message: `RAB tersinkronisasi untuk tanggal ${tanggal}`
   });

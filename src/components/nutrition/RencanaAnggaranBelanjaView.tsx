@@ -441,8 +441,22 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
     };
   });
 
+  const hasRabActivity = Boolean(
+    itemsBahanBaku.length > 0 ||
+    (biayaOperasionalItems && biayaOperasionalItems.length > 0) ||
+    (rabData.namaMenu && rabData.namaMenu.trim().length > 0)
+  );
+
   // Status color badge helper
   const getStatusBadge = () => {
+    if (!hasRabActivity) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold shadow-2xs">
+          <Info className="w-3.5 h-3.5" />
+          <span>Data Kosong (Belum Ada Perencanaan)</span>
+        </span>
+      );
+    }
     const serapanPersen = analisis.persentaseSerapanPagu ?? analisis.persentaseFoodCost;
     if (analisis.statusKelayakan === 'OPTIMAL_SESUAI_PAGU') {
       return (
@@ -595,8 +609,8 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
 
           <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
             <span className="text-[10px] uppercase font-bold text-slate-400 block">Menu SPPG Terpilih</span>
-            <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs" title={rabData.namaMenu}>
-              {rabData.namaMenu}
+            <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs" title={rabData.namaMenu || 'Belum Ada Perencanaan'}>
+              {rabData.namaMenu ? rabData.namaMenu : <span className="text-slate-400 italic">Belum Ada Perencanaan</span>}
             </div>
           </div>
 
@@ -617,9 +631,9 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
               <span className="text-[10px] uppercase font-bold text-slate-400 block">Status Dokumen RAB & Menu</span>
               <div className="font-bold text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${
-                  rabData.status === 'Final' || rabData.status === 'Disetujui' ? 'bg-emerald-500' : 'bg-amber-500'
+                  !hasRabActivity ? 'bg-slate-400' : rabData.status === 'Final' || rabData.status === 'Disetujui' ? 'bg-emerald-500' : 'bg-amber-500'
                 }`} />
-                <span>{rabData.status === 'Final' ? 'FINAL / TERKUNCI' : rabData.status}</span>
+                <span>{!hasRabActivity ? 'BELUM ADA PERENCANAAN' : rabData.status === 'Final' ? 'FINAL / TERKUNCI' : rabData.status}</span>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -849,6 +863,21 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
             </button>
           </div>
 
+          {itemsBahanBaku.length === 0 ? (
+            <div className="p-10 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-3 bg-slate-50/50 dark:bg-slate-800/20">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto">
+                <Utensils className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Data Belanja Bahan Baku Kosong
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+                  Belum ada aktivitas perencanaan kebutuhan bahan pangan untuk tanggal ini. Silakan buat dan simpan perencanaan pada tab Form Kalkulator & Worksheet terlebih dahulu, atau tambahkan bahan secara manual.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
@@ -940,6 +969,7 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
               </tfoot>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -980,6 +1010,21 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
             </div>
           </div>
 
+          {biayaOperasionalItems.length === 0 ? (
+            <div className="p-10 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-3 bg-slate-50/50 dark:bg-slate-800/20">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto">
+                <Receipt className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Data Biaya Operasional Kosong
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+                  Belum ada aktivitas perencanaan biaya operasional dapur untuk tanggal ini. Klik tombol "+ Tambah Item Operasional" di atas untuk mulai menambahkan komponen biaya operasional.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
             <datalist id="satuan-operasional-options">
               <option value="Tabung" />
@@ -1105,6 +1150,7 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
               </tfoot>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -1127,24 +1173,30 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
             </p>
 
             <div className="space-y-3 pt-2">
-              {analisis.topCostDrivers.map((driver, idx) => (
-                <div key={idx} className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
-                      {idx + 1}
-                    </span>
-                    <div>
-                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100">{driver.namaBahan}</div>
-                      <span className="text-[11px] text-slate-500">Kontribusi: {driver.persen}% dari Food Cost</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
-                      Rp {driver.subtotal.toLocaleString('id-ID')}
-                    </div>
-                  </div>
+              {analisis.topCostDrivers.length === 0 ? (
+                <div className="p-6 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+                  Belum ada data komoditas bahan pangan untuk dianalisis karena belum ada aktivitas perencanaan pada tanggal ini.
                 </div>
-              ))}
+              ) : (
+                analisis.topCostDrivers.map((driver, idx) => (
+                  <div key={idx} className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div className="font-bold text-xs text-slate-900 dark:text-slate-100">{driver.namaBahan}</div>
+                        <span className="text-[11px] text-slate-500">Kontribusi: {driver.persen}% dari Food Cost</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+                        Rp {driver.subtotal.toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 

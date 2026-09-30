@@ -554,6 +554,52 @@ export async function initFirestoreSync() {
       await syncSaveDoc('menuHarian', prevDefault.id, prevDefault).catch(() => {});
     }
 
+    // Purge any legacy auto-seeded dummy beneficiary records (so only user-planned beneficiary records exist)
+    if (Array.isArray(dbStore.dailyBeneficiaryRecords) && dbStore.dailyBeneficiaryRecords.length > 0) {
+      const legacyAutoRecs = dbStore.dailyBeneficiaryRecords.filter(
+        r => r.createdBy === 'System Copy' || (r.createdBy === 'USR-001' && r.createdAt?.endsWith('06:30:00'))
+      );
+      if (legacyAutoRecs.length > 0) {
+        dbStore.dailyBeneficiaryRecords = dbStore.dailyBeneficiaryRecords.filter(
+          r => r.createdBy !== 'System Copy' && !(r.createdBy === 'USR-001' && r.createdAt?.endsWith('06:30:00'))
+        );
+        for (const oldRec of legacyAutoRecs) {
+          syncDeleteDoc('dailyBeneficiaryRecords', oldRec.id).catch(() => {});
+        }
+      }
+    }
+
+    // Purge any legacy auto-seeded dummy nutrition plans and unplanned auto-generated RAB plans
+    if (Array.isArray(dbStore.nutritionPlans) && dbStore.nutritionPlans.length > 0) {
+      const legacyDummyPlans = dbStore.nutritionPlans.filter(p => p.id === 'PLAN-20260812-001');
+      if (legacyDummyPlans.length > 0) {
+        dbStore.nutritionPlans = dbStore.nutritionPlans.filter(p => p.id !== 'PLAN-20260812-001');
+        for (const dp of legacyDummyPlans) {
+          syncDeleteDoc('nutritionPlans', dp.id).catch(() => {});
+        }
+      }
+    }
+
+    if (Array.isArray(dbStore.rabPlans) && dbStore.rabPlans.length > 0) {
+      const legacyAutoRabs = dbStore.rabPlans.filter(
+        r =>
+          r.namaMenu === 'CHICKEN KATSU SAUS KARI JEPANG + TAHU GORENG + TUMIS SAYUR + BUAH KELENGKENG' &&
+          !dbStore.nutritionPlans.some(p => p.tanggalPelaksanaan === r.tanggalPelaksanaan)
+      );
+      if (legacyAutoRabs.length > 0) {
+        dbStore.rabPlans = dbStore.rabPlans.filter(
+          r =>
+            !(
+              r.namaMenu === 'CHICKEN KATSU SAUS KARI JEPANG + TAHU GORENG + TUMIS SAYUR + BUAH KELENGKENG' &&
+              !dbStore.nutritionPlans.some(p => p.tanggalPelaksanaan === r.tanggalPelaksanaan)
+            )
+        );
+        for (const oldRab of legacyAutoRabs) {
+          syncDeleteDoc('rabPlans', oldRab.id).catch(() => {});
+        }
+      }
+    }
+
     dbStore.sanitizeCategories();
     console.log(`✅ Google Cloud Firestore Sync Complete (${SYNCED_COLLECTIONS.length} collections)!`);
   } finally {

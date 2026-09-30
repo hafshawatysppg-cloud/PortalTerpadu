@@ -449,6 +449,17 @@ export interface DailyBeneficiaryRecord {
   locationId: string;
   namaInstansi: string;
   kategori: 'Siswa' | 'Balita' | 'Ibu Hamil' | 'Ibu Menyusui' | 'Guru / Staf' | 'Lainnya';
+  klasifikasiPorsi?: KlasifikasiPorsi;
+  statusKbm?: 'Aktif' | 'Libur Full' | 'Libur Sebagian';
+  keteranganLibur?: string;
+  catatan?: string;
+  rincianSasaran?: {
+    siswa: number;
+    guru: number;
+    balita: number;
+    ibuHamil: number;
+    ibuMenyusui: number;
+  };
   jumlahAwal: number;
   penambahan: number;
   pengurangan: number;
@@ -478,6 +489,7 @@ export interface BeneficiaryAuditLog {
 
 export interface DailyBeneficiarySummary {
   tanggal: string;
+  hasPlanning?: boolean;
   totalPenerima: number;
   totalPorsi: number;
   totalKelompok: number;

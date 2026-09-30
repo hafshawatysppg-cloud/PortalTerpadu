@@ -67,7 +67,22 @@ export const RekapBufferTable: React.FC<RekapBufferTableProps> = ({
         </div>
       </div>
 
-      {/* Rekap Table */}
+      {/* Rekap Table or Empty State */}
+      {ingredients.length === 0 ? (
+        <div className="bg-white dark:bg-slate-900 p-10 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto">
+            <Scale className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              Data Rekapitulasi Bahan Pangan Kosong
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+              Belum ada aktivitas perencanaan kebutuhan bahan pangan untuk tanggal ini. Silakan buat perencanaan dan tambahkan bahan pangan pada tab Form Kalkulator & Worksheet terlebih dahulu.
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
@@ -171,7 +186,7 @@ export const RekapBufferTable: React.FC<RekapBufferTableProps> = ({
           <tfoot>
             <tr className="bg-slate-900 text-white dark:bg-slate-950 font-bold border-t-2 border-slate-700">
               <td colSpan={2} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
-                TOTAL KESELURUHAN (24 BAHAN):
+                TOTAL KESELURUHAN ({ingredients.length} BAHAN):
               </td>
               <td className="py-3 px-3 text-center text-xs font-bold text-slate-300">
                 {grandTotalKebutuhanKg.toFixed(2)} kg
@@ -192,6 +207,7 @@ export const RekapBufferTable: React.FC<RekapBufferTableProps> = ({
           </tfoot>
         </table>
       </div>
+      )}
     </div>
   );
 };

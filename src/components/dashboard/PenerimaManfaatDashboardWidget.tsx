@@ -8,18 +8,26 @@ import {
   Clock, 
   School, 
   Baby, 
-  HeartHandshake, 
   GraduationCap, 
   Building2, 
   Sparkles,
-  ArrowRight,
-  TrendingUp,
-  AlertCircle
+  AlertCircle,
+  Lock
 } from 'lucide-react';
 import { DailyBeneficiaryRecord, DailyBeneficiarySummary } from '../../types';
+import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 
 interface PenerimaManfaatDashboardWidgetProps {
   onNavigate?: (path: string) => void;
+}
+
+interface BeneficiaryDateState {
+  dateStr: string;
+  hasPlanning: boolean;
+  isDraft: boolean;
+  draftCount: number;
+  records: DailyBeneficiaryRecord[];
+  summary: DailyBeneficiarySummary | null;
 }
 
 export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWidgetProps> = ({ onNavigate }) => {
@@ -27,13 +35,20 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
   const [selectedUpcomingOffset, setSelectedUpcomingOffset] = useState<number>(1); // 1 = Besok, 2 = H+2, 3 = H+3
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [todayData, setTodayData] = useState<{ records: DailyBeneficiaryRecord[]; summary: DailyBeneficiarySummary | null }>({
+  const [todayData, setTodayData] = useState<BeneficiaryDateState>({
+    dateStr: '',
+    hasPlanning: false,
+    isDraft: false,
+    draftCount: 0,
     records: [],
     summary: null
   });
 
-  const [upcomingData, setUpcomingData] = useState<{ dateStr: string; records: DailyBeneficiaryRecord[]; summary: DailyBeneficiarySummary | null }>({
+  const [upcomingData, setUpcomingData] = useState<BeneficiaryDateState>({
     dateStr: '',
+    hasPlanning: false,
+    isDraft: false,
+    draftCount: 0,
     records: [],
     summary: null
   });
@@ -53,16 +68,23 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
   const todayStr = getFormattedDate(0);
   const targetUpcomingStr = getFormattedDate(selectedUpcomingOffset);
 
-  // Fetch Today Data
+  const { data: realtimeRecords } = useFirestoreRealtime<DailyBeneficiaryRecord>('dailyBeneficiaryRecords');
+
+  // Fetch Today Data (finalOnly=true so DRAFT is never shown on Dashboard)
   const fetchTodayData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${todayStr}`);
+      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${todayStr}&finalOnly=true`);
       const json = await res.json();
       if (json.success) {
+        const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
         setTodayData({
-          records: json.records || [],
-          summary: json.summary || null
+          dateStr: todayStr,
+          hasPlanning: Boolean(json.hasPlanning),
+          isDraft: Boolean(json.isDraft),
+          draftCount: Number(json.draftCount) || 0,
+          records: isFinal ? (json.records || []) : [],
+          summary: isFinal ? (json.summary || null) : null
         });
       }
     } catch (err) {
@@ -72,16 +94,20 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
     }
   };
 
-  // Fetch Upcoming Data
+  // Fetch Upcoming Data (finalOnly=true so DRAFT is never shown on Dashboard)
   const fetchUpcomingData = async (dateStr: string) => {
     try {
-      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${dateStr}`);
+      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${dateStr}&finalOnly=true`);
       const json = await res.json();
       if (json.success) {
+        const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
         setUpcomingData({
           dateStr,
-          records: json.records || [],
-          summary: json.summary || null
+          hasPlanning: Boolean(json.hasPlanning),
+          isDraft: Boolean(json.isDraft),
+          draftCount: Number(json.draftCount) || 0,
+          records: isFinal ? (json.records || []) : [],
+          summary: isFinal ? (json.summary || null) : null
         });
       }
     } catch (err) {
@@ -91,14 +117,15 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
 
   useEffect(() => {
     fetchTodayData();
-  }, []);
+  }, [realtimeRecords]);
 
   useEffect(() => {
     fetchUpcomingData(targetUpcomingStr);
-  }, [selectedUpcomingOffset]);
+  }, [selectedUpcomingOffset, realtimeRecords]);
 
-  const activeRecords = selectedTab === 'today' ? todayData.records : upcomingData.records;
-  const activeSummary = selectedTab === 'today' ? todayData.summary : upcomingData.summary;
+  const activeState = selectedTab === 'today' ? todayData : upcomingData;
+  const activeRecords = activeState.records;
+  const activeSummary = activeState.summary;
   const activeDateStr = selectedTab === 'today' ? todayStr : targetUpcomingStr;
 
   return (
@@ -251,7 +278,12 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
         <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200">
           <span>Detail Rincian Instansi / Penerima ({activeRecords.length} Lokasi)</span>
           <span className="text-[11px] font-medium text-slate-400">
-            Status Lock: {activeSummary?.statusLock === 'FINAL' ? '🔒 FINAL' : '📝 DRAFT'}
+            Status Perencanaan:{' '}
+            {activeSummary?.statusLock === 'FINAL'
+              ? '🔒 FINAL'
+              : activeState.isDraft
+              ? '📝 DRAFT (Disembunyikan dari Dashboard)'
+              : '⚪ BELUM ADA PERENCANAAN'}
           </span>
         </div>
 
@@ -260,16 +292,39 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
             <RefreshCw className="w-4 h-4 animate-spin text-emerald-500" />
             <span>Memuat data penerima manfaat...</span>
           </div>
-        ) : activeRecords.length === 0 ? (
-          <div className="py-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-4 space-y-2">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-              Belum ada data penerima manfaat untuk tanggal ini ({getDisplayDate(activeDateStr)}).
+        ) : activeState.isDraft ? (
+          <div className="py-8 text-center bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-dashed border-amber-200 dark:border-amber-800/60 p-5 space-y-2.5">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 rounded-full text-[11px] font-bold">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Status Perencanaan Masih DRAFT ({activeState.draftCount} Instansi)</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 max-w-lg mx-auto">
+              Perencanaan penerima manfaat untuk tanggal ini ({getDisplayDate(activeDateStr)}) masih berstatus <span className="font-bold text-amber-700 dark:text-amber-400">DRAFT</span> sehingga belum ditampilkan di Dashboard.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Silakan finalisasi perencanaan pada menu Penerima Manfaat agar data tampil di Dashboard.
             </p>
             <button
               onClick={() => onNavigate && onNavigate('/penerima-manfaat')}
-              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+              className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
             >
-              + Input / Replikasi Data Instansi
+              <Lock className="w-3.5 h-3.5" />
+              <span>Finalisasi Data di Penerima Manfaat</span>
+            </button>
+          </div>
+        ) : activeRecords.length === 0 ? (
+          <div className="py-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-5 space-y-2">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+              Belum ada perencanaan / pembuatan penerima manfaat untuk tanggal ini ({getDisplayDate(activeDateStr)}).
+            </p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              Data hanya akan ditampilkan apabila telah dibuat perencanaan penerima manfaat dan berstatus FINAL.
+            </p>
+            <button
+              onClick={() => onNavigate && onNavigate('/penerima-manfaat')}
+              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer pt-1 inline-block"
+            >
+              + Buat Perencanaan Penerima Manfaat
             </button>
           </div>
         ) : (

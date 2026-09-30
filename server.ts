@@ -130,10 +130,11 @@ async function startServer() {
   app.use('/api/v1/distribusi', distribusiRoutes);
 
   const distPath = path.join(process.cwd(), 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
   const isProduction =
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.K_SERVICE) ||
-    process.argv[1]?.includes('server.cjs');
+    (process.env.NODE_ENV === 'production' ||
+      process.argv[1]?.includes('server.cjs')) &&
+    fs.existsSync(distIndexHtml);
 
   // Development vs Production Environment Setup
   if (!isProduction) {
@@ -146,7 +147,7 @@ async function startServer() {
   } else {
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(distIndexHtml);
     });
   }
 

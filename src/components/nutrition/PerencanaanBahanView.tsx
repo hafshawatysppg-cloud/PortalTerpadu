@@ -93,17 +93,18 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Active Plan Form State (Calculator & Worksheet)
+  // Active Plan Form State (Calculator & Worksheet) - Empty by default until planning activity exists
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [tanggalPerencanaan, setTanggalPerencanaan] = useState<string>(todayStr);
   const [tanggalPelaksanaan, setTanggalPelaksanaan] = useState<string>(todayStr);
-  const [menuName, setMenuName] = useState<string>('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
+  const [menuName, setMenuName] = useState<string>('');
   const [periode, setPeriode] = useState<'Harian' | 'Mingguan' | 'Bulanan'>('Harian');
-  const [keterangan, setKeterangan] = useState<string>('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
-  const [nutritionistName, setNutritionistName] = useState<string>('Fitria, S. ST');
-  const [kepalaSppgName, setKepalaSppgName] = useState<string>('Sri Rohayu, S. Pd');
-  const [planStatus, setPlanStatus] = useState<'Draft' | 'Dalam Perhitungan' | 'Final' | 'Disetujui' | 'Selesai'>('Draft');
+  const [keterangan, setKeterangan] = useState<string>('');
+  const [nutritionistName, setNutritionistName] = useState<string>('');
+  const [kepalaSppgName, setKepalaSppgName] = useState<string>('');
+  const [planStatus, setPlanStatus] = useState<'Draft' | 'Dalam Perhitungan' | 'Final' | 'Disetujui' | 'Selesai' | 'Revisi'>('Draft');
+  const [hasPlanningActivity, setHasPlanningActivity] = useState<boolean>(false);
 
   // Real-time synchronization state (Tugas Divisi & Penerima Manfaat)
   const [tugasDivisiMenuHarian, setTugasDivisiMenuHarian] = useState<string>('');
@@ -113,9 +114,14 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [hasAutoSyncedDate, setHasAutoSyncedDate] = useState<string>('');
   const [autoSyncToTugasDivisi, setAutoSyncToTugasDivisi] = useState<boolean>(true);
 
-  // Multi-Group State for Worksheet & Algorithms
-  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>(INITIAL_PDF_INGREDIENTS);
-  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>(DEFAULT_TARGET_COUNTS);
+  // Multi-Group State for Worksheet & Algorithms (Empty when no planning activity)
+  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>([]);
+  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>({
+    porsiKecil: 0,
+    porsiBesar: 0,
+    balita: 0,
+    bumilBusui: 0
+  });
 
   // Modals
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
@@ -197,26 +203,59 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           setLiveBeneficiarySummary(json.beneficiarySummary);
         }
 
-        const existingPlanForDate = plans.find(p => p.tanggalPelaksanaan === targetDate);
+        const existingPlanForDate = json.existingPlan || plans.find(p => p.tanggalPelaksanaan === targetDate);
 
-        // 1. Auto-synchronize Menu Utama SPPG from Tugas Divisi if available
-        if (menuHarian && menuHarian.trim()) {
-          // If no existing saved plan or if creating a new plan or if user explicitly triggered sync
-          if (isManualTrigger || (!existingPlanForDate && (planStatus === 'Draft' || !menuName.trim() || menuName.includes('CHICKEN KATSU')))) {
+        if (existingPlanForDate) {
+          // Load existing saved planning activity for this date
+          setSelectedPlanId(existingPlanForDate.id);
+          setMenuName(existingPlanForDate.menuName || '');
+          if (existingPlanForDate.tanggalPerencanaan) setTanggalPerencanaan(existingPlanForDate.tanggalPerencanaan);
+          if (existingPlanForDate.periode) setPeriode(existingPlanForDate.periode);
+          setKeterangan(existingPlanForDate.keterangan || '');
+          setNutritionistName(existingPlanForDate.nutritionistName || 'Fitria, S. ST');
+          setKepalaSppgName(existingPlanForDate.kepalaSppgName || 'Sri Rohayu, S. Pd');
+          setPlanStatus(existingPlanForDate.status || 'Draft');
+          setIngredients(Array.isArray(existingPlanForDate.ingredientsData) ? existingPlanForDate.ingredientsData : []);
+          setTargetCounts(existingPlanForDate.targetCountsConfig || {
+            porsiKecil: json.targetCounts?.porsiKecil || 0,
+            porsiBesar: json.targetCounts?.porsiBesar || 0,
+            balita: json.targetCounts?.balita || 0,
+            bumilBusui: json.targetCounts?.bumilBusui || 0
+          });
+          setHasPlanningActivity(true);
+        } else if (!isManualTrigger) {
+          // No planning activity exists for this date -> keep data completely empty
+          setSelectedPlanId(null);
+          setMenuName('');
+          setKeterangan('');
+          setNutritionistName('');
+          setKepalaSppgName('');
+          setPlanStatus('Draft');
+          setIngredients([]);
+          setTargetCounts({
+            porsiKecil: 0,
+            porsiBesar: 0,
+            balita: 0,
+            bumilBusui: 0
+          });
+          setHasPlanningActivity(false);
+        } else {
+          // Manual sync triggered by user while creating a plan
+          if (menuHarian && menuHarian.trim()) {
             setMenuName(menuHarian);
           }
-        }
-
-        // 2. Auto-synchronize Target Counts (Sasaran) from Penerima Manfaat
-        if (json.targetCounts) {
-          const hasZeroCounts = targetCounts.porsiKecil === 0 && targetCounts.porsiBesar === 0;
-          if (isManualTrigger || !existingPlanForDate || hasZeroCounts || planStatus === 'Draft') {
+          if (json.targetCounts) {
             setTargetCounts({
               porsiKecil: json.targetCounts.porsiKecil || 0,
               porsiBesar: json.targetCounts.porsiBesar || 0,
               balita: json.targetCounts.balita || 0,
               bumilBusui: json.targetCounts.bumilBusui || 0
             });
+          }
+          if ((menuHarian && menuHarian.trim()) || (json.targetCounts?.total > 0)) {
+            setHasPlanningActivity(true);
+            if (!nutritionistName) setNutritionistName('Fitria, S. ST');
+            if (!kepalaSppgName) setKepalaSppgName('Sri Rohayu, S. Pd');
           }
         }
 
@@ -262,7 +301,17 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
         if (json.beneficiarySummary) {
           setLiveBeneficiarySummary(json.beneficiarySummary);
         }
-        showToast(`Data sasaran berhasil disinkronkan realtime dengan Penerima Manfaat (${(json.targetCounts.total || 0).toLocaleString('id-ID')} jiwa)`, 'success');
+        if ((json.targetCounts.total || 0) > 0) {
+          setHasPlanningActivity(true);
+          if (!nutritionistName) setNutritionistName('Fitria, S. ST');
+          if (!kepalaSppgName) setKepalaSppgName('Sri Rohayu, S. Pd');
+        }
+        showToast(
+          (json.targetCounts.total || 0) > 0
+            ? `Data sasaran berhasil disinkronkan realtime dengan Penerima Manfaat (${(json.targetCounts.total || 0).toLocaleString('id-ID')} jiwa)`
+            : `Belum ada perencanaan Penerima Manfaat pada tanggal ini (0 jiwa).`,
+          (json.targetCounts.total || 0) > 0 ? 'success' : 'info'
+        );
       }
     } catch (err) {
       console.error('Error syncing beneficiaries:', err);
@@ -367,12 +416,15 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
     setMenuName(plan.menuName);
     if (plan.periode) setPeriode(plan.periode);
     if (plan.keterangan) setKeterangan(plan.keterangan);
-    if (plan.nutritionistName) setNutritionistName(plan.nutritionistName);
-    if (plan.kepalaSppgName) setKepalaSppgName(plan.kepalaSppgName);
+    setNutritionistName(plan.nutritionistName || 'Fitria, S. ST');
+    setKepalaSppgName(plan.kepalaSppgName || 'Sri Rohayu, S. Pd');
     setPlanStatus(plan.status || 'Draft');
+    setHasPlanningActivity(true);
 
-    if (plan.ingredientsData && Array.isArray(plan.ingredientsData) && plan.ingredientsData.length > 0) {
+    if (plan.ingredientsData && Array.isArray(plan.ingredientsData)) {
       setIngredients(plan.ingredientsData);
+    } else {
+      setIngredients([]);
     }
     if (plan.targetCountsConfig) {
       setTargetCounts(plan.targetCountsConfig);
@@ -390,9 +442,11 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
 
   // Reset to the exact official PDF standard
   const handleResetToPdfOfficial = () => {
+    setHasPlanningActivity(true);
     setIngredients(INITIAL_PDF_INGREDIENTS);
     setTargetCounts(DEFAULT_TARGET_COUNTS);
     setMenuName('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
+    setKeterangan('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
     setNutritionistName('Fitria, S. ST');
     setKepalaSppgName('Sri Rohayu, S. Pd');
     showToast('Berhasil memuat konfigurasi standar resmi PDF Badan Gizi Nasional (24 Bahan Pangan, 4 Sasaran)', 'success');
@@ -401,12 +455,21 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   // Buat Form Perencanaan Menu Baru (Data Kosong Siap Diisi)
   const handleCreateNewMenu = () => {
     setSelectedPlanId(null);
+    setHasPlanningActivity(true);
     setMenuName('');
     setIngredients([]);
+    setTargetCounts({
+      porsiKecil: liveBeneficiarySummary?.portionBreakdown?.porsiKecil || 0,
+      porsiBesar: liveBeneficiarySummary?.portionBreakdown?.porsiBesar || 0,
+      balita: liveBeneficiarySummary?.portionBreakdown?.balita || 0,
+      bumilBusui: liveBeneficiarySummary?.portionBreakdown?.bumilBusui || 0
+    });
     setPlanStatus('Draft');
+    setNutritionistName('Fitria, S. ST');
+    setKepalaSppgName('Sri Rohayu, S. Pd');
     setKeterangan('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
     setActiveTab('kalkulator');
-    showToast('Form perencanaan menu baru telah dibuka dengan data kosong. Silakan masukkan nama menu dan pilih bahan pangan dari Master Data.', 'info');
+    showToast('Form perencanaan menu baru telah dibuka. Silakan masukkan nama menu dan pilih bahan pangan dari Master Data.', 'info');
   };
 
   // Overall calculations across all 4 groups & buffer
@@ -438,6 +501,13 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   });
 
   const totalSasaranOverall = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
+  const isPlanningActive = Boolean(
+    hasPlanningActivity ||
+    existingPlanForSelectedDate ||
+    ingredients.length > 0 ||
+    menuName.trim().length > 0 ||
+    totalSasaranOverall > 0
+  );
 
   // SIMPAN PERENCANAAN MENU SESUAI TANGGAL PELAKSANAAN YANG DIPILIH
   const handleSavePlanByExecutionDate = async (targetStatus: 'Draft' | 'Final' = 'Draft') => {
@@ -570,13 +640,15 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                 PERENCANAAN KEBUTUHAN BAHAN PANGAN (SPPG)
               </h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                planStatus === 'Final' 
+                !isPlanningActive
+                  ? 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                  : planStatus === 'Final' 
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800' 
                   : planStatus === 'Revisi'
                   ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-700'
                   : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:border-slate-700'
               }`}>
-                {planStatus === 'Final' ? 'LOCKED / FINAL' : planStatus === 'Revisi' ? 'REVISI TERBUKA' : 'DRAFT IN PROGRESS'}
+                {!isPlanningActive ? 'BELUM ADA PERENCANAAN' : planStatus === 'Final' ? 'LOCKED / FINAL' : planStatus === 'Revisi' ? 'REVISI TERBUKA' : 'DRAFT IN PROGRESS'}
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-2xl">
@@ -675,10 +747,12 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           <div>
             <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Estimasi Biaya (Buffer 5%)</div>
             <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              Rp {totalBiayaOverall.toLocaleString('id-ID')}
+              Rp {isPlanningActive ? totalBiayaOverall.toLocaleString('id-ID') : '0'}
             </div>
-            <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Realtime Kalkulasi Anggaran
+            <div className={`text-[10px] font-medium mt-1 flex items-center gap-1 ${
+              isPlanningActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+            }`}>
+              <Sparkles className="w-3 h-3" /> {isPlanningActive ? 'Realtime Kalkulasi Anggaran' : 'Belum ada aktivitas perencanaan'}
             </div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
@@ -690,10 +764,10 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           <div>
             <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Kebutuhan Bahan (+Buffer)</div>
             <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {totalKgOverall.toFixed(2)} <span className="text-xs font-normal text-slate-500">kg</span>
+              {isPlanningActive ? totalKgOverall.toFixed(2) : '0.00'} <span className="text-xs font-normal text-slate-500">kg</span>
             </div>
             <div className="text-[10px] text-slate-500 mt-1">
-              {ingredients.length} jenis komoditas pangan
+              {isPlanningActive ? `${ingredients.length} jenis komoditas pangan` : 'Data bahan pangan kosong'}
             </div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
@@ -705,10 +779,10 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           <div>
             <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Penerima Manfaat</div>
             <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {totalSasaranOverall.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-500">jiwa</span>
+              {isPlanningActive ? totalSasaranOverall.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">jiwa</span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[150px]">
-              4 Kelompok Sasaran Terpadu
+            <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[170px]">
+              {isPlanningActive ? '4 Kelompok Sasaran Terpadu' : 'Belum ada sasaran direncanakan'}
             </div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
@@ -720,10 +794,10 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           <div>
             <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Pengesahan Resmi SPPG</div>
             <div className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-1">
-              PLOG: {nutritionistName}
+              PLOG: {isPlanningActive && nutritionistName ? nutritionistName : '-'}
             </div>
             <div className="text-[10px] text-slate-500 mt-0.5">
-              Kepala: {kepalaSppgName}
+              Kepala: {isPlanningActive && kepalaSppgName ? kepalaSppgName : '-'}
             </div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
@@ -823,6 +897,43 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                 Formulir Standar SPPG Probolinggo Krejengan Temenggungan
               </span>
             </div>
+
+            {/* Empty state notice if no planning activity exists for selected date */}
+            {!existingPlanForSelectedDate && !isPlanningActive && (
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg shrink-0">
+                    <Info className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-800 dark:text-slate-200">
+                      Belum Ada Aktivitas Perencanaan pada Tanggal {formatDateIndo(tanggalPelaksanaan)}
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Data kebutuhan bahan pangan, sasaran penerima manfaat, dan estimasi biaya masih kosong karena belum ada perencanaan untuk tanggal ini. Silakan mulai perencanaan baru atau tarik data dari modul terkait.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCreateNewMenu}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Mulai Perencanaan</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetToPdfOfficial}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Isi Template Standar</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Existing plan notification if date has a saved plan */}
             {existingPlanForSelectedDate && (
