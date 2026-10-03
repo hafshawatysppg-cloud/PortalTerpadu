@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Building2,
   CheckCircle2,
-  Layers
+  Layers,
+  Trash2
 } from 'lucide-react';
 
 interface RingkasanModulMenuWidgetProps {
@@ -114,6 +115,17 @@ export const RingkasanModulMenuWidget: React.FC<RingkasanModulMenuWidgetProps> =
       metrics: '1,500+ Penerima',
       icon: <Users className="w-5 h-5 text-purple-600 dark:text-purple-400" />,
       path: '/penerima-manfaat'
+    },
+    {
+      id: 'food-waste',
+      title: 'Food Waste',
+      category: 'Evaluasi & Efisiensi',
+      badge: 'Sisa Makanan',
+      badgeColor: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+      description: 'Form pemantauan sisa makanan, perhitungan persentase penyajian vs sisa secara real-time, dan evaluasi kepatuhan batas toleransi.',
+      metrics: 'Ambang Batas Gizi',
+      icon: <Trash2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+      path: '/food-waste'
     },
     {
       id: 'laporan-arsip',

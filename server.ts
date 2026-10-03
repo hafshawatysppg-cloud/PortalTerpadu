@@ -49,6 +49,7 @@ import barangDatangRoutes from './server/routes/barangDatang';
 import menuHarianRoutes from './server/routes/menuHarian';
 import documentTemplateRoutes from './server/routes/documentTemplate';
 import distribusiRoutes from './server/routes/distribusi';
+import foodWasteRoutes from './server/routes/foodWaste';
 import { swaggerSpec } from './server/docs/swagger';
 import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './server/db/firestore';
 
@@ -128,6 +129,8 @@ async function startServer() {
   app.use('/api/v1/menu-harian', menuHarianRoutes);
   app.use('/api/v1/document-template', documentTemplateRoutes);
   app.use('/api/v1/distribusi', distribusiRoutes);
+  app.use('/api/v1/food-waste', foodWasteRoutes);
+  app.use('/api/food-waste', foodWasteRoutes);
 
   const distPath = path.join(process.cwd(), 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');

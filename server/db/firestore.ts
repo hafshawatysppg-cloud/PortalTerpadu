@@ -422,6 +422,7 @@ export const SYNCED_COLLECTIONS = [
   { key: 'notifications', coll: 'notifications' },
   { key: 'activityLogs', coll: 'activityLogs' },
   { key: 'menus', coll: 'menus' },
+  { key: 'foodWasteRecords', coll: 'foodWasteRecords' },
   { key: 'settings', coll: 'settings', isSingleDoc: true },
   { key: 'documentTemplate', coll: 'documentTemplate', isSingleDoc: true }
 ];

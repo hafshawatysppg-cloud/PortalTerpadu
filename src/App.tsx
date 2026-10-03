@@ -34,6 +34,7 @@ import { PortalSupplierView } from './views/supplier/PortalSupplierView';
 import { BarangDatangView } from './views/stock/BarangDatangView';
 import { MenuHarianView } from './views/menuHarian/MenuHarianView';
 import { LaporanDistribusiView } from './views/distribusi/LaporanDistribusiView';
+import { FoodWasteView } from './views/FoodWasteView';
 
 const PortalMain: React.FC = () => {
   const { user, isAuthenticated, isAuthLoading } = useAuth();
@@ -106,12 +107,12 @@ const PortalMain: React.FC = () => {
 
     // Staff Kantor
     if (role === 'Staff Kantor') {
-      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path === '/dashboard';
+      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path === '/dashboard';
     }
 
     // Distribusi
     if (role === 'Distribusi') {
-      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path === '/dashboard';
+      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path === '/dashboard';
     }
 
     // Role specific default fallback
@@ -300,6 +301,10 @@ const PortalMain: React.FC = () => {
       case '/laporan-distribusi/data':
       case '/laporan-distribusi/driver':
         return <LaporanDistribusiView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+      case '/food-waste':
+      case '/food-waste/form':
+      case '/food-waste/rekap':
+        return <FoodWasteView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       default:
         return <DashboardView onNavigate={(path) => setCurrentPath(path)} />;
     }

@@ -61,7 +61,7 @@ export interface MenuItem {
   icon: string; // Lucide icon identifier
   color?: string; // CSS color or Tailwind class
   order: number;
-  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'external';
+  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'foodWaste' | 'external';
   requiredRole?: UserRole[];
   parentId?: string;
   isActive: boolean;
@@ -924,6 +924,39 @@ export interface NilaiGiziPorsi {
   karbohidratGram: number;
   seratGram?: number;
   keterangan?: string;
+}
+
+// --- Food Waste Domain ---
+export interface FoodWasteItem {
+  id: string;
+  menu: string; // Nama komponen menu (e.g. Nasi, Chickem katsu, Tahu goreng, Curry wortel & kentang, Jeruk santang)
+  jumlah: number; // Sisa makanan (Kg), e.g. 66.9
+  satuan: string; // "Kg"
+  penerimaManfaat: number; // e.g. 2808
+  standarPorsi: number; // Standar Porsi (gram), e.g. 150, 50, 50, 50, 100
+  totalDisajikanKg: number; // (penerimaManfaat * standarPorsi) / 1000, e.g. 421.2
+  persentase: number; // (jumlah / totalDisajikanKg) * 100, e.g. 16
+  kesimpulan: 'Baik Sekali' | 'Toleransi' | 'Perlu perbaikan menu' | string;
+  catatan?: string;
+}
+
+export interface FoodWasteRecord {
+  id: string;
+  tanggal: string; // YYYY-MM-DD
+  hariTanggalFormatted: string; // e.g. "KAMIS, 06 AGUSTUS 2026"
+  sppgName: string; // "SPPG PROBOLINGGO KREJENGAN TEMENGGUNGAN"
+  penerimaManfaatTotal: number; // default total penerima manfaat for that day, e.g. 2808
+  items: FoodWasteItem[];
+  totalDisajikanKg: number;
+  totalSisaKg: number;
+  rataRataPersentase: number;
+  kesimpulanUmum?: string;
+  petugas?: string;
+  catatanEvaluasi?: string;
+  status?: 'Draft' | 'Final' | 'Terverifikasi';
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
 }
 
 export interface MenuHarianRecord {

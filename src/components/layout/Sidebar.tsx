@@ -88,6 +88,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     menuHarian: [
       { title: 'Form Menu Harian', path: '/menu-harian/form', icon: Icons.ClipboardEdit },
     ],
+    foodWaste: [
+      { title: 'Form Input Food Waste', path: '/food-waste', icon: Icons.ClipboardEdit },
+      { title: 'Data & Rekapitulasi Sisa', path: '/food-waste/rekap', icon: Icons.TableProperties },
+    ],
     po: [
       { title: 'Konsolidasi PO 5-Hari', path: '/purchase-order', icon: Icons.FileCheck },
       { title: 'Riwayat & Daftar PO', path: '/purchase-order/riwayat', icon: Icons.History },
@@ -146,6 +150,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         isActive: true
       });
     }
+    if (!list.some(m => m.path === '/food-waste' || m.targetModule === 'foodWaste')) {
+      list.push({
+        id: 'MNU-003-FOOD-WASTE',
+        title: 'Food Waste',
+        path: '/food-waste',
+        icon: 'Trash2',
+        color: '#EF4444',
+        order: 3.86,
+        targetModule: 'foodWaste',
+        requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+        isActive: true
+      });
+    }
     return list.sort((a, b) => a.order - b.order);
   }, [menus]);
 
@@ -162,6 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     if (menu.targetModule === 'esurat' || menu.path.includes('esurat')) return 'esurat';
     if (menu.targetModule === 'barangDatang' || menu.path.includes('barang-datang')) return 'barangDatang';
     if (menu.targetModule === 'menuHarian' || menu.path.includes('menu-harian')) return 'menuHarian';
+    if (menu.targetModule === 'foodWaste' || menu.path.includes('food-waste')) return 'foodWaste';
     if (menu.targetModule === 'stock' || menu.path.includes('stock')) return 'stock';
     if (menu.path.includes('penerima-manfaat')) return 'penerima';
     if (menu.targetModule === 'po' || menu.path.includes('purchase-order') || menu.path === '/po') return 'po';

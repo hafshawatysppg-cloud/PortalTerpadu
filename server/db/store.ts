@@ -54,7 +54,9 @@ import {
   DriverStaff,
   DistributionReport,
   MasterDocumentTemplateConfig,
-  DEFAULT_MASTER_TEMPLATE_CONFIG
+  DEFAULT_MASTER_TEMPLATE_CONFIG,
+  FoodWasteRecord,
+  FoodWasteItem
 } from '../../src/types';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
@@ -476,6 +478,17 @@ export const initialMenus: MenuItem[] = [
     color: '#F59E0B',
     order: 3.85,
     targetModule: 'menuHarian',
+    requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+    isActive: true
+  },
+  {
+    id: 'MNU-003-FOOD-WASTE',
+    title: 'Food Waste',
+    path: '/food-waste',
+    icon: 'Trash2',
+    color: '#EF4444',
+    order: 3.86,
+    targetModule: 'foodWaste',
     requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
     isActive: true
   },
@@ -1565,6 +1578,82 @@ export const initialNutritionPlans: NutritionPlan[] = [];
 
 export const initialNutritionPlanItems: NutritionPlanItem[] = [];
 
+export const initialFoodWasteRecords: FoodWasteRecord[] = [
+  {
+    id: 'FW-20260806-001',
+    tanggal: '2026-08-06',
+    hariTanggalFormatted: 'KAMIS, 06 AGUSTUS 2026',
+    sppgName: 'SPPG PROBOLINGGO KREJENGAN TEMENGGUNGAN',
+    penerimaManfaatTotal: 2808,
+    items: [
+      {
+        id: 'FWI-001',
+        menu: 'Nasi',
+        jumlah: 66.9,
+        satuan: 'Kg',
+        penerimaManfaat: 2808,
+        standarPorsi: 150,
+        totalDisajikanKg: 421.2,
+        persentase: 16,
+        kesimpulan: 'Toleransi'
+      },
+      {
+        id: 'FWI-002',
+        menu: 'Chickem katsu',
+        jumlah: 1.1,
+        satuan: 'Kg',
+        penerimaManfaat: 2808,
+        standarPorsi: 50,
+        totalDisajikanKg: 140.4,
+        persentase: 1,
+        kesimpulan: 'Baik Sekali'
+      },
+      {
+        id: 'FWI-003',
+        menu: 'Tahu goreng',
+        jumlah: 7.2,
+        satuan: 'Kg',
+        penerimaManfaat: 2808,
+        standarPorsi: 50,
+        totalDisajikanKg: 140.4,
+        persentase: 5,
+        kesimpulan: 'Baik Sekali'
+      },
+      {
+        id: 'FWI-004',
+        menu: 'Curry wortel & kentang',
+        jumlah: 39.65,
+        satuan: 'Kg',
+        penerimaManfaat: 2808,
+        standarPorsi: 50,
+        totalDisajikanKg: 140.4,
+        persentase: 28,
+        kesimpulan: 'Perlu perbaikan menu'
+      },
+      {
+        id: 'FWI-005',
+        menu: 'Jeruk santang',
+        jumlah: 0,
+        satuan: 'Kg',
+        penerimaManfaat: 2808,
+        standarPorsi: 100,
+        totalDisajikanKg: 280.8,
+        persentase: 0,
+        kesimpulan: 'Baik Sekali'
+      }
+    ],
+    totalDisajikanKg: 1123.2,
+    totalSisaKg: 114.85,
+    rataRataPersentase: 10,
+    kesimpulanUmum: 'Toleransi (≤20% masih dianggap batas toleransi maksimal)',
+    petugas: 'Ahli Gizi SPPG',
+    status: 'Final',
+    createdAt: '2026-08-06T13:30:00Z',
+    updatedAt: '2026-08-06T13:30:00Z',
+    createdBy: 'Ahli Gizi SPPG'
+  }
+];
+
 export const initialBarangDatang: BarangDatang[] = [
   {
     id: 'BD-20260908-001',
@@ -1812,6 +1901,7 @@ class EnterpriseDataStore {
   public rabPlans: RABPlan[] = [];
   public purchaseOrders: PurchaseOrderDocument[] = [];
   public documentTemplate: MasterDocumentTemplateConfig = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
+  public foodWasteRecords: FoodWasteRecord[] = [...initialFoodWasteRecords];
 
   // Helper method to compute and construct a synchronized RAB Plan
   public calculateRABPlan(
@@ -3010,6 +3100,103 @@ class EnterpriseDataStore {
     const prevLen = this.menuHarian.length;
     this.menuHarian = this.menuHarian.filter(m => m.id !== id);
     return this.menuHarian.length < prevLen;
+  }
+
+  // --- FOOD WASTE STORE METHODS ---
+  public getFoodWasteRecords(): FoodWasteRecord[] {
+    return this.foodWasteRecords;
+  }
+
+  public getFoodWasteByDate(tanggal: string): FoodWasteRecord | undefined {
+    return this.foodWasteRecords.find(r => r.tanggal === tanggal);
+  }
+
+  public saveFoodWaste(data: Partial<FoodWasteRecord>): FoodWasteRecord {
+    const now = new Date();
+    const cleanDate = (data.tanggal || now.toISOString().split('T')[0]).replace(/-/g, '');
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const id = data.id || `FW-${cleanDate}-${rand}`;
+
+    const items = (data.items || []).map((it, idx) => {
+      const pm = Number(it.penerimaManfaat) || Number(data.penerimaManfaatTotal) || 0;
+      const sp = Number(it.standarPorsi) || 0;
+      const totalDisajikanKg = Number(((pm * sp) / 1000).toFixed(2));
+      const sisa = Number(it.jumlah) || 0;
+      const persentase = totalDisajikanKg > 0 ? Math.round((sisa / totalDisajikanKg) * 100) : 0;
+      
+      let kesimpulan: string = it.kesimpulan || 'Baik Sekali';
+      if (!it.kesimpulan || it.kesimpulan === 'Auto') {
+        if (persentase > 20) {
+          kesimpulan = 'Perlu perbaikan menu';
+        } else if (persentase > 15) {
+          kesimpulan = 'Toleransi';
+        } else {
+          kesimpulan = 'Baik Sekali';
+        }
+      }
+
+      return {
+        ...it,
+        id: it.id || `FWI-${Date.now()}-${idx + 1}`,
+        menu: it.menu || `Menu ${idx + 1}`,
+        jumlah: sisa,
+        satuan: it.satuan || 'Kg',
+        penerimaManfaat: pm,
+        standarPorsi: sp,
+        totalDisajikanKg,
+        persentase,
+        kesimpulan
+      };
+    });
+
+    const totalDisajikanKg = Number(items.reduce((sum, it) => sum + it.totalDisajikanKg, 0).toFixed(2));
+    const totalSisaKg = Number(items.reduce((sum, it) => sum + it.jumlah, 0).toFixed(2));
+    const rataRataPersentase = totalDisajikanKg > 0 ? Math.round((totalSisaKg / totalDisajikanKg) * 100) : 0;
+
+    let kesimpulanUmum = data.kesimpulanUmum;
+    if (!kesimpulanUmum) {
+      if (rataRataPersentase > 20) {
+        kesimpulanUmum = '>20% perlu perbaikan menu, porsi, atau edukasi';
+      } else if (rataRataPersentase > 15) {
+        kesimpulanUmum = '≤20% masih dianggap batas toleransi maksimal';
+      } else {
+        kesimpulanUmum = '<10-15% adalah target efisiensi yang baik';
+      }
+    }
+
+    const record: FoodWasteRecord = {
+      id,
+      tanggal: data.tanggal || now.toISOString().split('T')[0],
+      hariTanggalFormatted: data.hariTanggalFormatted || '',
+      sppgName: data.sppgName || 'SPPG PROBOLINGGO KREJENGAN TEMENGGUNGAN',
+      penerimaManfaatTotal: Number(data.penerimaManfaatTotal) || 0,
+      items,
+      totalDisajikanKg,
+      totalSisaKg,
+      rataRataPersentase,
+      kesimpulanUmum,
+      petugas: data.petugas || 'Ahli Gizi SPPG',
+      catatanEvaluasi: data.catatanEvaluasi || '',
+      status: data.status || 'Final',
+      createdAt: data.createdAt || now.toISOString(),
+      updatedAt: now.toISOString(),
+      createdBy: data.createdBy || 'Petugas Gizi'
+    };
+
+    const existingIdx = this.foodWasteRecords.findIndex(r => r.id === id || r.tanggal === record.tanggal);
+    if (existingIdx !== -1) {
+      this.foodWasteRecords[existingIdx] = record;
+    } else {
+      this.foodWasteRecords.unshift(record);
+    }
+
+    return record;
+  }
+
+  public deleteFoodWaste(id: string): boolean {
+    const prevLen = this.foodWasteRecords.length;
+    this.foodWasteRecords = this.foodWasteRecords.filter(r => r.id !== id);
+    return this.foodWasteRecords.length < prevLen;
   }
 }
 
