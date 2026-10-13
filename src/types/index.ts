@@ -61,7 +61,7 @@ export interface MenuItem {
   icon: string; // Lucide icon identifier
   color?: string; // CSS color or Tailwind class
   order: number;
-  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'foodWaste' | 'external';
+  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'foodWaste' | 'petugas' | 'external';
   requiredRole?: UserRole[];
   parentId?: string;
   isActive: boolean;
@@ -401,23 +401,40 @@ export interface TaskTemplate {
 
 export type KlasifikasiPorsi = 'Porsi Besar' | 'Porsi Kecil' | 'Porsi Balita' | 'Porsi Ibu Hamil' | 'Porsi Ibu Menyusui' | 'Balita' | 'Bumil & Busui';
 
+export type KategoriLembaga = 
+  | 'SD / MI' 
+  | 'SMP / MTs' 
+  | 'SMA / SMK / MA' 
+  | 'PAUD / TK / RA' 
+  | '3B (Baliat, Ibu Hamil & Ibu Menyusui)'
+  | '3B (Balita, Ibu Hamil & Ibu Menyusui)'
+  | 'Balita / Posyandu' 
+  | 'Bumil & Busui' 
+  | 'Pondok Pesantren' 
+  | 'Lainnya';
+
 export interface BeneficiaryGroup {
   id: string;
   nama: string; // PAUD/TK, SD, SMP, SMA/MA, Ibu Hamil, Ibu Menyusui, Balita, Guru/Staf
-  kategoriUtama: 'Siswa' | 'Balita' | 'Ibu Hamil' | 'Ibu Menyusui' | 'Guru / Staf' | 'Lainnya';
+  kategoriUtama: 'Siswa' | 'Balita' | 'Ibu Hamil' | 'Ibu Menyusui' | '3B' | 'Guru / Staf' | 'Lainnya';
+  kategoriLembaga?: KategoriLembaga;
   klasifikasiPorsi?: KlasifikasiPorsi;
   deskripsi?: string;
+  alamat?: string;
   urutan: number;
   status: 'Aktif' | 'Nonaktif';
   lembagaList?: Array<{
     id?: string;
     namaInstansi: string;
+    alamat?: string;
+    kategoriLembaga?: KategoriLembaga;
     targetSiswa: number;
     targetGuru: number;
     targetBalita?: number;
     targetBumilBusui?: number;
     total: number;
     klasifikasiPorsi: KlasifikasiPorsi;
+    breakdownKelas?: Record<string, number>;
   }>;
 }
 
@@ -428,7 +445,9 @@ export interface BeneficiaryLocation {
   namaInstansi: string; // e.g. SD Zainul Hasan Genggong, MA Model Hafshawaty
   alamat?: string;
   kontak?: string;
+  kategoriLembaga?: KategoriLembaga;
   klasifikasiPorsi?: KlasifikasiPorsi;
+  breakdownKelas?: Record<string, number>;
   kategoriBreakdown?: {
     siswa?: number;
     guru?: number;
@@ -436,6 +455,7 @@ export interface BeneficiaryLocation {
     ibuHamil?: number;
     ibuMenyusui?: number;
     staf?: number;
+    breakdownKelas?: Record<string, number>;
   };
   defaultJumlah: number;
   status: 'Aktif' | 'Nonaktif';
@@ -991,6 +1011,81 @@ export interface MenuHarianRecord {
 }
 
 export * from './documentTemplate';
+
+// --- DAFTAR PETUGAS & SLIP GAJI HARIAN ---
+export interface Petugas {
+  id: string; // e.g. 'PTG-001'
+  nomor: string; // Nomer urut/ID petugas, e.g. '01', '02', 'PTG-001'
+  nama: string; // Nama lengkap petugas
+  jabatan: string; // Jabatan petugas
+  alamat: string; // Alamat tempat tinggal
+  besaranGaji: number; // Besaran gaji pokok harian (Rp/hari), e.g. 125000
+  telepon?: string;
+  status: 'Aktif' | 'Cuti' | 'Nonaktif';
+  tanggalMulai?: string;
+  nomorRekening?: string;
+  namaBank?: string;
+  keterangan?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SlipGajiHarian {
+  id: string; // e.g. 'SLIP-20261010-001'
+  nomorSlip: string; // e.g. 'SLIP/SPPG/2026/10/001'
+  tanggal: string; // YYYY-MM-DD
+  hariTanggalFormatted?: string; // e.g. "Sabtu, 10 Oktober 2026"
+  petugasId: string;
+  nomorPetugas: string;
+  namaPetugas: string;
+  jabatan: string;
+  alamat: string;
+
+  // Komponen Harian
+  kehadiranHari: number; // 1 (penuh), 0.5 (setengah hari)
+  tarifGajiPerHari: number; // Besaran gaji pokok per hari
+  gajiPokokHarian: number; // kehadiranHari * tarifGajiPerHari
+  uangMakanHarian: number; // Uang makan harian
+  uangTransportHarian: number; // Uang transport harian
+  uangLemburHarian: number; // Lembur harian jika ada
+  bonusHarian: number; // Insentif / bonus harian
+  totalPenghasilanKotor: number;
+
+  // Potongan
+  potonganHarian: number; // Potongan harian (kasbon/keterlambatan)
+  keteranganPotongan?: string;
+
+  // Bersih Dibayarkan
+  totalGajiBersih: number; // Bersih yang diterima per hari
+  terbilang?: string; // Teks nominal terbilang
+
+  // Status & Pembayaran
+  metodePembayaran: 'Tunai' | 'Transfer Bank' | 'QRIS/E-Wallet';
+  statusPembayaran: 'Lunas' | 'Belum Dibayar' | 'Tertunda';
+  tanggalBayar?: string;
+  jamBayar?: string;
+  catatanTugas?: string;
+
+  // Verifikasi & Tanda Tangan
+  namaPenerima: string;
+  namaBendahara: string;
+  namaKepalaSppg?: string;
+
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+}
+
+export interface RekapGajiHarianSummary {
+  tanggal: string;
+  totalPetugasHadir: number;
+  totalGajiDibayarkan: number;
+  totalLunas: number;
+  totalBelumLunas: number;
+  totalGajiLunas: number;
+  totalGajiBelumLunas: number;
+  rataRataGajiHarian: number;
+}
 
 
 

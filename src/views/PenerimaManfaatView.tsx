@@ -40,7 +40,8 @@ import {
   DailyBeneficiaryRecord,
   DailyBeneficiarySummary,
   BeneficiaryAuditLog,
-  KlasifikasiPorsi
+  KlasifikasiPorsi,
+  KategoriLembaga
 } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmModal } from '../components/common/ConfirmModal';
@@ -51,6 +52,11 @@ import {
   RealtimeValidationAuditBar,
   calculatePortionValidation
 } from '../components/common/PortionValidationInput';
+import {
+  GroupFormModal,
+  getKategoriConfig,
+  inferKategoriFromText
+} from '../components/common/GroupFormModal';
 
 interface PenerimaManfaatViewProps {
   currentPath?: string;
@@ -815,39 +821,46 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     if (!editingGroup || !editingGroup.nama) return;
 
     try {
+      const groupCat: KategoriLembaga = editingGroup.kategoriLembaga || inferKategoriFromText(editingGroup.nama, 'SD / MI');
+      const conf = getKategoriConfig(groupCat);
+
       const sanitizedLembagaList = (editingGroup.lembagaList || []).map((l: any) => {
-        const itemKlas = l.klasifikasiPorsi || editingGroup.klasifikasiPorsi || 'Porsi Besar';
+        const itemCat: KategoriLembaga = l.kategoriLembaga || groupCat;
+        const itemConf = getKategoriConfig(itemCat);
+        const itemKlas = l.klasifikasiPorsi || editingGroup.klasifikasiPorsi || itemConf.defaultKlasifikasi || 'Porsi Besar';
         const norm = (l.namaInstansi || '').trim().toLowerCase();
-        let s = Number(l.targetSiswa) || 0;
+        const bd = l.breakdownKelas || {};
+
+        const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(bd[c.key]) || 0), 0);
+        let s = sumClasses > 0 ? sumClasses : (Number(l.targetSiswa) || 0);
         let g = Number(l.targetGuru) || 0;
         let b = Number(l.targetBalita) || 0;
         let bb = Number(l.targetBumilBusui) || 0;
 
-        if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
-          const val = bb || s || 0;
-          bb = val;
+        const is3B = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
+        if (is3B) {
+          b = sumClasses > 0 ? ((Number(bd['baduta']) || 0) + (Number(bd['balita']) || 0)) : (b || 0);
+          bb = sumClasses > 0 ? ((Number(bd['bumil']) || 0) + (Number(bd['busui']) || 0)) : (bb || 0);
+          s = 0;
+        } else if (itemConf.targetCategory === 'Balita' || itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
+          b = sumClasses > 0 ? sumClasses : (b || s || 0);
+          s = 0;
+          bb = 0;
+        } else if (itemConf.targetCategory === 'Ibu Hamil' || itemKlas === 'Porsi Ibu Hamil' || itemKlas === 'Porsi Ibu Menyusui' || itemKlas === 'Bumil & Busui' || norm.includes('hamil') || norm.includes('menyusui')) {
+          bb = sumClasses > 0 ? sumClasses : (bb || s || 0);
           s = 0;
           b = 0;
-        } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
-          const val = bb || s || 0;
-          bb = val;
-          s = 0;
+        } else {
+          s = sumClasses > 0 ? sumClasses : s;
           b = 0;
-        } else if (itemKlas === 'Bumil & Busui') {
-          const val = bb || s || 0;
-          bb = val;
-          s = 0;
-          b = 0;
-        } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
-          const val = b || s || 0;
-          b = val;
-          s = 0;
           bb = 0;
         }
 
         const total = s + g + b + bb;
         return {
           ...l,
+          kategoriLembaga: itemCat,
+          breakdownKelas: bd,
           targetSiswa: s,
           targetGuru: g,
           targetBalita: b,
@@ -859,6 +872,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
       const payload = {
         ...editingGroup,
+        kategoriLembaga: groupCat,
+        kategoriUtama: conf.targetCategory,
         lembagaList: sanitizedLembagaList
       };
 
@@ -1841,15 +1856,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
               <button
                 onClick={() => {
+                  const defaultCat: KategoriLembaga = 'SD / MI';
+                  const conf = getKategoriConfig(defaultCat);
+                  const initialBd: Record<string, number> = {};
+                  conf.classes.forEach(c => { initialBd[c.key] = 0; });
+
                   setEditingGroup({
-                    nama: '',
+                    nama: 'SD / MI Kraksaan',
                     kategoriUtama: 'Siswa',
-                    klasifikasiPorsi: 'Porsi Kecil',
-                    deskripsi: '',
+                    kategoriLembaga: defaultCat,
+                    alamat: 'Jl. Raya Kraksaan, Kab. Probolinggo',
+                    deskripsi: 'Jl. Raya Kraksaan, Kab. Probolinggo',
                     status: 'Aktif',
                     lembagaList: [
                       {
-                        namaInstansi: '',
+                        namaInstansi: 'SD Negeri 1 Kraksaan',
+                        alamat: 'Jl. Raya Kraksaan No. 1',
+                        kategoriLembaga: defaultCat,
+                        breakdownKelas: initialBd,
                         targetSiswa: 0,
                         targetGuru: 0,
                         targetBalita: 0,
@@ -2120,15 +2144,21 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="flex items-center gap-1 ml-2">
                         <button
                           onClick={() => {
+                            const groupCat: KategoriLembaga = grp.kategoriLembaga || inferKategoriFromText(grp.nama, 'SD / MI');
+                            const groupConf = getKategoriConfig(groupCat);
                             const groupLocs = locations.filter(l => l.groupId === grp.id || l.groupNama === grp.nama);
+
                             const lembagaList = (grp.lembagaList && grp.lembagaList.length > 0)
                               ? grp.lembagaList.map(l => {
-                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || 'Porsi Besar';
+                                  const itemCat: KategoriLembaga = l.kategoriLembaga || groupCat;
+                                  const itemConf = getKategoriConfig(itemCat);
+                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || itemConf.defaultKlasifikasi || 'Porsi Besar';
                                   const norm = (l.namaInstansi || '').trim().toLowerCase();
                                   let s = Number(l.targetSiswa) || 0;
                                   let g = Number(l.targetGuru) || 0;
                                   let b = Number(l.targetBalita) || 0;
                                   let bb = Number(l.targetBumilBusui) || 0;
+
                                   if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
                                     bb = bb || s || 0;
                                     s = 0;
@@ -2142,8 +2172,33 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                     s = 0;
                                     bb = 0;
                                   }
+
+                                  let bd = l.breakdownKelas;
+                                  if (!bd || Object.keys(bd).length === 0) {
+                                    bd = {};
+                                    if (itemCat.includes('3B') || itemConf.id.includes('3B')) {
+                                      bd['baduta'] = Math.ceil(b / 2);
+                                      bd['balita'] = Math.floor(b / 2);
+                                      bd['bumil'] = Math.ceil(bb / 2);
+                                      bd['busui'] = Math.floor(bb / 2);
+                                    } else {
+                                      const mainVal = itemConf.targetCategory === 'Balita' ? b : (itemConf.targetCategory === 'Ibu Hamil' ? bb : s);
+                                      if (itemConf.classes.length > 0 && mainVal > 0) {
+                                        const perCls = Math.floor(mainVal / itemConf.classes.length);
+                                        const rem = mainVal % itemConf.classes.length;
+                                        itemConf.classes.forEach((c, cIdx) => {
+                                          bd[c.key] = perCls + (cIdx === 0 ? rem : 0);
+                                        });
+                                      } else {
+                                        itemConf.classes.forEach(c => { bd[c.key] = 0; });
+                                      }
+                                    }
+                                  }
+
                                   return {
                                     ...l,
+                                    kategoriLembaga: itemCat,
+                                    breakdownKelas: bd,
                                     targetSiswa: s,
                                     targetGuru: g,
                                     targetBalita: b,
@@ -2153,12 +2208,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                   };
                                 })
                               : groupLocs.map(l => {
-                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || 'Porsi Besar';
+                                  const itemCat: KategoriLembaga = l.kategoriLembaga || groupCat;
+                                  const itemConf = getKategoriConfig(itemCat);
+                                  const itemKlas = l.klasifikasiPorsi || grp.klasifikasiPorsi || itemConf.defaultKlasifikasi || 'Porsi Besar';
                                   const norm = (l.namaInstansi || '').trim().toLowerCase();
                                   let s = l.kategoriBreakdown?.siswa || 0;
                                   let g = l.kategoriBreakdown?.guru || (l.kategoriBreakdown?.staf || 0);
                                   let b = l.kategoriBreakdown?.balita || 0;
                                   let bb = (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0);
+
                                   if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
                                     bb = bb || l.kategoriBreakdown?.ibuHamil || s || 0;
                                     s = 0;
@@ -2172,10 +2230,35 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                     s = 0;
                                     bb = 0;
                                   }
+
+                                  let bd = l.breakdownKelas || l.kategoriBreakdown?.breakdownKelas;
+                                  if (!bd || Object.keys(bd).length === 0) {
+                                    bd = {};
+                                    if (itemCat.includes('3B') || itemConf.id.includes('3B')) {
+                                      bd['baduta'] = Math.ceil(b / 2);
+                                      bd['balita'] = Math.floor(b / 2);
+                                      bd['bumil'] = Math.ceil(bb / 2);
+                                      bd['busui'] = Math.floor(bb / 2);
+                                    } else {
+                                      const mainVal = itemConf.targetCategory === 'Balita' ? b : (itemConf.targetCategory === 'Ibu Hamil' ? bb : s);
+                                      if (itemConf.classes.length > 0 && mainVal > 0) {
+                                        const perCls = Math.floor(mainVal / itemConf.classes.length);
+                                        const rem = mainVal % itemConf.classes.length;
+                                        itemConf.classes.forEach((c, cIdx) => {
+                                          bd[c.key] = perCls + (cIdx === 0 ? rem : 0);
+                                        });
+                                      } else {
+                                        itemConf.classes.forEach(c => { bd[c.key] = 0; });
+                                      }
+                                    }
+                                  }
+
                                   const tot = s + g + b + bb;
                                   return {
                                     id: l.id,
                                     namaInstansi: l.namaInstansi,
+                                    kategoriLembaga: itemCat,
+                                    breakdownKelas: bd,
                                     targetSiswa: s,
                                     targetGuru: g,
                                     targetBalita: b,
@@ -2187,10 +2270,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
                             setEditingGroup({
                               ...grp,
+                              alamat: grp.alamat || grp.deskripsi || '',
+                              kategoriLembaga: groupCat,
                               klasifikasiPorsi: portionCategory as any,
                               lembagaList: lembagaList.length > 0 ? lembagaList : [
                                 {
                                   namaInstansi: `${grp.nama} - Instansi 1`,
+                                  kategoriLembaga: groupCat,
+                                  breakdownKelas: {},
                                   targetSiswa: 0,
                                   targetGuru: 0,
                                   targetBalita: 0,
@@ -2268,11 +2355,26 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
                             return (
                               <tr key={loc.id || idx} className="hover:bg-white transition-all">
-                                <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
-                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{loc.namaInstansi || loc.nama}</span>
+                                <td className="px-4 py-2.5 font-bold text-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    <span>{loc.namaInstansi || loc.nama}</span>
+                                    {(loc.kategoriLembaga || grp.kategoriLembaga) && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                        {loc.kategoriLembaga || grp.kategoriLembaga}
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
-                                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{s}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <div className="font-semibold text-slate-700">{s}</div>
+                                  {loc.breakdownKelas && Object.keys(loc.breakdownKelas).length > 0 && (
+                                    <div className="text-[9px] text-slate-400 font-medium truncate max-w-[160px] mx-auto" title={Object.entries(loc.breakdownKelas).map(([k, v]) => `${k}: ${v}`).join(', ')}>
+                                      {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).slice(0, 3).map(([k, v]) => `${k.replace('kelas', 'K')}: ${v}`).join(' ')}
+                                      {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).length > 3 ? '...' : ''}
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{g}</td>
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{b}</td>
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{bb}</td>
@@ -2621,327 +2723,19 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         </div>
       )}
 
-      {/* MODAL: GROUP (TAMBAH / EDIT KELOMPOK & SPESIFIKASI SASARAN LEMBAGA) */}
+      {/* MODAL: GROUP (TAMBAH / EDIT KELOMPOK DENGAN BREAKDOWN DEMOGRAFI PENERIMA BERBASIS KATEGORI LEMBAGA) */}
       {isGroupModalOpen && editingGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
-          <div className="bg-white w-full max-w-4xl rounded-3xl border border-slate-200 shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto my-auto">
-            {/* Modal Header */}
-            <div className="flex items-start justify-between border-b border-slate-100 pb-3.5">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">
-                  {editingGroup.id ? 'Edit Kelompok & Spesifikasi Lembaga' : 'Form Penambahan Kelompok Baru & Sasaran Lembaga'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Kelola nama kelompok, klasifikasi porsi menu, dan pembagian sasaran siswa & guru per lembaga dalam satu form.
-                </p>
-              </div>
-              <button onClick={() => setIsGroupModalOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveGroup} className="space-y-5">
-              {/* Group Main Info Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/60">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Nama Kelompok *</label>
-                  <input
-                    type="text"
-                    value={editingGroup.nama || ''}
-                    onChange={(e) => setEditingGroup({ ...editingGroup, nama: e.target.value })}
-                    placeholder="e.g. SD (Kelas 1-3)"
-                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Deskripsi Kelompok</label>
-                  <input
-                    type="text"
-                    value={editingGroup.deskripsi || ''}
-                    onChange={(e) => setEditingGroup({ ...editingGroup, deskripsi: e.target.value })}
-                    placeholder="Deskripsi kelompok penerima manfaat..."
-                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {/* SPECIFICATION OF SISWA & GURU PER LEMBAGA */}
-              <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                  <div>
-                    <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5 uppercase tracking-wide">
-                      <Building2 className="w-4 h-4 text-emerald-600" />
-                      SPESIFIKASI SASARAN SISWA & GURU EVERY LEMBAGA / INSTANSI
-                    </h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Atur pembagian sasaran siswa, guru, balita, dan ibu hamil/menyusui per lembaga dalam 1 form ini.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const currentList = editingGroup.lembagaList || [];
-                      const nextNum = currentList.length + 1;
-                      const newList = [
-                        ...currentList,
-                        {
-                          namaInstansi: `${editingGroup.nama || 'Instansi'} ${nextNum}`,
-                          targetSiswa: 0,
-                          targetGuru: 0,
-                          targetBalita: 0,
-                          targetBumilBusui: 0,
-                          total: 0,
-                          klasifikasiPorsi: editingGroup.klasifikasiPorsi || 'Porsi Besar'
-                        }
-                      ];
-                      setEditingGroup({ ...editingGroup, lembagaList: newList });
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 transition-all cursor-pointer shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>+ Tambah Lembaga / Instansi</span>
-                  </button>
-                </div>
-
-                {/* Lembaga List Inputs */}
-                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                  {(!editingGroup.lembagaList || editingGroup.lembagaList.length === 0) ? (
-                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 rounded-xl">
-                      Belum ada lembaga/instansi ditambahkan. Klik tombol <span className="font-bold text-slate-700">+ Tambah Lembaga / Instansi</span> untuk mengisi rincian sasaran.
-                    </div>
-                  ) : (
-                    editingGroup.lembagaList.map((item: any, idx: number) => {
-                      const itemKlasifikasi = item.klasifikasiPorsi || 'Porsi Besar';
-                      const normInstansi = (item.namaInstansi || '').trim().toLowerCase();
-
-                      let dynamicLabel = 'Siswa';
-                      let isIbuHamilOrMenyusui = false;
-                      let isBalita = false;
-
-                      if (itemKlasifikasi === 'Porsi Balita' || itemKlasifikasi === 'Balita' || normInstansi.includes('balita')) {
-                        dynamicLabel = 'Balita';
-                        isBalita = true;
-                      } else if (itemKlasifikasi === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
-                        dynamicLabel = 'Ibu Hamil';
-                        isIbuHamilOrMenyusui = true;
-                      } else if (itemKlasifikasi === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
-                        dynamicLabel = 'Ibu Menyusui';
-                        isIbuHamilOrMenyusui = true;
-                      } else if (itemKlasifikasi === 'Bumil & Busui') {
-                        dynamicLabel = 'Bumil / Busui';
-                        isIbuHamilOrMenyusui = true;
-                      }
-
-                      let targetVal = 0;
-                      if (isBalita) {
-                        targetVal = item.targetBalita !== undefined ? Number(item.targetBalita) : (Number(item.targetSiswa) || 0);
-                      } else if (isIbuHamilOrMenyusui) {
-                        targetVal = item.targetBumilBusui !== undefined ? Number(item.targetBumilBusui) : (Number(item.targetSiswa) || 0);
-                      } else {
-                        targetVal = Number(item.targetSiswa) || 0;
-                      }
-
-                      const g = Number(item.targetGuru) || 0;
-                      const validation = calculatePortionValidation({
-                        namaInstansi: item.namaInstansi,
-                        klasifikasiPorsi: itemKlasifikasi,
-                        targetMain: targetVal,
-                        targetGuru: g,
-                        targetBalita: isBalita ? targetVal : undefined,
-                        targetBumilBusui: isIbuHamilOrMenyusui ? targetVal : undefined
-                      });
-
-                      return (
-                        <div key={idx} className="bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200/80 space-y-2 hover:border-emerald-300 transition-all">
-                          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-                            {/* Nama Instansi */}
-                            <div className="md:col-span-4">
-                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Nama Lembaga / Instansi #{idx + 1}</label>
-                              <input
-                                type="text"
-                                value={item.namaInstansi || ''}
-                                onChange={(e) => {
-                                  const list = [...(editingGroup.lembagaList || [])];
-                                  list[idx] = { ...list[idx], namaInstansi: e.target.value };
-                                  setEditingGroup({ ...editingGroup, lembagaList: list });
-                                }}
-                                placeholder="e.g. SD Zainul Hasan 1"
-                                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
-                                required
-                              />
-                            </div>
-
-                            {/* Dynamic Target Column with Real-time Validated Input */}
-                            <div className="md:col-span-2">
-                              <ValidatedPortionInput
-                                label={dynamicLabel}
-                                value={targetVal}
-                                onChange={(val) => {
-                                  const list = [...(editingGroup.lembagaList || [])];
-                                  const newItem = { ...list[idx] };
-                                  if (isBalita) {
-                                    newItem.targetBalita = val;
-                                    newItem.targetSiswa = 0;
-                                    newItem.targetBumilBusui = 0;
-                                  } else if (isIbuHamilOrMenyusui) {
-                                    newItem.targetBumilBusui = val;
-                                    newItem.targetSiswa = 0;
-                                    newItem.targetBalita = 0;
-                                  } else {
-                                    newItem.targetSiswa = val;
-                                    newItem.targetBalita = 0;
-                                    newItem.targetBumilBusui = 0;
-                                  }
-                                  const numG = Number(newItem.targetGuru) || 0;
-                                  newItem.total = val + numG;
-                                  list[idx] = newItem;
-                                  setEditingGroup({ ...editingGroup, lembagaList: list });
-                                }}
-                              />
-                            </div>
-
-                            {/* Target Guru with Real-time Validated Input */}
-                            <div className="md:col-span-2">
-                              <ValidatedPortionInput
-                                label="Guru / Staf"
-                                value={item.targetGuru ?? 0}
-                                onChange={(val) => {
-                                  const list = [...(editingGroup.lembagaList || [])];
-                                  const newItem = { ...list[idx], targetGuru: val };
-                                  newItem.total = targetVal + val;
-                                  list[idx] = newItem;
-                                  setEditingGroup({ ...editingGroup, lembagaList: list });
-                                }}
-                              />
-                            </div>
-
-                            {/* Subtotal Porsi with Real-Time Validation Badge */}
-                            <div className="md:col-span-2">
-                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5 text-center">Subtotal Porsi</label>
-                              <PortionValidationBadge
-                                subtotal={validation.subtotal}
-                                formula={validation.formula}
-                                compact={true}
-                              />
-                            </div>
-
-                            {/* Jenis Klasifikasi & Trash Button */}
-                            <div className="md:col-span-2 flex items-center justify-end gap-1 pt-3 md:pt-0">
-                              <select
-                                value={item.klasifikasiPorsi || 'Porsi Besar'}
-                                onChange={(e) => {
-                                  const newKlas = e.target.value as any;
-                                  const list = [...(editingGroup.lembagaList || [])];
-                                  const cur = { ...list[idx], klasifikasiPorsi: newKlas };
-                                  const currentVal = Number(cur.targetBumilBusui) || Number(cur.targetBalita) || Number(cur.targetSiswa) || 0;
-                                  if (newKlas === 'Porsi Balita' || newKlas === 'Balita') {
-                                    cur.targetBalita = currentVal;
-                                    cur.targetSiswa = 0;
-                                    cur.targetBumilBusui = 0;
-                                  } else if (newKlas === 'Porsi Ibu Hamil' || newKlas === 'Porsi Ibu Menyusui' || newKlas === 'Bumil & Busui') {
-                                    cur.targetBumilBusui = currentVal;
-                                    cur.targetSiswa = 0;
-                                    cur.targetBalita = 0;
-                                  } else {
-                                    cur.targetSiswa = currentVal;
-                                    cur.targetBalita = 0;
-                                    cur.targetBumilBusui = 0;
-                                  }
-                                  cur.total = currentVal + (Number(cur.targetGuru) || 0);
-                                  list[idx] = cur;
-                                  setEditingGroup({ ...editingGroup, lembagaList: list });
-                                }}
-                                className="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 max-w-[125px]"
-                              >
-                                <option value="Porsi Besar">🍱 Porsi Besar</option>
-                                <option value="Porsi Kecil">🥣 Porsi Kecil</option>
-                                <option value="Porsi Balita">🍼 Porsi Balita</option>
-                                <option value="Porsi Ibu Hamil">🤰 Porsi Ibu Hamil</option>
-                                <option value="Porsi Ibu Menyusui">🤱 Porsi Ibu Menyusui</option>
-                              </select>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const list = [...(editingGroup.lembagaList || [])];
-                                  list.splice(idx, 1);
-                                  setEditingGroup({ ...editingGroup, lembagaList: list });
-                                }}
-                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
-                                title="Hapus Lembaga Ini"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Live Summary Calculation Box with RealtimeValidationAuditBar */}
-                {editingGroup.lembagaList && editingGroup.lembagaList.length > 0 && (() => {
-                  const totalTargetMain = editingGroup.lembagaList.reduce((acc: number, l: any) => {
-                    const k = l.klasifikasiPorsi || 'Porsi Besar';
-                    const norm = (l.namaInstansi || '').trim().toLowerCase();
-                    if (k === 'Porsi Balita' || k === 'Balita' || norm.includes('balita')) {
-                      return acc + (Number(l.targetBalita) || Number(l.targetSiswa) || 0);
-                    }
-                    if (k === 'Porsi Ibu Hamil' || k === 'Porsi Ibu Menyusui' || k === 'Bumil & Busui' || norm.includes('hamil') || norm.includes('menyusui')) {
-                      return acc + (Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0);
-                    }
-                    return acc + (Number(l.targetSiswa) || 0);
-                  }, 0);
-                  const totalGuru = editingGroup.lembagaList.reduce((acc: number, l: any) => acc + (Number(l.targetGuru) || 0), 0);
-                  const totalPorsiAll = totalTargetMain + totalGuru;
-
-                  return (
-                    <RealtimeValidationAuditBar
-                      totalItems={editingGroup.lembagaList.length}
-                      totalSubtotal={totalPorsiAll}
-                      isValid={true}
-                      unitLabel="Lembaga"
-                    />
-                  );
-                })()}
-              </div>
-
-              {/* Form Actions */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                {editingGroup.id ? (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteGroup(editingGroup.id!, editingGroup.nama || '')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl text-xs font-semibold border border-rose-200 transition-all cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Hapus Kelompok
-                  </button>
-                ) : <div />}
-                
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsGroupModalOpen(false)}
-                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-2xl text-xs font-semibold cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-bold shadow-sm transition-all cursor-pointer"
-                  >
-                    Simpan Kelompok & Spesifikasi Lembaga
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+        <GroupFormModal
+          isOpen={isGroupModalOpen}
+          editingGroup={editingGroup}
+          setEditingGroup={setEditingGroup}
+          onClose={() => {
+            setIsGroupModalOpen(false);
+            setEditingGroup(null);
+          }}
+          onSave={handleSaveGroup}
+          onDelete={handleDeleteGroup}
+        />
       )}
 
       {/* MODAL: AUDIT LOG HISTORY */}

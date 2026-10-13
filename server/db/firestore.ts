@@ -423,6 +423,8 @@ export const SYNCED_COLLECTIONS = [
   { key: 'activityLogs', coll: 'activityLogs' },
   { key: 'menus', coll: 'menus' },
   { key: 'foodWasteRecords', coll: 'foodWasteRecords' },
+  { key: 'petugasList', coll: 'petugasList' },
+  { key: 'slipGajiList', coll: 'slipGajiList' },
   { key: 'settings', coll: 'settings', isSingleDoc: true },
   { key: 'documentTemplate', coll: 'documentTemplate', isSingleDoc: true }
 ];

@@ -50,6 +50,7 @@ import menuHarianRoutes from './server/routes/menuHarian';
 import documentTemplateRoutes from './server/routes/documentTemplate';
 import distribusiRoutes from './server/routes/distribusi';
 import foodWasteRoutes from './server/routes/foodWaste';
+import petugasRoutes from './server/routes/petugas';
 import { swaggerSpec } from './server/docs/swagger';
 import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './server/db/firestore';
 
@@ -131,6 +132,8 @@ async function startServer() {
   app.use('/api/v1/distribusi', distribusiRoutes);
   app.use('/api/v1/food-waste', foodWasteRoutes);
   app.use('/api/food-waste', foodWasteRoutes);
+  app.use('/api/v1/petugas', petugasRoutes);
+  app.use('/api/petugas', petugasRoutes);
 
   const distPath = path.join(process.cwd(), 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');

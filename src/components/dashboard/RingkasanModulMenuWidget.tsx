@@ -16,7 +16,8 @@ import {
   Building2,
   CheckCircle2,
   Layers,
-  Trash2
+  Trash2,
+  Receipt
 } from 'lucide-react';
 
 interface RingkasanModulMenuWidgetProps {
@@ -126,6 +127,17 @@ export const RingkasanModulMenuWidget: React.FC<RingkasanModulMenuWidgetProps> =
       metrics: 'Ambang Batas Gizi',
       icon: <Trash2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
       path: '/food-waste'
+    },
+    {
+      id: 'petugas',
+      title: 'Daftar Petugas & Slip Gaji',
+      category: 'Kepegawaian & Penggajian',
+      badge: 'Gaji Harian',
+      badgeColor: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+      description: 'Master data petugas SPPG, rincian nomor, nama, jabatan, alamat, besaran tarif harian, serta rekapitulasi slip gaji harian.',
+      metrics: 'Upah Per Hari',
+      icon: <Receipt className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,
+      path: '/petugas'
     },
     {
       id: 'laporan-arsip',

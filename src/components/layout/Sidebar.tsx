@@ -92,6 +92,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
       { title: 'Form Input Food Waste', path: '/food-waste', icon: Icons.ClipboardEdit },
       { title: 'Data & Rekapitulasi Sisa', path: '/food-waste/rekap', icon: Icons.TableProperties },
     ],
+    petugas: [
+      { title: 'Daftar Petugas', path: '/petugas/daftar', icon: Icons.Users },
+      { title: 'Slip Gaji Harian', path: '/petugas/slip-gaji', icon: Icons.Receipt },
+    ],
     po: [
       { title: 'Konsolidasi PO 5-Hari', path: '/purchase-order', icon: Icons.FileCheck },
       { title: 'Riwayat & Daftar PO', path: '/purchase-order/riwayat', icon: Icons.History },
@@ -163,6 +167,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         isActive: true
       });
     }
+    if (!list.some(m => m.path === '/petugas' || m.targetModule === 'petugas')) {
+      list.push({
+        id: 'MNU-003-PETUGAS',
+        title: 'Daftar Petugas',
+        path: '/petugas',
+        icon: 'Users',
+        color: '#6366F1',
+        order: 3.87,
+        targetModule: 'petugas',
+        requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+        isActive: true
+      });
+    }
     return list.sort((a, b) => a.order - b.order);
   }, [menus]);
 
@@ -180,6 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     if (menu.targetModule === 'barangDatang' || menu.path.includes('barang-datang')) return 'barangDatang';
     if (menu.targetModule === 'menuHarian' || menu.path.includes('menu-harian')) return 'menuHarian';
     if (menu.targetModule === 'foodWaste' || menu.path.includes('food-waste')) return 'foodWaste';
+    if (menu.targetModule === 'petugas' || menu.path.includes('petugas')) return 'petugas';
     if (menu.targetModule === 'stock' || menu.path.includes('stock')) return 'stock';
     if (menu.path.includes('penerima-manfaat')) return 'penerima';
     if (menu.targetModule === 'po' || menu.path.includes('purchase-order') || menu.path === '/po') return 'po';

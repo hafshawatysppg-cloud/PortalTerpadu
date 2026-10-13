@@ -35,6 +35,7 @@ import { BarangDatangView } from './views/stock/BarangDatangView';
 import { MenuHarianView } from './views/menuHarian/MenuHarianView';
 import { LaporanDistribusiView } from './views/distribusi/LaporanDistribusiView';
 import { FoodWasteView } from './views/FoodWasteView';
+import { PetugasView } from './views/petugas/PetugasView';
 
 const PortalMain: React.FC = () => {
   const { user, isAuthenticated, isAuthLoading } = useAuth();
@@ -107,12 +108,12 @@ const PortalMain: React.FC = () => {
 
     // Staff Kantor
     if (role === 'Staff Kantor') {
-      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path === '/dashboard';
+      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path === '/dashboard';
     }
 
     // Distribusi
     if (role === 'Distribusi') {
-      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path === '/dashboard';
+      return path.startsWith('/bbm') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path === '/dashboard';
     }
 
     // Role specific default fallback
@@ -305,6 +306,10 @@ const PortalMain: React.FC = () => {
       case '/food-waste/form':
       case '/food-waste/rekap':
         return <FoodWasteView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+      case '/petugas':
+      case '/petugas/daftar':
+      case '/petugas/slip-gaji':
+        return <PetugasView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       default:
         return <DashboardView onNavigate={(path) => setCurrentPath(path)} />;
     }

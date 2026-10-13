@@ -124,7 +124,7 @@ router.get('/groups', (req: Request, res: Response): void => {
 
 // Helper for Updating Group & Lembaga List
 function updateGroupHandler(id: string, body: any, res: Response) {
-  const { nama, kategoriUtama, klasifikasiPorsi, deskripsi, status, lembagaList } = body;
+  const { nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = body;
   const idx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
   if (idx === -1) {
     res.status(404).json({ success: false, message: 'Kelompok tidak ditemukan' });
@@ -138,8 +138,10 @@ function updateGroupHandler(id: string, body: any, res: Response) {
     ...existingGroup,
     nama: updatedNama,
     kategoriUtama: kategoriUtama || existingGroup.kategoriUtama,
+    kategoriLembaga: kategoriLembaga || existingGroup.kategoriLembaga,
     klasifikasiPorsi: klasifikasiPorsi || existingGroup.klasifikasiPorsi,
-    deskripsi: deskripsi !== undefined ? deskripsi : existingGroup.deskripsi,
+    alamat: alamat !== undefined ? alamat : (deskripsi !== undefined ? deskripsi : existingGroup.alamat),
+    deskripsi: deskripsi !== undefined ? deskripsi : (alamat !== undefined ? alamat : existingGroup.deskripsi),
     status: status || existingGroup.status,
     lembagaList: Array.isArray(lembagaList) ? lembagaList : existingGroup.lembagaList
   };
@@ -171,7 +173,15 @@ function updateGroupHandler(id: string, body: any, res: Response) {
       let balita = 0;
       let siswa = 0;
 
-      if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined))) {
+        const bd = item.breakdownKelas || {};
+        balita = (Number(bd.baduta) || 0) + (Number(bd.balita) || 0) || Number(targetBalita) || 0;
+        ibuHamil = (Number(bd.bumil) || 0) || Math.ceil((Number(targetBumilBusui) || 0) / 2);
+        ibuMenyusui = (Number(bd.busui) || 0) || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        targetBalita = balita;
+        targetBumilBusui = ibuHamil + ibuMenyusui;
+        targetSiswa = 0;
+      } else if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
         const val = targetBumilBusui || targetSiswa || 0;
         ibuHamil = val;
         targetBumilBusui = val;
@@ -222,13 +232,16 @@ function updateGroupHandler(id: string, body: any, res: Response) {
         groupId: id,
         groupNama: updatedNama,
         namaInstansi: item.namaInstansi || `${updatedNama} - Instansi ${lIdx + 1}`,
+        kategoriLembaga: item.kategoriLembaga || kategoriLembaga || updatedGroup.kategoriLembaga,
         klasifikasiPorsi: itemKlas,
+        breakdownKelas: item.breakdownKelas || {},
         kategoriBreakdown: {
           siswa,
           guru: targetGuru,
           balita,
           ibuHamil,
-          ibuMenyusui
+          ibuMenyusui,
+          breakdownKelas: item.breakdownKelas || {}
         },
         defaultJumlah: accurateTotal,
         status: 'Aktif'
@@ -280,7 +293,7 @@ function updateGroupHandler(id: string, body: any, res: Response) {
 
 // 2. POST GROUP (Create Group with optional Lembaga Sasaran list)
 router.post('/groups', (req: Request, res: Response): void => {
-  const { id, nama, kategoriUtama, klasifikasiPorsi, deskripsi, status, lembagaList } = req.body;
+  const { id, nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = req.body;
   if (!nama) {
     res.status(400).json({ success: false, message: 'Nama kelompok wajib diisi' });
     return;
@@ -300,8 +313,10 @@ router.post('/groups', (req: Request, res: Response): void => {
     id: groupId,
     nama,
     kategoriUtama: kategoriUtama || 'Siswa',
+    kategoriLembaga: kategoriLembaga,
     klasifikasiPorsi: klasifikasiPorsi || 'Porsi Besar',
-    deskripsi: deskripsi || '',
+    alamat: alamat || deskripsi || '',
+    deskripsi: deskripsi || alamat || '',
     urutan: dbStore.beneficiaryGroups.length + 1,
     status: status || 'Aktif',
     lembagaList: Array.isArray(lembagaList) ? lembagaList : []
@@ -324,7 +339,15 @@ router.post('/groups', (req: Request, res: Response): void => {
       let balita = 0;
       let siswa = 0;
 
-      if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined))) {
+        const bd = item.breakdownKelas || {};
+        balita = (Number(bd.baduta) || 0) + (Number(bd.balita) || 0) || Number(targetBalita) || 0;
+        ibuHamil = (Number(bd.bumil) || 0) || Math.ceil((Number(targetBumilBusui) || 0) / 2);
+        ibuMenyusui = (Number(bd.busui) || 0) || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        targetBalita = balita;
+        targetBumilBusui = ibuHamil + ibuMenyusui;
+        targetSiswa = 0;
+      } else if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
         const val = targetBumilBusui || targetSiswa || 0;
         ibuHamil = val;
         targetBumilBusui = val;
@@ -369,13 +392,16 @@ router.post('/groups', (req: Request, res: Response): void => {
         groupId: groupId,
         groupNama: nama,
         namaInstansi: item.namaInstansi || `${nama} - Instansi ${idx + 1}`,
+        kategoriLembaga: item.kategoriLembaga || kategoriLembaga,
         klasifikasiPorsi: itemKlas,
+        breakdownKelas: item.breakdownKelas || {},
         kategoriBreakdown: {
           siswa,
           guru: targetGuru,
           balita,
           ibuHamil,
-          ibuMenyusui
+          ibuMenyusui,
+          breakdownKelas: item.breakdownKelas || {}
         },
         defaultJumlah: accurateTotal,
         status: 'Aktif'

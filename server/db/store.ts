@@ -56,7 +56,10 @@ import {
   MasterDocumentTemplateConfig,
   DEFAULT_MASTER_TEMPLATE_CONFIG,
   FoodWasteRecord,
-  FoodWasteItem
+  FoodWasteItem,
+  Petugas,
+  SlipGajiHarian,
+  RekapGajiHarianSummary
 } from '../../src/types';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
@@ -489,6 +492,17 @@ export const initialMenus: MenuItem[] = [
     color: '#EF4444',
     order: 3.86,
     targetModule: 'foodWaste',
+    requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+    isActive: true
+  },
+  {
+    id: 'MNU-003-PETUGAS',
+    title: 'Daftar Petugas',
+    path: '/petugas',
+    icon: 'Users',
+    color: '#6366F1',
+    order: 3.87,
+    targetModule: 'petugas',
     requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
     isActive: true
   },
@@ -1243,14 +1257,14 @@ export function createDefaultTasksForDateAndDivisi(tanggal: string, divisiId: Ta
 
 // --- INITIAL BENEFICIARY DATASETS ---
 export const initialBeneficiaryGroups: BeneficiaryGroup[] = [
-  { id: 'GRP-001', nama: 'PAUD / TK', kategoriUtama: 'Siswa', klasifikasiPorsi: 'Porsi Kecil', deskripsi: 'Kelompok Anak Usia Dini & Taman Kanak-kanak', urutan: 1, status: 'Aktif' },
-  { id: 'GRP-002', nama: 'SD (Kelas 1-3)', kategoriUtama: 'Siswa', klasifikasiPorsi: 'Porsi Kecil', deskripsi: 'Kelompok Siswa Sekolah Dasar Kelas Rendah', urutan: 2, status: 'Aktif' },
-  { id: 'GRP-003', nama: 'SD (Kelas 4-6)', kategoriUtama: 'Siswa', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Dasar Kelas Tinggi', urutan: 3, status: 'Aktif' },
-  { id: 'GRP-004', nama: 'SMP / MTs', kategoriUtama: 'Siswa', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Menengah Pertama', urutan: 4, status: 'Aktif' },
-  { id: 'GRP-005', nama: 'SMA / MA', kategoriUtama: 'Siswa', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Menengah Atas / Madrasah Aliyah', urutan: 5, status: 'Aktif' },
-  { id: 'GRP-006', nama: 'BALITA', kategoriUtama: 'Balita', klasifikasiPorsi: 'Balita', deskripsi: 'Kelompok Anak Balita Pemenuhan Gizi', urutan: 6, status: 'Aktif' },
-  { id: 'GRP-007', nama: 'IBU HAMIL & MENYUSUI', kategoriUtama: 'Ibu Hamil', klasifikasiPorsi: 'Bumil & Busui', deskripsi: 'Kelompok Ibu Hamil & Ibu Menyusui Penerima Nutrisi', urutan: 7, status: 'Aktif' },
-  { id: 'GRP-008', nama: 'GURU / STAF', kategoriUtama: 'Guru / Staf', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Guru dan Staf Tenaga Pendidik', urutan: 8, status: 'Aktif' }
+  { id: 'GRP-001', nama: 'PAUD / TK', kategoriUtama: 'Siswa', kategoriLembaga: 'PAUD / TK / RA', klasifikasiPorsi: 'Porsi Kecil', deskripsi: 'Kelompok Anak Usia Dini & Taman Kanak-kanak', urutan: 1, status: 'Aktif' },
+  { id: 'GRP-002', nama: 'SD (Kelas 1-3)', kategoriUtama: 'Siswa', kategoriLembaga: 'SD / MI', klasifikasiPorsi: 'Porsi Kecil', deskripsi: 'Kelompok Siswa Sekolah Dasar Kelas Rendah', urutan: 2, status: 'Aktif' },
+  { id: 'GRP-003', nama: 'SD (Kelas 4-6)', kategoriUtama: 'Siswa', kategoriLembaga: 'SD / MI', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Dasar Kelas Tinggi', urutan: 3, status: 'Aktif' },
+  { id: 'GRP-004', nama: 'SMP / MTs', kategoriUtama: 'Siswa', kategoriLembaga: 'SMP / MTs', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Menengah Pertama', urutan: 4, status: 'Aktif' },
+  { id: 'GRP-005', nama: 'SMA / MA', kategoriUtama: 'Siswa', kategoriLembaga: 'SMA / SMK / MA', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Siswa Sekolah Menengah Atas / Madrasah Aliyah', urutan: 5, status: 'Aktif' },
+  { id: 'GRP-006', nama: 'BALITA', kategoriUtama: 'Balita', kategoriLembaga: 'Balita / Posyandu', klasifikasiPorsi: 'Balita', deskripsi: 'Kelompok Anak Balita Pemenuhan Gizi', urutan: 6, status: 'Aktif' },
+  { id: 'GRP-007', nama: 'IBU HAMIL & MENYUSUI', kategoriUtama: 'Ibu Hamil', kategoriLembaga: 'Bumil & Busui', klasifikasiPorsi: 'Bumil & Busui', deskripsi: 'Kelompok Ibu Hamil & Ibu Menyusui Penerima Nutrisi', urutan: 7, status: 'Aktif' },
+  { id: 'GRP-008', nama: 'GURU / STAF', kategoriUtama: 'Guru / Staf', kategoriLembaga: 'Lainnya', klasifikasiPorsi: 'Porsi Besar', deskripsi: 'Kelompok Guru dan Staf Tenaga Pendidik', urutan: 8, status: 'Aktif' }
 ];
 
 export const initialBeneficiaryLocations: BeneficiaryLocation[] = [
@@ -1261,29 +1275,38 @@ export const initialBeneficiaryLocations: BeneficiaryLocation[] = [
     namaInstansi: 'SD Zainul Hasan Genggong',
     alamat: 'Jl. Raya Genggong, Pajarakan, Probolinggo',
     kontak: '081234567801',
-    kategoriBreakdown: { siswa: 384, guru: 25 },
+    kategoriLembaga: 'SD / MI',
+    klasifikasiPorsi: 'Porsi Kecil',
+    breakdownKelas: { kelas1: 130, kelas2: 128, kelas3: 126 },
+    kategoriBreakdown: { siswa: 384, guru: 25, breakdownKelas: { kelas1: 130, kelas2: 128, kelas3: 126 } },
     defaultJumlah: 409,
     status: 'Aktif'
   },
   {
     id: 'LOC-002',
-    groupId: 'GRP-004',
+    groupId: 'GRP-005',
     groupNama: 'SMA / MA',
     namaInstansi: 'MA Model Hafshawaty',
     alamat: 'Kompleks Pesantren Hafshawaty, Probolinggo',
     kontak: '081234567802',
-    kategoriBreakdown: { siswa: 218, guru: 25 },
+    kategoriLembaga: 'SMA / SMK / MA',
+    klasifikasiPorsi: 'Porsi Besar',
+    breakdownKelas: { kelas10: 75, kelas11: 72, kelas12: 71 },
+    kategoriBreakdown: { siswa: 218, guru: 25, breakdownKelas: { kelas10: 75, kelas11: 72, kelas12: 71 } },
     defaultJumlah: 243,
     status: 'Aktif'
   },
   {
     id: 'LOC-003',
-    groupId: 'GRP-003',
+    groupId: 'GRP-004',
     groupNama: 'SMP',
     namaInstansi: 'SMP Zainul Hasan Genggong',
     alamat: 'Jl. Pesantren Genggong, Probolinggo',
     kontak: '081234567803',
-    kategoriBreakdown: { siswa: 350, guru: 20 },
+    kategoriLembaga: 'SMP / MTs',
+    klasifikasiPorsi: 'Porsi Besar',
+    breakdownKelas: { kelas7: 120, kelas8: 115, kelas9: 115 },
+    kategoriBreakdown: { siswa: 350, guru: 20, breakdownKelas: { kelas7: 120, kelas8: 115, kelas9: 115 } },
     defaultJumlah: 370,
     status: 'Aktif'
   },
@@ -1294,30 +1317,39 @@ export const initialBeneficiaryLocations: BeneficiaryLocation[] = [
     namaInstansi: 'PAUD Nurul Islam',
     alamat: 'Jl. Masjid Nurul Islam No. 12',
     kontak: '081234567804',
-    kategoriBreakdown: { siswa: 95, guru: 8 },
+    kategoriLembaga: 'PAUD / TK / RA',
+    klasifikasiPorsi: 'Porsi Kecil',
+    breakdownKelas: { kb: 25, tkA: 35, tkB: 35 },
+    kategoriBreakdown: { siswa: 95, guru: 8, breakdownKelas: { kb: 25, tkA: 35, tkB: 35 } },
     defaultJumlah: 103,
     status: 'Aktif'
   },
   {
     id: 'LOC-005',
-    groupId: 'GRP-005',
+    groupId: 'GRP-006',
     groupNama: 'BALITA',
     namaInstansi: 'Posyandu Melati - Balita',
     alamat: 'Posyandu Melati Desa Karanganyar',
     kontak: '081234567805',
-    kategoriBreakdown: { balita: 100 },
-    defaultJumlah: 100,
+    kategoriLembaga: 'Balita / Posyandu',
+    klasifikasiPorsi: 'Porsi Balita',
+    breakdownKelas: { baduta: 42, balita: 58 },
+    kategoriBreakdown: { balita: 100, guru: 5, breakdownKelas: { baduta: 42, balita: 58 } },
+    defaultJumlah: 105,
     status: 'Aktif'
   },
   {
     id: 'LOC-006',
-    groupId: 'GRP-006',
+    groupId: 'GRP-007',
     groupNama: 'IBU HAMIL',
     namaInstansi: 'Posyandu Melati - Ibu Hamil',
     alamat: 'Posyandu Melati Desa Karanganyar',
     kontak: '081234567806',
-    kategoriBreakdown: { ibuHamil: 17 },
-    defaultJumlah: 17,
+    kategoriLembaga: 'Bumil & Busui',
+    klasifikasiPorsi: 'Porsi Ibu Hamil',
+    breakdownKelas: { bumilTrimester1: 9, bumilTrimester3: 8 },
+    kategoriBreakdown: { ibuHamil: 17, guru: 2, breakdownKelas: { bumilTrimester1: 9, bumilTrimester3: 8 } },
+    defaultJumlah: 19,
     status: 'Aktif'
   },
   {
@@ -1327,8 +1359,11 @@ export const initialBeneficiaryLocations: BeneficiaryLocation[] = [
     namaInstansi: 'Posyandu Melati - Ibu Menyusui',
     alamat: 'Posyandu Melati Desa Karanganyar',
     kontak: '081234567807',
-    kategoriBreakdown: { ibuMenyusui: 34 },
-    defaultJumlah: 34,
+    kategoriLembaga: 'Bumil & Busui',
+    klasifikasiPorsi: 'Porsi Ibu Menyusui',
+    breakdownKelas: { busui06: 20, busui612: 14 },
+    kategoriBreakdown: { ibuMenyusui: 34, guru: 3, breakdownKelas: { busui06: 20, busui612: 14 } },
+    defaultJumlah: 37,
     status: 'Aktif'
   }
 ];
@@ -1654,6 +1689,340 @@ export const initialFoodWasteRecords: FoodWasteRecord[] = [
   }
 ];
 
+// Helper angka ke terbilang Bahasa Indonesia
+export function angkaKeTerbilang(angka: number): string {
+  const bilangan = [
+    '', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan', 'Sepuluh', 'Sebelas'
+  ];
+  const n = Math.floor(Math.abs(angka));
+  if (n === 0) return 'Nol Rupiah';
+
+  function terbilang(x: number): string {
+    if (x < 12) return bilangan[x];
+    if (x < 20) return terbilang(x - 10) + ' Belas';
+    if (x < 100) return terbilang(Math.floor(x / 10)) + ' Puluh' + (x % 10 !== 0 ? ' ' + terbilang(x % 10) : '');
+    if (x < 200) return 'Seratus' + (x % 100 !== 0 ? ' ' + terbilang(x % 100) : '');
+    if (x < 1000) return terbilang(Math.floor(x / 100)) + ' Ratus' + (x % 100 !== 0 ? ' ' + terbilang(x % 100) : '');
+    if (x < 2000) return 'Seribu' + (x % 1000 !== 0 ? ' ' + terbilang(x % 1000) : '');
+    if (x < 1000000) return terbilang(Math.floor(x / 1000)) + ' Ribu' + (x % 1000 !== 0 ? ' ' + terbilang(x % 1000) : '');
+    if (x < 1000000000) return terbilang(Math.floor(x / 1000000)) + ' Juta' + (x % 1000000 !== 0 ? ' ' + terbilang(x % 1000000) : '');
+    return String(x);
+  }
+
+  return (terbilang(n) + ' Rupiah').replace(/\s+/g, ' ').trim();
+}
+
+export const initialPetugasList: Petugas[] = [
+  {
+    id: 'PTG-001',
+    nomor: '01',
+    nama: 'Budi Hartono',
+    jabatan: 'Kepala Juru Masak (Head Chef)',
+    alamat: 'Dusun Krajan RT 02 RW 01, Desa Krejengan, Kec. Krejengan, Kab. Probolinggo',
+    besaranGaji: 150000,
+    telepon: '081234567801',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-02',
+    nomorRekening: '0123-01-045678-50-1',
+    namaBank: 'BRI',
+    keterangan: 'Penanggung jawab operasional dapur dan olahan menu utama SPPG'
+  },
+  {
+    id: 'PTG-002',
+    nomor: '02',
+    nama: 'Siti Maisaroh',
+    jabatan: 'Asisten Juru Masak',
+    alamat: 'Dusun Temenggungan RT 04 RW 02, Desa Krejengan, Kec. Krejengan, Kab. Probolinggo',
+    besaranGaji: 125000,
+    telepon: '081234567802',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-05',
+    nomorRekening: '0123-01-089765-53-2',
+    namaBank: 'BRI',
+    keterangan: 'Asisten pengolahan lauk pauk, telur, & sayuran'
+  },
+  {
+    id: 'PTG-003',
+    nomor: '03',
+    nama: 'Ahmad Syarifudin',
+    jabatan: 'Petugas Pemorsian & Packing',
+    alamat: 'Jl. Raya Kraksaan No. 14, RT 01 RW 04, Kraksaan, Kab. Probolinggo',
+    besaranGaji: 110000,
+    telepon: '081377889903',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-10',
+    nomorRekening: '345-098-1122',
+    namaBank: 'BCA',
+    keterangan: 'Piket divisi pemorsian ompreng 2.808 porsi sasaran'
+  },
+  {
+    id: 'PTG-004',
+    nomor: '04',
+    nama: 'Nurul Hidayati',
+    jabatan: 'Petugas Pemorsian & Packing',
+    alamat: 'Desa Karangren RT 01 RW 03, Kec. Krejengan, Kab. Probolinggo',
+    besaranGaji: 110000,
+    telepon: '081566778804',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-10',
+    nomorRekening: '142-00-9876543-1',
+    namaBank: 'Mandiri',
+    keterangan: 'Piket divisi pemorsian dan penimbangan gramatur menu'
+  },
+  {
+    id: 'PTG-005',
+    nomor: '05',
+    nama: 'Joko Widodo Santoso',
+    jabatan: 'Driver Distribusi & Armada',
+    alamat: 'Dusun Krajan RT 03 RW 01, Desa Maron Kidul, Kab. Probolinggo',
+    besaranGaji: 130000,
+    telepon: '081298765405',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-15',
+    nomorRekening: '0123-01-033445-50-8',
+    namaBank: 'BRI',
+    keterangan: 'Driver GranMax Box Rute A (Temenggungan - Kraksaan)'
+  },
+  {
+    id: 'PTG-006',
+    nomor: '06',
+    nama: 'Hendra Setiawan',
+    jabatan: 'Driver Distribusi & Armada',
+    alamat: 'Jl. Kyai Sekar No. 8, Kec. Pajarakan, Kab. Probolinggo',
+    besaranGaji: 130000,
+    telepon: '081122334406',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-15',
+    nomorRekening: '0123-01-055667-50-9',
+    namaBank: 'BRI',
+    keterangan: 'Driver BlindVan Box Rute B (Krejengan - Besuk)'
+  },
+  {
+    id: 'PTG-007',
+    nomor: '07',
+    nama: 'Suminah',
+    jabatan: 'Petugas Cuci Ompreng & Sanitasi',
+    alamat: 'Dusun Temenggungan RT 02 RW 01, Desa Krejengan, Kab. Probolinggo',
+    besaranGaji: 100000,
+    telepon: '081599887707',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-20',
+    nomorRekening: '-',
+    namaBank: 'Tunai',
+    keterangan: 'Sanitasi ompreng stainless & sterilisasi wadah makanan'
+  },
+  {
+    id: 'PTG-008',
+    nomor: '08',
+    nama: 'Rahmat Hidayat',
+    jabatan: 'Petugas Logistik & Gudang',
+    alamat: 'Desa Sentong RT 05 RW 02, Kec. Krejengan, Kab. Probolinggo',
+    besaranGaji: 120000,
+    telepon: '081344556608',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-22',
+    nomorRekening: '0123-01-077889-50-4',
+    namaBank: 'BRI',
+    keterangan: 'Penerimaan bahan baku datang & penataan gudang kering'
+  },
+  {
+    id: 'PTG-009',
+    nomor: '09',
+    nama: 'Dewi Anggraini, S.Gz',
+    jabatan: 'Ahli Gizi & Pengawas Mutu',
+    alamat: 'Jl. Pahlawan No. 45, Kraksaan, Kab. Probolinggo',
+    besaranGaji: 160000,
+    telepon: '081233445509',
+    status: 'Aktif',
+    tanggalMulai: '2026-01-02',
+    nomorRekening: '142-00-1122334-5',
+    namaBank: 'Mandiri',
+    keterangan: 'Pengawasan gizi, porsi, dan evaluasi food waste harian'
+  },
+  {
+    id: 'PTG-010',
+    nomor: '10',
+    nama: 'Sugeng Riyadi',
+    jabatan: 'Petugas Kebersihan & Lingkungan',
+    alamat: 'Dusun Krajan RT 01 RW 02, Desa Krejengan, Kab. Probolinggo',
+    besaranGaji: 95000,
+    telepon: '081622334410',
+    status: 'Aktif',
+    tanggalMulai: '2026-02-01',
+    nomorRekening: '-',
+    namaBank: 'Tunai',
+    keterangan: 'Kebersihan area luar dapur dan pembuangan limbah organik'
+  }
+];
+
+export const initialSlipGajiList: SlipGajiHarian[] = [
+  {
+    id: 'SLIP-20261010-001',
+    nomorSlip: 'SLIP/SPPG/2026/10/001',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    petugasId: 'PTG-001',
+    nomorPetugas: '01',
+    namaPetugas: 'Budi Hartono',
+    jabatan: 'Kepala Juru Masak (Head Chef)',
+    alamat: 'Dusun Krajan RT 02 RW 01, Desa Krejengan, Kec. Krejengan, Kab. Probolinggo',
+    kehadiranHari: 1,
+    tarifGajiPerHari: 150000,
+    gajiPokokHarian: 150000,
+    uangMakanHarian: 15000,
+    uangTransportHarian: 10000,
+    uangLemburHarian: 0,
+    bonusHarian: 0,
+    totalPenghasilanKotor: 175000,
+    potonganHarian: 0,
+    keteranganPotongan: '-',
+    totalGajiBersih: 175000,
+    terbilang: 'Seratus Tujuh Puluh Lima Ribu Rupiah',
+    metodePembayaran: 'Tunai',
+    statusPembayaran: 'Lunas',
+    tanggalBayar: '2026-10-10',
+    jamBayar: '14:30 WIB',
+    catatanTugas: 'Piket operasional dapur memasak menu pagi 2.808 porsi tuntas',
+    namaPenerima: 'Budi Hartono',
+    namaBendahara: 'Hj. Siti Aminah, S.E.',
+    namaKepalaSppg: 'Sri Rohayu, S. Pd',
+    createdAt: '2026-10-10T14:30:00Z',
+    createdBy: 'Bendahara SPPG'
+  },
+  {
+    id: 'SLIP-20261010-002',
+    nomorSlip: 'SLIP/SPPG/2026/10/002',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    petugasId: 'PTG-002',
+    nomorPetugas: '02',
+    namaPetugas: 'Siti Maisaroh',
+    jabatan: 'Asisten Juru Masak',
+    alamat: 'Dusun Temenggungan RT 04 RW 02, Desa Krejengan, Kec. Krejengan, Kab. Probolinggo',
+    kehadiranHari: 1,
+    tarifGajiPerHari: 125000,
+    gajiPokokHarian: 125000,
+    uangMakanHarian: 15000,
+    uangTransportHarian: 10000,
+    uangLemburHarian: 0,
+    bonusHarian: 0,
+    totalPenghasilanKotor: 150000,
+    potonganHarian: 0,
+    keteranganPotongan: '-',
+    totalGajiBersih: 150000,
+    terbilang: 'Seratus Lima Puluh Ribu Rupiah',
+    metodePembayaran: 'Tunai',
+    statusPembayaran: 'Lunas',
+    tanggalBayar: '2026-10-10',
+    jamBayar: '14:30 WIB',
+    catatanTugas: 'Pengolahan sayur sup buncis wortel dan lauk pendamping',
+    namaPenerima: 'Siti Maisaroh',
+    namaBendahara: 'Hj. Siti Aminah, S.E.',
+    namaKepalaSppg: 'Sri Rohayu, S. Pd',
+    createdAt: '2026-10-10T14:30:00Z',
+    createdBy: 'Bendahara SPPG'
+  },
+  {
+    id: 'SLIP-20261010-003',
+    nomorSlip: 'SLIP/SPPG/2026/10/003',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    petugasId: 'PTG-003',
+    nomorPetugas: '03',
+    namaPetugas: 'Ahmad Syarifudin',
+    jabatan: 'Petugas Pemorsian & Packing',
+    alamat: 'Jl. Raya Kraksaan No. 14, RT 01 RW 04, Kraksaan, Kab. Probolinggo',
+    kehadiranHari: 1,
+    tarifGajiPerHari: 110000,
+    gajiPokokHarian: 110000,
+    uangMakanHarian: 15000,
+    uangTransportHarian: 10000,
+    uangLemburHarian: 0,
+    bonusHarian: 0,
+    totalPenghasilanKotor: 135000,
+    potonganHarian: 0,
+    keteranganPotongan: '-',
+    totalGajiBersih: 135000,
+    terbilang: 'Seratus Tiga Puluh Lima Ribu Rupiah',
+    metodePembayaran: 'Tunai',
+    statusPembayaran: 'Lunas',
+    tanggalBayar: '2026-10-10',
+    jamBayar: '14:35 WIB',
+    catatanTugas: 'Pemorsian ompreng porsi kecil dan porsi besar sekolah',
+    namaPenerima: 'Ahmad Syarifudin',
+    namaBendahara: 'Hj. Siti Aminah, S.E.',
+    namaKepalaSppg: 'Sri Rohayu, S. Pd',
+    createdAt: '2026-10-10T14:35:00Z',
+    createdBy: 'Bendahara SPPG'
+  },
+  {
+    id: 'SLIP-20261010-005',
+    nomorSlip: 'SLIP/SPPG/2026/10/005',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    petugasId: 'PTG-005',
+    nomorPetugas: '05',
+    namaPetugas: 'Joko Widodo Santoso',
+    jabatan: 'Driver Distribusi & Armada',
+    alamat: 'Dusun Krajan RT 03 RW 01, Desa Maron Kidul, Kab. Probolinggo',
+    kehadiranHari: 1,
+    tarifGajiPerHari: 130000,
+    gajiPokokHarian: 130000,
+    uangMakanHarian: 15000,
+    uangTransportHarian: 15000,
+    uangLemburHarian: 20000,
+    bonusHarian: 0,
+    totalPenghasilanKotor: 180000,
+    potonganHarian: 0,
+    keteranganPotongan: '-',
+    totalGajiBersih: 180000,
+    terbilang: 'Seratus Delapan Puluh Ribu Rupiah',
+    metodePembayaran: 'Transfer Bank',
+    statusPembayaran: 'Lunas',
+    tanggalBayar: '2026-10-10',
+    jamBayar: '15:00 WIB',
+    catatanTugas: 'Pengantaran ompreng tepat waktu ke 6 titik sekolah Rute Kraksaan',
+    namaPenerima: 'Joko Widodo Santoso',
+    namaBendahara: 'Hj. Siti Aminah, S.E.',
+    namaKepalaSppg: 'Sri Rohayu, S. Pd',
+    createdAt: '2026-10-10T15:00:00Z',
+    createdBy: 'Bendahara SPPG'
+  },
+  {
+    id: 'SLIP-20261010-007',
+    nomorSlip: 'SLIP/SPPG/2026/10/007',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    petugasId: 'PTG-007',
+    nomorPetugas: '07',
+    namaPetugas: 'Suminah',
+    jabatan: 'Petugas Cuci Ompreng & Sanitasi',
+    alamat: 'Dusun Temenggungan RT 02 RW 01, Desa Krejengan, Kab. Probolinggo',
+    kehadiranHari: 1,
+    tarifGajiPerHari: 100000,
+    gajiPokokHarian: 100000,
+    uangMakanHarian: 15000,
+    uangTransportHarian: 10000,
+    uangLemburHarian: 0,
+    bonusHarian: 0,
+    totalPenghasilanKotor: 125000,
+    potonganHarian: 0,
+    keteranganPotongan: '-',
+    totalGajiBersih: 125000,
+    terbilang: 'Seratus Dua Puluh Lima Ribu Rupiah',
+    metodePembayaran: 'Tunai',
+    statusPembayaran: 'Lunas',
+    tanggalBayar: '2026-10-10',
+    jamBayar: '15:10 WIB',
+    catatanTugas: 'Pencucian & pengeringan higienis seluruh ompreng balik dari sekolah',
+    namaPenerima: 'Suminah',
+    namaBendahara: 'Hj. Siti Aminah, S.E.',
+    namaKepalaSppg: 'Sri Rohayu, S. Pd',
+    createdAt: '2026-10-10T15:10:00Z',
+    createdBy: 'Bendahara SPPG'
+  }
+];
+
 export const initialBarangDatang: BarangDatang[] = [
   {
     id: 'BD-20260908-001',
@@ -1902,6 +2271,8 @@ class EnterpriseDataStore {
   public purchaseOrders: PurchaseOrderDocument[] = [];
   public documentTemplate: MasterDocumentTemplateConfig = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
   public foodWasteRecords: FoodWasteRecord[] = [...initialFoodWasteRecords];
+  public petugasList: Petugas[] = [...initialPetugasList];
+  public slipGajiList: SlipGajiHarian[] = [...initialSlipGajiList];
 
   // Helper method to compute and construct a synchronized RAB Plan
   public calculateRABPlan(
@@ -3197,6 +3568,212 @@ class EnterpriseDataStore {
     const prevLen = this.foodWasteRecords.length;
     this.foodWasteRecords = this.foodWasteRecords.filter(r => r.id !== id);
     return this.foodWasteRecords.length < prevLen;
+  }
+
+  // --- PETUGAS & SLIP GAJI HARIAN STORE METHODS ---
+  public getPetugasList(): Petugas[] {
+    return this.petugasList;
+  }
+
+  public getPetugasById(id: string): Petugas | undefined {
+    return this.petugasList.find(p => p.id === id || p.nomor === id);
+  }
+
+  public savePetugas(data: Partial<Petugas>): Petugas {
+    const now = new Date().toISOString();
+    let id = data.id;
+    if (!id) {
+      const nextNum = this.petugasList.length + 1;
+      id = `PTG-${String(nextNum).padStart(3, '0')}`;
+    }
+
+    const nomor = data.nomor || id.replace('PTG-', '');
+    const item: Petugas = {
+      id,
+      nomor,
+      nama: data.nama || 'Petugas Baru',
+      jabatan: data.jabatan || 'Staf Operasional',
+      alamat: data.alamat || '',
+      besaranGaji: Number(data.besaranGaji) || 100000,
+      telepon: data.telepon || '',
+      status: data.status || 'Aktif',
+      tanggalMulai: data.tanggalMulai || now.split('T')[0],
+      nomorRekening: data.nomorRekening || '-',
+      namaBank: data.namaBank || 'Tunai',
+      keterangan: data.keterangan || '',
+      createdAt: data.createdAt || now,
+      updatedAt: now
+    };
+
+    const existingIdx = this.petugasList.findIndex(p => p.id === id);
+    if (existingIdx !== -1) {
+      this.petugasList[existingIdx] = item;
+    } else {
+      this.petugasList.push(item);
+    }
+    return item;
+  }
+
+  public deletePetugas(id: string): boolean {
+    const prevLen = this.petugasList.length;
+    this.petugasList = this.petugasList.filter(p => p.id !== id);
+    return this.petugasList.length < prevLen;
+  }
+
+  public getSlipGajiList(filters?: { tanggal?: string; petugasId?: string; status?: string }): SlipGajiHarian[] {
+    let list = [...this.slipGajiList];
+    if (filters?.tanggal) {
+      list = list.filter(s => s.tanggal === filters.tanggal);
+    }
+    if (filters?.petugasId) {
+      list = list.filter(s => s.petugasId === filters.petugasId);
+    }
+    if (filters?.status) {
+      list = list.filter(s => s.statusPembayaran.toLowerCase() === filters.status?.toLowerCase());
+    }
+    return list.sort((a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime());
+  }
+
+  public getSlipGajiById(id: string): SlipGajiHarian | undefined {
+    return this.slipGajiList.find(s => s.id === id || s.nomorSlip === id);
+  }
+
+  public saveSlipGaji(data: Partial<SlipGajiHarian>): SlipGajiHarian {
+    const now = new Date();
+    const todayStr = data.tanggal || now.toISOString().split('T')[0];
+    const cleanDate = todayStr.replace(/-/g, '');
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const id = data.id || `SLIP-${cleanDate}-${rand}`;
+
+    const petugas = data.petugasId ? this.getPetugasById(data.petugasId) : undefined;
+    const nomorPetugas = data.nomorPetugas || petugas?.nomor || '';
+    const namaPetugas = data.namaPetugas || petugas?.nama || 'Petugas SPPG';
+    const jabatan = data.jabatan || petugas?.jabatan || 'Staf Operasional';
+    const alamat = data.alamat || petugas?.alamat || '';
+
+    const kehadiranHari = Number(data.kehadiranHari !== undefined ? data.kehadiranHari : 1);
+    const tarifGajiPerHari = Number(data.tarifGajiPerHari || petugas?.besaranGaji || 100000);
+    const gajiPokokHarian = Math.round(kehadiranHari * tarifGajiPerHari);
+    const uangMakanHarian = Number(data.uangMakanHarian || 0);
+    const uangTransportHarian = Number(data.uangTransportHarian || 0);
+    const uangLemburHarian = Number(data.uangLemburHarian || 0);
+    const bonusHarian = Number(data.bonusHarian || 0);
+    const totalPenghasilanKotor = gajiPokokHarian + uangMakanHarian + uangTransportHarian + uangLemburHarian + bonusHarian;
+
+    const potonganHarian = Number(data.potonganHarian || 0);
+    const totalGajiBersih = Math.max(0, totalPenghasilanKotor - potonganHarian);
+    const terbilang = data.terbilang || angkaKeTerbilang(totalGajiBersih);
+
+    const nomorSlip = data.nomorSlip || `SLIP/SPPG/${cleanDate.substring(0, 4)}/${cleanDate.substring(4, 6)}/${String(this.slipGajiList.length + 1).padStart(3, '0')}`;
+
+    const record: SlipGajiHarian = {
+      id,
+      nomorSlip,
+      tanggal: todayStr,
+      hariTanggalFormatted: data.hariTanggalFormatted || '',
+      petugasId: data.petugasId || petugas?.id || '',
+      nomorPetugas,
+      namaPetugas,
+      jabatan,
+      alamat,
+      kehadiranHari,
+      tarifGajiPerHari,
+      gajiPokokHarian,
+      uangMakanHarian,
+      uangTransportHarian,
+      uangLemburHarian,
+      bonusHarian,
+      totalPenghasilanKotor,
+      potonganHarian,
+      keteranganPotongan: data.keteranganPotongan || '-',
+      totalGajiBersih,
+      terbilang,
+      metodePembayaran: data.metodePembayaran || 'Tunai',
+      statusPembayaran: data.statusPembayaran || 'Lunas',
+      tanggalBayar: data.tanggalBayar || (data.statusPembayaran === 'Lunas' ? todayStr : undefined),
+      jamBayar: data.jamBayar || (data.statusPembayaran === 'Lunas' ? '15:00 WIB' : undefined),
+      catatanTugas: data.catatanTugas || 'Tugas operasional harian SPPG',
+      namaPenerima: data.namaPenerima || namaPetugas,
+      namaBendahara: data.namaBendahara || 'Hj. Siti Aminah, S.E.',
+      namaKepalaSppg: data.namaKepalaSppg || 'Sri Rohayu, S. Pd',
+      createdAt: data.createdAt || now.toISOString(),
+      updatedAt: now.toISOString(),
+      createdBy: data.createdBy || 'Bendahara SPPG'
+    };
+
+    const existingIdx = this.slipGajiList.findIndex(s => s.id === id);
+    if (existingIdx !== -1) {
+      this.slipGajiList[existingIdx] = record;
+    } else {
+      this.slipGajiList.unshift(record);
+    }
+    return record;
+  }
+
+  public deleteSlipGaji(id: string): boolean {
+    const prevLen = this.slipGajiList.length;
+    this.slipGajiList = this.slipGajiList.filter(s => s.id !== id);
+    return this.slipGajiList.length < prevLen;
+  }
+
+  public generateDailySlipBatch(tanggal: string): SlipGajiHarian[] {
+    const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
+    const existingForDate = this.slipGajiList.filter(s => s.tanggal === tanggal);
+    const existingPetugasIds = new Set(existingForDate.map(s => s.petugasId));
+
+    const generated: SlipGajiHarian[] = [];
+    activeStaff.forEach((petugas) => {
+      if (!existingPetugasIds.has(petugas.id)) {
+        const slip = this.saveSlipGaji({
+          tanggal,
+          petugasId: petugas.id,
+          nomorPetugas: petugas.nomor,
+          namaPetugas: petugas.nama,
+          jabatan: petugas.jabatan,
+          alamat: petugas.alamat,
+          kehadiranHari: 1,
+          tarifGajiPerHari: petugas.besaranGaji,
+          uangMakanHarian: 15000,
+          uangTransportHarian: petugas.jabatan.includes('Driver') ? 15000 : 10000,
+          uangLemburHarian: 0,
+          bonusHarian: 0,
+          potonganHarian: 0,
+          metodePembayaran: petugas.namaBank === 'Tunai' ? 'Tunai' : 'Transfer Bank',
+          statusPembayaran: 'Lunas',
+          tanggalBayar: tanggal,
+          jamBayar: '15:00 WIB',
+          catatanTugas: `Operasional harian SPPG divisi ${petugas.jabatan}`
+        });
+        generated.push(slip);
+      }
+    });
+
+    return generated;
+  }
+
+  public getRekapGajiHarian(tanggal: string): RekapGajiHarianSummary {
+    const dailySlips = this.slipGajiList.filter(s => s.tanggal === tanggal);
+    const totalPetugasHadir = dailySlips.length;
+    const totalGajiDibayarkan = dailySlips.reduce((sum, s) => sum + s.totalGajiBersih, 0);
+    const lunasSlips = dailySlips.filter(s => s.statusPembayaran === 'Lunas');
+    const belumLunasSlips = dailySlips.filter(s => s.statusPembayaran !== 'Lunas');
+
+    const totalLunas = lunasSlips.length;
+    const totalBelumLunas = belumLunasSlips.length;
+    const totalGajiLunas = lunasSlips.reduce((sum, s) => sum + s.totalGajiBersih, 0);
+    const totalGajiBelumLunas = belumLunasSlips.reduce((sum, s) => sum + s.totalGajiBersih, 0);
+    const rataRataGajiHarian = totalPetugasHadir > 0 ? Math.round(totalGajiDibayarkan / totalPetugasHadir) : 0;
+
+    return {
+      tanggal,
+      totalPetugasHadir,
+      totalGajiDibayarkan,
+      totalLunas,
+      totalBelumLunas,
+      totalGajiLunas,
+      totalGajiBelumLunas,
+      rataRataGajiHarian
+    };
   }
 }
 
