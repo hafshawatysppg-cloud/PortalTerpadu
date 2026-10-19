@@ -3218,13 +3218,47 @@ class EnterpriseDataStore {
         totalIbuHamil += ih;
         totalIbuMenyusui += im;
 
-        if (klas === 'Porsi Kecil' || upperGroup.includes('KECIL') || upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('1-3')) {
-          porsiKecil += s + g;
-        } else if (klas === 'Porsi Besar' || upperGroup.includes('BESAR') || (s + g > 0)) {
+        const is3B = upperGroup.includes('3B') || upperGroup.includes('BALIAT') || upperGroup.includes('BALITA') || upperGroup.includes('HAMIL') || upperGroup.includes('MENYUSUI');
+        const isPaud = (upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('RA')) && !is3B;
+        const isSmp = (upperGroup.includes('SMP') || upperGroup.includes('MTS')) && !is3B;
+        const isSma = (upperGroup.includes('SMA') || upperGroup.includes('SMK') || upperGroup.includes('MA')) && !upperGroup.includes('SD') && !isSmp && !is3B;
+        const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
+
+        if (is3B) {
+          porsiKecil += b;
+          porsiBesar += ih + im + g;
+        } else if (isPaud) {
+          porsiKecil += s;
+          porsiBesar += g;
+        } else if (isSd) {
+          const bd = loc?.breakdownKelas || loc?.kategoriBreakdown?.breakdownKelas;
+          if (bd && (bd.kelas1 || bd.kelas2 || bd.kelas3 || bd.kelas4 || bd.kelas5 || bd.kelas6)) {
+            const k13 = (Number(bd.kelas1) || 0) + (Number(bd.kelas2) || 0) + (Number(bd.kelas3) || 0);
+            const k46 = (Number(bd.kelas4) || 0) + (Number(bd.kelas5) || 0) + (Number(bd.kelas6) || 0);
+            const totK = k13 + k46;
+            if (totK > 0 && s > 0) {
+              const ratio = s / totK;
+              porsiKecil += Math.round(k13 * ratio);
+              porsiBesar += Math.round(k46 * ratio) + g;
+            } else {
+              porsiKecil += Math.ceil(s / 2);
+              porsiBesar += Math.floor(s / 2) + g;
+            }
+          } else {
+            porsiKecil += Math.ceil(s / 2);
+            porsiBesar += Math.floor(s / 2) + g;
+          }
+        } else if (isSmp || isSma) {
+          porsiBesar += s + g;
+        } else if (klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
+          porsiKecil += s;
+          porsiBesar += g;
+        } else {
           porsiBesar += s + g;
         }
       } else if (klas === 'Balita' || klas === 'Porsi Balita' || r.kategori === 'Balita' || upperGroup.includes('BALITA')) {
         totalBalita += r.totalPenerima;
+        porsiKecil += r.totalPenerima;
       } else if (
         klas === 'Bumil & Busui' ||
         klas === 'Porsi Ibu Hamil' ||
@@ -3240,25 +3274,36 @@ class EnterpriseDataStore {
         } else {
           totalIbuHamil += r.totalPenerima;
         }
+        porsiBesar += r.totalPenerima;
       } else if (r.kategori === 'Guru / Staf' || upperGroup.includes('GURU')) {
         totalGuru += r.totalPenerima;
-        if (klas === 'Porsi Kecil') {
-          porsiKecil += r.totalPenerima;
-        } else {
-          porsiBesar += r.totalPenerima;
-        }
+        porsiBesar += r.totalPenerima;
       } else {
         // Check if location has guru breakdown
         const locGuru = loc?.kategoriBreakdown?.guru || 0;
         const locSiswa = loc?.kategoriBreakdown?.siswa || 0;
+        let effectiveGuru = 0;
+        let effectiveSiswa = r.totalPenerima;
         if (locGuru > 0 && locSiswa > 0 && r.totalPenerima >= locGuru) {
-          totalGuru += locGuru;
-          totalSiswa += Math.max(0, r.totalPenerima - locGuru);
+          effectiveGuru = locGuru;
+          effectiveSiswa = Math.max(0, r.totalPenerima - locGuru);
+          totalGuru += effectiveGuru;
+          totalSiswa += effectiveSiswa;
         } else {
           totalSiswa += r.totalPenerima;
         }
-        if (klas === 'Porsi Kecil' || upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('KELAS 1-3') || upperGroup.includes('KECIL')) {
-          porsiKecil += r.totalPenerima;
+
+        const isPaud = (upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('RA'));
+        const isSmp = (upperGroup.includes('SMP') || upperGroup.includes('MTS'));
+        const isSma = (upperGroup.includes('SMA') || upperGroup.includes('SMK') || upperGroup.includes('MA')) && !upperGroup.includes('SD') && !isSmp;
+        const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud;
+
+        if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
+          porsiKecil += effectiveSiswa;
+          porsiBesar += effectiveGuru;
+        } else if (isSd) {
+          porsiKecil += Math.ceil(effectiveSiswa / 2);
+          porsiBesar += Math.floor(effectiveSiswa / 2) + effectiveGuru;
         } else {
           porsiBesar += r.totalPenerima;
         }

@@ -30,6 +30,7 @@ import {
   RealtimeValidationAuditBar,
   calculatePortionValidation
 } from './PortionValidationInput';
+import { calculateAutoPortion } from '../../utils/portionHelper';
 
 export interface ClassDefinition {
   key: string;
@@ -192,15 +193,15 @@ export const KATEGORI_LEMBAGA_CONFIGS: KategoriLembagaConfig[] = [
     ]
   },
   {
-    id: '3B (Baliat, Ibu Hamil & Ibu Menyusui)',
-    label: '3B (Baliat, Ibu Hamil & Ibu Menyusui)',
-    shortName: '3B (Baliat, Ibu Hamil & Ibu Menyusui)',
-    badge: 'Baduta, Balita, Bumil & Busui',
-    desc: 'Kategori terpadu 3B: Balita (Baduta/Balita), Ibu Hamil (Trimester 1-3), dan Ibu Menyusui pencegahan stunting & 1000 HPK.',
+    id: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
+    label: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
+    shortName: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
+    badge: 'Busui, Bumil, Balita 5-11 Bln, Balita 12-59 Bln & Kader',
+    desc: 'Kategori terpadu 3B: Busui (W), Bumil (W), Balita 5-11 Bln (L/P), Balita 12-59 Bln (L/P), dan Kader (L/P).',
     defaultKlasifikasi: 'Bumil & Busui',
     targetCategory: '3B',
     mainTargetLabel: 'Sasaran 3B',
-    teacherLabel: 'Jumlah Bidan Desa & Kader Posyandu',
+    teacherLabel: 'Jumlah Kader Posyandu & Bidan Pendamping',
     icon: HeartPulse,
     accentColor: {
       bgLight: 'bg-rose-50/70',
@@ -211,10 +212,14 @@ export const KATEGORI_LEMBAGA_CONFIGS: KategoriLembagaConfig[] = [
       activeRing: 'ring-rose-400'
     },
     classes: [
-      { key: 'baduta', label: 'Baduta (6 - 23 Bulan)', shortLabel: 'Baduta', portionTier: 'Porsi Balita', ageRange: '6 - 23 Bulan', desc: 'Porsi Balita (MP-ASI)' },
-      { key: 'balita', label: 'Balita (24 - 59 Bulan)', shortLabel: 'Balita', portionTier: 'Porsi Balita', ageRange: '24 - 59 Bulan', desc: 'Porsi Balita' },
-      { key: 'bumil', label: 'Ibu Hamil (Trimester 1 - 3)', shortLabel: 'Ibu Hamil', portionTier: 'Porsi Ibu Hamil', ageRange: 'Usia 1 - 9 Bulan', desc: 'Porsi Bumil' },
-      { key: 'busui', label: 'Ibu Menyusui (0 - 12 Bulan)', shortLabel: 'Ibu Menyusui', portionTier: 'Porsi Ibu Menyusui', ageRange: '0 - 12 Bulan', desc: 'Porsi Busui' }
+      { key: 'busui_w', label: 'Busui (W)', shortLabel: 'Busui', portionTier: 'Porsi Besar', ageRange: '0 - 12 Bulan', desc: 'Porsi Besar (Busui)' },
+      { key: 'bumil_w', label: 'Bumil (W)', shortLabel: 'Bumil', portionTier: 'Porsi Besar', ageRange: 'Trimester 1 - 3', desc: 'Porsi Besar (Bumil)' },
+      { key: 'balita511_l', label: 'Balita 5-11 Bln (L)', shortLabel: '5-11 Bln (L)', portionTier: 'Porsi Kecil', ageRange: '5 - 11 Bulan', desc: 'Porsi Kecil (Balita)' },
+      { key: 'balita511_p', label: 'Balita 5-11 Bln (P)', shortLabel: '5-11 Bln (P)', portionTier: 'Porsi Kecil', ageRange: '5 - 11 Bulan', desc: 'Porsi Kecil (Balita)' },
+      { key: 'balita1259_l', label: 'Balita 12-59 Bln (L)', shortLabel: '12-59 Bln (L)', portionTier: 'Porsi Kecil', ageRange: '12 - 59 Bulan', desc: 'Porsi Kecil (Balita)' },
+      { key: 'balita1259_p', label: 'Balita 12-59 Bln (P)', shortLabel: '12-59 Bln (P)', portionTier: 'Porsi Kecil', ageRange: '12 - 59 Bulan', desc: 'Porsi Kecil (Balita)' },
+      { key: 'kader_l', label: 'Kader (L)', shortLabel: 'Kader (L)', portionTier: 'Porsi Besar', ageRange: 'Kader Posyandu', desc: 'Porsi Besar (Kader)' },
+      { key: 'kader_p', label: 'Kader (P)', shortLabel: 'Kader (P)', portionTier: 'Porsi Besar', ageRange: 'Kader Posyandu', desc: 'Porsi Besar (Kader)' }
     ]
   },
   {
@@ -269,7 +274,7 @@ export const inferKategoriFromText = (nama: string = '', fallback: KategoriLemba
   if (n.includes('paud') || n.includes('tk ') || n.includes('tk-') || n.includes('taman kanak') || n.includes('kb ') || n.includes('ra ')) return 'PAUD / TK / RA';
   if (n.includes('smp') || n.includes('mts')) return 'SMP / MTs';
   if (n.includes('sma') || n.includes('smk') || n.includes('ma ') || n.includes('aliyah')) return 'SMA / SMK / MA';
-  if (n.includes('3b') || n.includes('baliat') || n.includes('balita') || n.includes('posyandu') || n.includes('bumil') || n.includes('busui') || n.includes('hamil') || n.includes('menyusui')) return '3B (Baliat, Ibu Hamil & Ibu Menyusui)';
+  if (n.includes('3b') || n.includes('baliat') || n.includes('balita') || n.includes('posyandu') || n.includes('bumil') || n.includes('busui') || n.includes('hamil') || n.includes('menyusui')) return '3B (Balita, Ibu Hamil & Ibu Menyusui)';
   if (n.includes('pesantren') || n.includes('santri') || n.includes('ponpes')) return 'Pondok Pesantren';
   if (n.includes('sd') || n.includes('mi ') || n.includes('sekolah dasar')) return 'SD / MI';
   return fallback;
@@ -300,14 +305,18 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
   // Switch category and recalculate breakdown fields
   const handleSelectCategory = (newCat: KategoriLembaga) => {
     const newConf = getKategoriConfig(newCat);
-    const prevName = editingGroup.nama || '';
-    const wasDefault = !prevName || KATEGORI_LEMBAGA_CONFIGS.some(c => prevName === c.shortName || prevName.startsWith(c.shortName));
-    const newName = wasDefault ? `${newConf.shortName} (Kelas ${newConf.badge.split('+')[0].trim()})` : prevName;
+    const is3B = newConf.targetCategory === '3B' || newConf.id.includes('3B');
+
+    // Sinkronisasi Nama Kelompok: Jika 3B maka nama kelompok otomatis mengikuti nama kategori 3B
+    // Sesuai instruksi: "nama kelompok juga akan mengikuti pilihan kategori, jika 3B maka nama kelompok akan mengikuti"
+    const newName = is3B 
+      ? '3B (Balita, Ibu Hamil & Ibu Menyusui)' 
+      : newConf.label;
 
     const currentList = editingGroup.lembagaList || [];
     const updatedList = (currentList.length > 0 ? currentList : [
       {
-        namaInstansi: `${newConf.shortName} - Instansi 1`,
+        namaInstansi: is3B ? 'Posyandu / Lembaga 3B #1' : `${newConf.shortName} - Instansi 1`,
         targetSiswa: 0,
         targetGuru: 0,
         targetBalita: 0,
@@ -317,6 +326,18 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
         breakdownKelas: {}
       }
     ]).map((l: any, lIdx: number) => {
+      const prevInstName = l.namaInstansi || '';
+      const isDefaultInstName = !prevInstName || 
+        prevInstName.includes('SD Negeri') || 
+        prevInstName.includes('Instansi') || 
+        prevInstName.includes('SD / MI') ||
+        prevInstName.includes('Posyandu') ||
+        KATEGORI_LEMBAGA_CONFIGS.some(c => prevInstName.startsWith(c.shortName) || prevInstName.startsWith(c.label));
+
+      const newInstName = isDefaultInstName
+        ? (is3B ? `Posyandu / Lembaga 3B #${lIdx + 1}` : `${newConf.shortName} - Instansi ${lIdx + 1}`)
+        : prevInstName;
+
       const existingBd = l.breakdownKelas || {};
       const newBd: Record<string, number> = {};
       newConf.classes.forEach(c => {
@@ -324,18 +345,52 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       });
 
       const sumCls = newConf.classes.reduce((sum, c) => sum + (Number(newBd[c.key]) || 0), 0);
-      const g = Number(l.targetGuru) || 0;
-      const is3B = newConf.targetCategory === '3B' || newConf.id.includes('3B');
+      let g = Number(l.targetGuru) || 0;
       const isBalita = newConf.targetCategory === 'Balita' && !is3B;
       const isBumil = newConf.targetCategory === 'Ibu Hamil' && !is3B;
 
       let bVal = 0;
       let bbVal = 0;
       let sVal = 0;
+      let totalLembaga = sumCls + g;
 
       if (is3B) {
-        bVal = (Number(newBd['baduta']) || 0) + (Number(newBd['balita']) || 0);
-        bbVal = (Number(newBd['bumil']) || 0) + (Number(newBd['busui']) || 0);
+        const bW = existingBd['busui_w'] !== undefined ? existingBd['busui_w'] : (existingBd['busui'] || (l.targetBumilBusui ? Math.floor(l.targetBumilBusui / 2) : 0));
+        const mW = existingBd['bumil_w'] !== undefined ? existingBd['bumil_w'] : (existingBd['bumil'] || (l.targetBumilBusui ? Math.ceil(l.targetBumilBusui / 2) : 0));
+        
+        const rawBaduta = existingBd['baduta'] || (l.targetBalita ? Math.ceil(l.targetBalita / 2) : 0);
+        const rawBalita = existingBd['balita'] || (l.targetBalita ? Math.floor(l.targetBalita / 2) : 0);
+        
+        const b511L = existingBd['balita511_l'] !== undefined ? existingBd['balita511_l'] : Math.ceil(rawBaduta / 2);
+        const b511P = existingBd['balita511_p'] !== undefined ? existingBd['balita511_p'] : Math.floor(rawBaduta / 2);
+        const b1259L = existingBd['balita1259_l'] !== undefined ? existingBd['balita1259_l'] : Math.ceil(rawBalita / 2);
+        const b1259P = existingBd['balita1259_p'] !== undefined ? existingBd['balita1259_p'] : Math.floor(rawBalita / 2);
+        const kL = existingBd['kader_l'] !== undefined ? existingBd['kader_l'] : (g ? Math.ceil(g / 2) : 0);
+        const kP = existingBd['kader_p'] !== undefined ? existingBd['kader_p'] : (g ? Math.floor(g / 2) : 0);
+
+        newBd['busui_w'] = bW;
+        newBd['busui'] = bW;
+        newBd['bumil_w'] = mW;
+        newBd['bumil'] = mW;
+        newBd['balita511_l'] = b511L;
+        newBd['balita511_p'] = b511P;
+        newBd['baduta'] = b511L + b511P;
+        newBd['balita1259_l'] = b1259L;
+        newBd['balita1259_p'] = b1259P;
+        newBd['balita'] = b1259L + b1259P;
+        newBd['kader_l'] = kL;
+        newBd['kader_p'] = kP;
+        newBd['kader'] = kL + kP;
+
+        const totBalita511 = b511L + b511P;
+        const totBalita1259 = b1259L + b1259P;
+        const totKader = kL + kP;
+
+        bVal = totBalita511 + totBalita1259;
+        bbVal = (Number(bW) || 0) + (Number(mW) || 0);
+        g = totKader;
+        sVal = 0;
+        totalLembaga = bVal + bbVal + g;
       } else if (isBalita) {
         bVal = sumCls;
       } else if (isBumil) {
@@ -344,17 +399,38 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
         sVal = sumCls;
       }
 
+      const autoP = calculateAutoPortion({
+        kategoriLembaga: newCat,
+        namaInstansi: newInstName,
+        breakdownKelas: newBd,
+        targetSiswa: sVal,
+        targetGuru: g,
+        targetBalita: bVal,
+        targetBumilBusui: bbVal,
+        total: totalLembaga
+      });
+
       return {
         ...l,
-        namaInstansi: l.namaInstansi || `${newConf.shortName} - Instansi ${lIdx + 1}`,
+        namaInstansi: newInstName,
         kategoriLembaga: newCat,
-        klasifikasiPorsi: l.klasifikasiPorsi || newConf.defaultKlasifikasi,
+        klasifikasiPorsi: autoP.klasifikasi,
         breakdownKelas: newBd,
         targetSiswa: sVal,
         targetBalita: bVal,
         targetBumilBusui: bbVal,
-        total: sumCls + g
+        targetGuru: g,
+        total: totalLembaga
       };
+    });
+
+    const groupAutoP = calculateAutoPortion({
+      kategoriLembaga: newCat,
+      namaInstansi: newName,
+      targetSiswa: updatedList.reduce((acc: number, item: any) => acc + (item.targetSiswa || 0), 0),
+      targetGuru: updatedList.reduce((acc: number, item: any) => acc + (item.targetGuru || 0), 0),
+      targetBalita: updatedList.reduce((acc: number, item: any) => acc + (item.targetBalita || 0), 0),
+      targetBumilBusui: updatedList.reduce((acc: number, item: any) => acc + (item.targetBumilBusui || 0), 0)
     });
 
     setEditingGroup({
@@ -362,7 +438,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       nama: newName,
       kategoriLembaga: newCat,
       kategoriUtama: newConf.targetCategory,
-      klasifikasiPorsi: editingGroup.klasifikasiPorsi || newConf.defaultKlasifikasi,
+      klasifikasiPorsi: groupAutoP.klasifikasi,
       lembagaList: updatedList
     });
   };
@@ -376,8 +452,37 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       initialBd[c.key] = 0;
     });
 
+    if (activeConfig.id.includes('3B') || activeConfig.targetCategory === '3B') {
+      initialBd['busui_w'] = 0;
+      initialBd['bumil_w'] = 0;
+      initialBd['balita511_l'] = 0;
+      initialBd['balita511_p'] = 0;
+      initialBd['balita1259_l'] = 0;
+      initialBd['balita1259_p'] = 0;
+      initialBd['kader_l'] = 0;
+      initialBd['kader_p'] = 0;
+      initialBd['baduta'] = 0;
+      initialBd['balita'] = 0;
+      initialBd['bumil'] = 0;
+      initialBd['busui'] = 0;
+      initialBd['kader'] = 0;
+    }
+
+    const is3B = activeConfig.id.includes('3B') || activeConfig.targetCategory === '3B';
+    const newInstName = is3B ? `Posyandu / Lembaga 3B #${nextIdx}` : `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`;
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: currentCategory,
+      namaInstansi: newInstName,
+      breakdownKelas: initialBd,
+      targetSiswa: 0,
+      targetGuru: 0,
+      targetBalita: 0,
+      targetBumilBusui: 0,
+      total: 0
+    });
+
     const newItem = {
-      namaInstansi: `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`,
+      namaInstansi: newInstName,
       kategoriLembaga: currentCategory,
       breakdownKelas: initialBd,
       targetSiswa: 0,
@@ -385,13 +490,77 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       targetBalita: 0,
       targetBumilBusui: 0,
       total: 0,
-      klasifikasiPorsi: editingGroup.klasifikasiPorsi || activeConfig.defaultKlasifikasi
+      klasifikasiPorsi: autoP.klasifikasi
     };
 
     setEditingGroup({
       ...editingGroup,
       lembagaList: [...list, newItem]
     });
+  };
+
+  // Update a 3B demography field (Busui, Bumil, Balita 5-11, Balita 12-59, Kader)
+  const handle3BValueChange = (lembagaIdx: number, fieldKey: string, rawVal: string) => {
+    const num = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...(editingGroup.lembagaList || [])];
+    const item = { ...list[lembagaIdx] };
+    const bd = { ...(item.breakdownKelas || {}) };
+    bd[fieldKey] = num;
+
+    const bW = fieldKey === 'busui_w' ? num : (bd['busui_w'] !== undefined ? bd['busui_w'] : (bd['busui'] || 0));
+    const mW = fieldKey === 'bumil_w' ? num : (bd['bumil_w'] !== undefined ? bd['bumil_w'] : (bd['bumil'] || 0));
+    const b511L = fieldKey === 'balita511_l' ? num : (bd['balita511_l'] || 0);
+    const b511P = fieldKey === 'balita511_p' ? num : (bd['balita511_p'] || 0);
+    const b1259L = fieldKey === 'balita1259_l' ? num : (bd['balita1259_l'] || 0);
+    const b1259P = fieldKey === 'balita1259_p' ? num : (bd['balita1259_p'] || 0);
+    const kL = fieldKey === 'kader_l' ? num : (bd['kader_l'] || 0);
+    const kP = fieldKey === 'kader_p' ? num : (bd['kader_p'] || 0);
+
+    const tBusui = Number(bW) || 0;
+    const tBumil = Number(mW) || 0;
+    const tBalita511 = (Number(b511L) || 0) + (Number(b511P) || 0);
+    const tBalita1259 = (Number(b1259L) || 0) + (Number(b1259P) || 0);
+    const tKader = (Number(kL) || 0) + (Number(kP) || 0);
+
+    // Sync canonical keys for downstream modules
+    bd['busui_w'] = tBusui;
+    bd['busui'] = tBusui;
+    bd['bumil_w'] = tBumil;
+    bd['bumil'] = tBumil;
+    bd['balita511_l'] = Number(b511L) || 0;
+    bd['balita511_p'] = Number(b511P) || 0;
+    bd['baduta'] = tBalita511;
+    bd['balita1259_l'] = Number(b1259L) || 0;
+    bd['balita1259_p'] = Number(b1259P) || 0;
+    bd['balita'] = tBalita1259;
+    bd['kader_l'] = Number(kL) || 0;
+    bd['kader_p'] = Number(kP) || 0;
+    bd['kader'] = tKader;
+
+    const tBalita = tBalita511 + tBalita1259;
+    const tBumilBusui = tBusui + tBumil;
+
+    item.breakdownKelas = bd;
+    item.targetBalita = tBalita;
+    item.targetBumilBusui = tBumilBusui;
+    item.targetGuru = tKader;
+    item.targetSiswa = 0;
+    item.total = tBalita + tBumilBusui + tKader;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: item.kategoriLembaga || currentCategory,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: 0,
+      targetBalita: tBalita,
+      targetBumilBusui: tBumilBusui,
+      targetGuru: tKader,
+      total: item.total
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setEditingGroup({ ...editingGroup, lembagaList: list });
   };
 
   // Update a single class target
@@ -411,9 +580,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
     const is3B = itemConf.targetCategory === '3B' || itemConf.id.includes('3B');
     if (is3B) {
-      item.targetBalita = (Number(bd['baduta']) || 0) + (Number(bd['balita']) || 0);
-      item.targetBumilBusui = (Number(bd['bumil']) || 0) + (Number(bd['busui']) || 0);
-      item.targetSiswa = 0;
+      handle3BValueChange(lembagaIdx, classKey, rawVal);
+      return;
     } else if (itemConf.targetCategory === 'Balita') {
       item.targetBalita = sumClasses;
       item.targetSiswa = 0;
@@ -429,6 +597,19 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     }
 
     item.total = sumClasses + g;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: itemCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: item.total
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
     list[lembagaIdx] = item;
     setEditingGroup({ ...editingGroup, lembagaList: list });
   };
@@ -442,6 +623,19 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
     const mainTarget = Number(item.targetSiswa) || Number(item.targetBalita) || Number(item.targetBumilBusui) || 0;
     item.total = mainTarget + g;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: item.kategoriLembaga || currentCategory,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: item.breakdownKelas,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: item.total
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
     list[lembagaIdx] = item;
     setEditingGroup({ ...editingGroup, lembagaList: list });
   };
@@ -465,7 +659,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     });
 
     const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(newBd[c.key]) || 0), 0);
-    const g = Number(item.targetGuru) || 0;
+    let g = Number(item.targetGuru) || 0;
 
     item.kategoriLembaga = newCat;
     item.klasifikasiPorsi = itemConf.defaultKlasifikasi;
@@ -473,35 +667,105 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
     const is3B = itemConf.targetCategory === '3B' || itemConf.id.includes('3B');
     if (is3B) {
-      item.targetBalita = (Number(newBd['baduta']) || 0) + (Number(newBd['balita']) || 0);
-      item.targetBumilBusui = (Number(newBd['bumil']) || 0) + (Number(newBd['busui']) || 0);
+      const bW = newBd['busui_w'] !== undefined ? newBd['busui_w'] : (newBd['busui'] || (item.targetBumilBusui ? Math.floor(item.targetBumilBusui / 2) : 0));
+      const mW = newBd['bumil_w'] !== undefined ? newBd['bumil_w'] : (newBd['bumil'] || (item.targetBumilBusui ? Math.ceil(item.targetBumilBusui / 2) : 0));
+      const rawBaduta = newBd['baduta'] || (item.targetBalita ? Math.ceil(item.targetBalita / 2) : 0);
+      const rawBalita = newBd['balita'] || (item.targetBalita ? Math.floor(item.targetBalita / 2) : 0);
+      const b511L = newBd['balita511_l'] !== undefined ? newBd['balita511_l'] : Math.ceil(rawBaduta / 2);
+      const b511P = newBd['balita511_p'] !== undefined ? newBd['balita511_p'] : Math.floor(rawBaduta / 2);
+      const b1259L = newBd['balita1259_l'] !== undefined ? newBd['balita1259_l'] : Math.ceil(rawBalita / 2);
+      const b1259P = newBd['balita1259_p'] !== undefined ? newBd['balita1259_p'] : Math.floor(rawBalita / 2);
+      const kL = newBd['kader_l'] !== undefined ? newBd['kader_l'] : (g ? Math.ceil(g / 2) : 0);
+      const kP = newBd['kader_p'] !== undefined ? newBd['kader_p'] : (g ? Math.floor(g / 2) : 0);
+
+      newBd['busui_w'] = bW;
+      newBd['busui'] = bW;
+      newBd['bumil_w'] = mW;
+      newBd['bumil'] = mW;
+      newBd['balita511_l'] = b511L;
+      newBd['balita511_p'] = b511P;
+      newBd['baduta'] = b511L + b511P;
+      newBd['balita1259_l'] = b1259L;
+      newBd['balita1259_p'] = b1259P;
+      newBd['balita'] = b1259L + b1259P;
+      newBd['kader_l'] = kL;
+      newBd['kader_p'] = kP;
+      newBd['kader'] = kL + kP;
+
+      const totBalita511 = b511L + b511P;
+      const totBalita1259 = b1259L + b1259P;
+      const totKader = kL + kP;
+
+      item.targetBalita = totBalita511 + totBalita1259;
+      item.targetBumilBusui = (Number(bW) || 0) + (Number(mW) || 0);
+      item.targetGuru = totKader;
       item.targetSiswa = 0;
+      item.total = item.targetBalita + item.targetBumilBusui + totKader;
+      if (!item.namaInstansi || item.namaInstansi.includes('SD Negeri') || item.namaInstansi.includes('Instansi')) {
+        item.namaInstansi = `Posyandu / Lembaga 3B #${lembagaIdx + 1}`;
+      }
     } else if (itemConf.targetCategory === 'Balita') {
       item.targetBalita = sumClasses;
       item.targetSiswa = 0;
       item.targetBumilBusui = 0;
+      item.total = sumClasses + g;
     } else if (itemConf.targetCategory === 'Ibu Hamil') {
       item.targetBumilBusui = sumClasses;
       item.targetSiswa = 0;
       item.targetBalita = 0;
+      item.total = sumClasses + g;
     } else {
       item.targetSiswa = sumClasses;
       item.targetBalita = 0;
       item.targetBumilBusui = 0;
+      item.total = sumClasses + g;
     }
 
-    item.total = sumClasses + g;
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: newCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: newBd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: item.targetGuru,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: item.total
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
     list[lembagaIdx] = item;
-    setEditingGroup({ ...editingGroup, lembagaList: list });
+
+    // Sinkronisasi kategori dan nama kelompok jika diubah ke 3B atau jika single-lembaga
+    const shouldSyncGroup = is3B || list.length === 1;
+    setEditingGroup({
+      ...editingGroup,
+      kategoriLembaga: shouldSyncGroup ? newCat : (editingGroup.kategoriLembaga || currentCategory),
+      kategoriUtama: shouldSyncGroup ? itemConf.targetCategory : editingGroup.kategoriUtama,
+      nama: is3B ? '3B (Balita, Ibu Hamil & Ibu Menyusui)' : (shouldSyncGroup && (!editingGroup.nama || KATEGORI_LEMBAGA_CONFIGS.some(c => editingGroup.nama?.startsWith(c.shortName) || editingGroup.nama?.startsWith(c.label))) ? itemConf.label : editingGroup.nama),
+      klasifikasiPorsi: is3B ? 'Porsi Besar & Porsi Kecil' : (shouldSyncGroup ? autoP.klasifikasi : editingGroup.klasifikasiPorsi),
+      lembagaList: list
+    });
   };
 
   // Total summary across all institutions in the form
   const totalLembagaCount = (editingGroup.lembagaList || []).length;
-  const totalStudentsAll = (editingGroup.lembagaList || []).reduce((acc: number, l: any) => {
-    return acc + (Number(l.targetSiswa) || Number(l.targetBalita) || Number(l.targetBumilBusui) || 0);
-  }, 0);
-  const totalGuruAll = (editingGroup.lembagaList || []).reduce((acc: number, l: any) => acc + (Number(l.targetGuru) || 0), 0);
-  const grandTotalPortions = totalStudentsAll + totalGuruAll;
+  let formTotalPorsiKecil = 0;
+  let formTotalPorsiBesar = 0;
+  (editingGroup.lembagaList || []).forEach((l: any) => {
+    const res = calculateAutoPortion({
+      kategoriLembaga: l.kategoriLembaga || currentCategory,
+      namaInstansi: l.namaInstansi,
+      breakdownKelas: l.breakdownKelas || {},
+      targetSiswa: l.targetSiswa,
+      targetGuru: l.targetGuru,
+      targetBalita: l.targetBalita,
+      targetBumilBusui: l.targetBumilBusui,
+      total: l.total
+    });
+    formTotalPorsiKecil += res.porsiKecil;
+    formTotalPorsiBesar += res.porsiBesar;
+  });
+  const grandTotalPortions = formTotalPorsiKecil + formTotalPorsiBesar;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
@@ -577,7 +841,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
               </div>
             </div>
 
-            {/* Info Badge ringkasan kategori aktif */}
+            {/* Info Badge ringkasan kategori aktif & Standar Porsi Otomatis */}
             <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <div className="flex-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -591,6 +855,16 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 <span className="text-emerald-400">•</span>
                 <span>
                   Sasaran Utama: <strong className="font-extrabold">{activeConfig.mainTargetLabel}</strong>
+                </span>
+                <span className="text-emerald-400">•</span>
+                <span className="flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  Standar Porsi Otomatis: <strong className="font-extrabold text-blue-900 bg-white/90 px-2 py-0.5 rounded-lg border border-emerald-300">
+                    {activeConfig.id === 'PAUD / TK / RA' ? '🥣 Porsi Kecil' :
+                     activeConfig.id === 'SD / MI' ? '🥣 Kls 1-3 Kecil · 🍱 Kls 4-6 & Guru Besar' :
+                     activeConfig.id.includes('3B') ? '🥣 Balita Kecil · 🍱 Bumil/Busui/Kader Besar' :
+                     '🍱 Porsi Besar'}
+                  </strong>
                 </span>
               </div>
             </div>
@@ -682,6 +956,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                   const itemCat = item.kategoriLembaga || currentCategory;
                   const itemConf = getKategoriConfig(itemCat);
                   const itemBd = item.breakdownKelas || {};
+                  const is3BItem = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
 
                   // Class sum for this item
                   const sumClassesThisItem = itemConf.classes.reduce(
@@ -689,15 +964,51 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                     0
                   );
                   const numGuruThisItem = Number(item.targetGuru) || 0;
-                  const totalPorsiThisItem = sumClassesThisItem + numGuruThisItem;
+
+                  // 3B Specific Demography Calculations
+                  const busuiW = itemBd.busui_w !== undefined ? itemBd.busui_w : (itemBd.busui || 0);
+                  const totBusui = Number(busuiW) || 0;
+
+                  const bumilW = itemBd.bumil_w !== undefined ? itemBd.bumil_w : (itemBd.bumil || 0);
+                  const totBumil = Number(bumilW) || 0;
+
+                  const balita511L = itemBd.balita511_l !== undefined ? itemBd.balita511_l : (itemBd.baduta ? Math.ceil(itemBd.baduta / 2) : 0);
+                  const balita511P = itemBd.balita511_p !== undefined ? itemBd.balita511_p : (itemBd.baduta ? Math.floor(itemBd.baduta / 2) : 0);
+                  const totBalita511 = (Number(balita511L) || 0) + (Number(balita511P) || 0);
+
+                  const balita1259L = itemBd.balita1259_l !== undefined ? itemBd.balita1259_l : (itemBd.balita ? Math.ceil(itemBd.balita / 2) : 0);
+                  const balita1259P = itemBd.balita1259_p !== undefined ? itemBd.balita1259_p : (itemBd.balita ? Math.floor(itemBd.balita / 2) : 0);
+                  const totBalita1259 = (Number(balita1259L) || 0) + (Number(balita1259P) || 0);
+
+                  const kaderL = itemBd.kader_l !== undefined ? itemBd.kader_l : (numGuruThisItem ? Math.ceil(numGuruThisItem / 2) : 0);
+                  const kaderP = itemBd.kader_p !== undefined ? itemBd.kader_p : (numGuruThisItem ? Math.floor(numGuruThisItem / 2) : 0);
+                  const totKader = (Number(kaderL) || 0) + (Number(kaderP) || 0);
+
+                  const totBalitaAll = totBalita511 + totBalita1259;
+                  const totBumilBusuiAll = totBusui + totBumil;
+
+                  const totalPorsiThisItem = is3BItem
+                    ? (totBalitaAll + totBumilBusuiAll + totKader)
+                    : (sumClassesThisItem + numGuruThisItem);
+
+                  const autoPortionItem = calculateAutoPortion({
+                    kategoriLembaga: itemCat,
+                    namaInstansi: item.namaInstansi,
+                    breakdownKelas: itemBd,
+                    targetSiswa: is3BItem ? 0 : sumClassesThisItem,
+                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : 0),
+                    targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : 0),
+                    total: totalPorsiThisItem
+                  });
 
                   const validation = calculatePortionValidation({
                     namaInstansi: item.namaInstansi,
-                    klasifikasiPorsi: item.klasifikasiPorsi || itemConf.defaultKlasifikasi,
-                    targetMain: sumClassesThisItem,
-                    targetGuru: numGuruThisItem,
-                    targetBalita: itemConf.targetCategory === 'Balita' ? sumClassesThisItem : undefined,
-                    targetBumilBusui: itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : undefined
+                    klasifikasiPorsi: autoPortionItem.klasifikasi,
+                    targetMain: is3BItem ? (totBalitaAll + totBumilBusuiAll) : sumClassesThisItem,
+                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : undefined),
+                    targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : undefined)
                   });
 
                   return (
@@ -744,23 +1055,18 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                             </select>
                           </div>
 
-                          {/* Klasifikasi Porsi */}
-                          <select
-                            value={item.klasifikasiPorsi || itemConf.defaultKlasifikasi}
-                            onChange={(e) => {
-                              const list = [...(editingGroup.lembagaList || [])];
-                              list[idx] = { ...list[idx], klasifikasiPorsi: e.target.value as KlasifikasiPorsi };
-                              setEditingGroup({ ...editingGroup, lembagaList: list });
-                            }}
-                            className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
-                          >
-                            <option value="Porsi Kecil">🥣 Porsi Kecil</option>
-                            <option value="Porsi Besar">🍱 Porsi Besar</option>
-                            <option value="Porsi Balita">🍼 Porsi Balita</option>
-                            <option value="Porsi Ibu Hamil">🤰 Porsi Bumil</option>
-                            <option value="Porsi Ibu Menyusui">🤱 Porsi Busui</option>
-                            <option value="Bumil & Busui">🌸 Bumil & Busui</option>
-                          </select>
+                          {/* Pembagian Porsi Otomatis (Tanpa Perlu Memilih Dropdown Manual) */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-400">Porsi Otomatis:</span>
+                            <div
+                              className={`px-3 py-1 rounded-xl border text-[11px] font-black flex items-center gap-1.5 shadow-2xs ${autoPortionItem.badgePill.color}`}
+                              title={`Pembagian porsi otomatis: ${autoPortionItem.summaryLabel}`}
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span>{autoPortionItem.badgePill.text}</span>
+                              <span className="text-[10px] font-bold opacity-80">({autoPortionItem.badgePill.subtext})</span>
+                            </div>
+                          </div>
 
                           {/* Delete / Clear Lembaga Button */}
                           {editingGroup.lembagaList && editingGroup.lembagaList.length > 1 ? (
@@ -800,115 +1106,326 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                       </div>
 
                       {/* BREAKDOWN DEMOGRAFI PENERIMA CONTAINER */}
-                      <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                              BREAKDOWN DEMOGRAFI PENERIMA
-                            </span>
-                            <span className="text-xs font-bold text-slate-700">
-                              {itemConf.label}
-                            </span>
+                      {is3BItem ? (
+                        /* 3B CUSTOM BREAKDOWN DEMOGRAFI PENERIMA - PERSIS SESUAI GAMBAR */
+                        <div className="space-y-3">
+                          <div className="rounded-xl overflow-hidden border border-[#182353]/30 shadow-xs bg-white">
+                            {/* Dark Navy Header Bar persis seperti gambar */}
+                            <div className="bg-[#182353] text-white px-4 py-2.5 flex items-center gap-2.5">
+                              <Users className="w-5 h-5 text-white shrink-0" />
+                              <span className="font-black tracking-wide text-xs sm:text-sm uppercase">
+                                BREAKDOWN DEMOGRAFI PENERIMA
+                              </span>
+                            </div>
+
+                            {/* Table persis sesuai gambar */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-center border-collapse min-w-[680px]">
+                                <thead>
+                                  {/* Row 1: Group Headers */}
+                                  <tr className="bg-[#eef5fc] border-b border-[#bfd6f2] text-[#183962] font-black text-xs">
+                                    <th colSpan={2} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Busui
+                                    </th>
+                                    <th colSpan={2} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Bumil
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Balita 5-11 Bln
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Balita 12-59 Bln
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3">
+                                      Kader
+                                    </th>
+                                  </tr>
+
+                                  {/* Row 2: Sub-columns */}
+                                  <tr className="bg-[#f4f8fd] border-b border-[#bfd6f2] text-[#183962] font-extrabold text-xs">
+                                    {/* Busui */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">W</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Bumil */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">W</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Balita 5-11 Bln */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Balita 12-59 Bln */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Kader */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="bg-white">
+                                    {/* Busui */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.busui_w !== undefined ? (itemBd.busui_w === 0 ? '' : itemBd.busui_w) : (itemBd.busui === 0 ? '' : itemBd.busui || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'busui_w', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBusui}
+                                    </td>
+
+                                    {/* Bumil */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.bumil_w !== undefined ? (itemBd.bumil_w === 0 ? '' : itemBd.bumil_w) : (itemBd.bumil === 0 ? '' : itemBd.bumil || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'bumil_w', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBumil}
+                                    </td>
+
+                                    {/* Balita 5-11 Bln */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita511_l === 0 ? '' : (itemBd.balita511_l || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'balita511_l', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita511_p === 0 ? '' : (itemBd.balita511_p || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'balita511_p', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBalita511}
+                                    </td>
+
+                                    {/* Balita 12-59 Bln */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita1259_l === 0 ? '' : (itemBd.balita1259_l || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'balita1259_l', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita1259_p === 0 ? '' : (itemBd.balita1259_p || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'balita1259_p', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBalita1259}
+                                    </td>
+
+                                    {/* Kader */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.kader_l === 0 ? '' : (itemBd.kader_l || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'kader_l', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.kader_p === 0 ? '' : (itemBd.kader_p || '')}
+                                        onChange={(e) => handle3BValueChange(idx, 'kader_p', e.target.value)}
+                                        placeholder=""
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totKader}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-extrabold text-slate-500">
-                              Subtotal {itemConf.mainTargetLabel}:
-                            </span>
-                            <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-300">
-                              {sumClassesThisItem} {itemConf.mainTargetLabel}
-                            </span>
+                          {/* Dynamic Formula Display & Badges for 3B */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                                Subtotal 3B:
+                              </span>
+                              <span className="font-extrabold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                Balita: {totBalitaAll}
+                              </span>
+                              <span className="font-extrabold text-rose-900 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200 text-[11px]">
+                                Bumil: {totBumil} • Busui: {totBusui}
+                              </span>
+                              <span className="font-extrabold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 text-[11px]">
+                                Kader: {totKader}
+                              </span>
+                              <span className="font-black text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-200 text-[11px] ml-1">
+                                🥣 {autoPortionItem.porsiKecil} Porsi Kecil
+                              </span>
+                              <span className="font-black text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                🍱 {autoPortionItem.porsiBesar} Porsi Besar
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-700">
+                                Total: <strong className="text-blue-900 font-black">{totalPorsiThisItem} Porsi</strong>
+                              </span>
+                              <PortionValidationBadge
+                                subtotal={validation.subtotal}
+                                formula={validation.formula}
+                                compact={false}
+                              />
+                            </div>
                           </div>
                         </div>
+                      ) : (
+                        /* STANDARD BREAKDOWN DEMOGRAFI PENERIMA FOR SCHOOLS / OTHER CATEGORIES */
+                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                                BREAKDOWN DEMOGRAFI PENERIMA
+                              </span>
+                              <span className="text-xs font-bold text-slate-700">
+                                {itemConf.label}
+                              </span>
+                            </div>
 
-                        {/* GRID OF CLASS INPUTS */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
-                          {itemConf.classes.map((cls) => {
-                            const val = itemBd[cls.key] !== undefined ? itemBd[cls.key] : 0;
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-extrabold text-slate-500">
+                                Subtotal {itemConf.mainTargetLabel}:
+                              </span>
+                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-300">
+                                {sumClassesThisItem} {itemConf.mainTargetLabel}
+                              </span>
+                            </div>
+                          </div>
 
-                            return (
-                              <div
-                                key={cls.key}
-                                className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all flex flex-col justify-between"
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <label className="text-[11px] font-extrabold text-slate-800">
-                                    {cls.label}
-                                  </label>
-                                  {cls.portionTier && (
-                                    <span className={`text-[8px] font-extrabold px-1 rounded ${
-                                      cls.portionTier === 'Porsi Kecil' ? 'bg-amber-100 text-amber-800' :
-                                      cls.portionTier === 'Porsi Besar' ? 'bg-blue-100 text-blue-800' :
-                                      cls.portionTier === 'Porsi Balita' ? 'bg-rose-100 text-rose-800' :
-                                      'bg-fuchsia-100 text-fuchsia-800'
-                                    }`}>
-                                      {cls.portionTier.replace('Porsi ', '')}
+                          {/* GRID OF CLASS INPUTS */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
+                            {itemConf.classes.map((cls) => {
+                              const val = itemBd[cls.key] !== undefined ? itemBd[cls.key] : 0;
+
+                              return (
+                                <div
+                                  key={cls.key}
+                                  className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all flex flex-col justify-between"
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] font-extrabold text-slate-800">
+                                      {cls.label}
+                                    </label>
+                                    {cls.portionTier && (
+                                      <span className={`text-[8px] font-extrabold px-1 rounded ${
+                                        cls.portionTier === 'Porsi Kecil' ? 'bg-amber-100 text-amber-800' :
+                                        cls.portionTier === 'Porsi Besar' ? 'bg-blue-100 text-blue-800' :
+                                        cls.portionTier === 'Porsi Balita' ? 'bg-rose-100 text-rose-800' :
+                                        'bg-fuchsia-100 text-fuchsia-800'
+                                      }`}>
+                                        {cls.portionTier.replace('Porsi ', '')}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={val === 0 ? '' : val}
+                                      onChange={(e) => handleClassValueChange(idx, cls.key, e.target.value)}
+                                      placeholder="0"
+                                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-extrabold text-slate-900 text-center focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                    />
+                                  </div>
+
+                                  {cls.ageRange && (
+                                    <span className="text-[9px] text-slate-400 mt-1 text-center block">
+                                      {cls.ageRange}
                                     </span>
                                   )}
                                 </div>
+                              );
+                            })}
+                          </div>
 
+                          {/* ROW: JUMLAH GURU / TENAGA PENDIDIK & SUBTOTAL FORMULA */}
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100">
+                            {/* Guru / Staf Input */}
+                            <div className="md:col-span-5 flex items-center gap-2">
+                              <div className="flex-1">
+                                <label className="text-[11px] font-extrabold text-slate-700 block mb-0.5">
+                                  {itemConf.teacherLabel}
+                                </label>
                                 <div className="relative">
                                   <input
                                     type="number"
                                     min="0"
-                                    value={val === 0 ? '' : val}
-                                    onChange={(e) => handleClassValueChange(idx, cls.key, e.target.value)}
+                                    value={numGuruThisItem === 0 ? '' : numGuruThisItem}
+                                    onChange={(e) => handleGuruChange(idx, e.target.value)}
                                     placeholder="0"
-                                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-extrabold text-slate-900 text-center focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                    className="w-full px-3 py-1.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 text-left focus:ring-2 focus:ring-emerald-500"
                                   />
                                 </div>
-
-                                {cls.ageRange && (
-                                  <span className="text-[9px] text-slate-400 mt-1 text-center block">
-                                    {cls.ageRange}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* ROW: JUMLAH GURU / TENAGA PENDIDIK & SUBTOTAL FORMULA */}
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100">
-                          {/* Guru / Staf Input */}
-                          <div className="md:col-span-5 flex items-center gap-2">
-                            <div className="flex-1">
-                              <label className="text-[11px] font-extrabold text-slate-700 block mb-0.5">
-                                {itemConf.teacherLabel}
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={numGuruThisItem === 0 ? '' : numGuruThisItem}
-                                  onChange={(e) => handleGuruChange(idx, e.target.value)}
-                                  placeholder="0"
-                                  className="w-full px-3 py-1.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 text-left focus:ring-2 focus:ring-emerald-500"
-                                />
                               </div>
                             </div>
-                          </div>
 
-                          {/* Dynamic Formula Display */}
-                          <div className="md:col-span-4 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80 text-center">
-                            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
-                              Formula Hitung Porsi
-                            </span>
-                            <span className="text-xs font-bold text-slate-700">
-                              {sumClassesThisItem} {itemConf.mainTargetLabel} + {numGuruThisItem} Guru = <strong className="text-emerald-700">{totalPorsiThisItem} Porsi</strong>
-                            </span>
-                          </div>
+                            {/* Dynamic Formula Display */}
+                            <div className="md:col-span-4 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80 text-center">
+                              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                                Pembagian Porsi Otomatis
+                              </span>
+                              <span className="text-xs font-bold text-slate-700">
+                                {autoPortionItem.summaryLabel}
+                              </span>
+                            </div>
 
-                          {/* Total Badge */}
-                          <div className="md:col-span-3 flex justify-end">
-                            <PortionValidationBadge
-                              subtotal={validation.subtotal}
-                              formula={validation.formula}
-                              compact={false}
-                            />
+                            {/* Total Badge */}
+                            <div className="md:col-span-3 flex justify-end">
+                              <PortionValidationBadge
+                                subtotal={validation.subtotal}
+                                formula={validation.formula}
+                                compact={false}
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   );
                 })
@@ -917,7 +1434,34 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
             {/* LIVE AUDIT SUMMARY BAR ACROSS ALL INSTITUTIONS */}
             {editingGroup.lembagaList && editingGroup.lembagaList.length > 0 && (
-              <div className="pt-2">
+              <div className="pt-2 space-y-2.5">
+                <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                        Akumulasi Porsi Otomatis Seluruh Lembaga
+                      </span>
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <span className="text-cyan-300 font-extrabold bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-800 text-xs">
+                          🥣 Porsi Kecil: {formTotalPorsiKecil.toLocaleString('id-ID')}
+                        </span>
+                        <span className="text-blue-300 font-extrabold bg-blue-950/80 px-2.5 py-1 rounded-lg border border-blue-800 text-xs">
+                          🍱 Porsi Besar: {formTotalPorsiBesar.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-left sm:text-right border-t sm:border-t-0 border-slate-800 pt-2 sm:pt-0">
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Seluruh Sasaran</span>
+                    <span className="text-lg font-black text-emerald-400">
+                      {grandTotalPortions.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
+                    </span>
+                  </div>
+                </div>
+
                 <RealtimeValidationAuditBar
                   totalItems={totalLembagaCount}
                   totalSubtotal={grandTotalPortions}

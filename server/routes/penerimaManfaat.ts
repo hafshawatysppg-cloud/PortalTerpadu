@@ -173,11 +173,18 @@ function updateGroupHandler(id: string, body: any, res: Response) {
       let balita = 0;
       let siswa = 0;
 
-      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined))) {
+      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined || item.breakdownKelas.busui_w !== undefined))) {
         const bd = item.breakdownKelas || {};
-        balita = (Number(bd.baduta) || 0) + (Number(bd.balita) || 0) || Number(targetBalita) || 0;
-        ibuHamil = (Number(bd.bumil) || 0) || Math.ceil((Number(targetBumilBusui) || 0) / 2);
-        ibuMenyusui = (Number(bd.busui) || 0) || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        const tBalita511 = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) || Number(bd.baduta) || 0;
+        const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
+        const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
+        const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(targetGuru) || 0;
+
+        balita = (tBalita511 + tBalita1259) || Number(targetBalita) || 0;
+        ibuHamil = tBumil || Math.ceil((Number(targetBumilBusui) || 0) / 2);
+        ibuMenyusui = tBusui || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        targetGuru = tKader;
         targetBalita = balita;
         targetBumilBusui = ibuHamil + ibuMenyusui;
         targetSiswa = 0;
@@ -339,11 +346,18 @@ router.post('/groups', (req: Request, res: Response): void => {
       let balita = 0;
       let siswa = 0;
 
-      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined))) {
+      if (item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || (item.breakdownKelas && (item.breakdownKelas.baduta !== undefined || item.breakdownKelas.bumil !== undefined || item.breakdownKelas.busui_w !== undefined))) {
         const bd = item.breakdownKelas || {};
-        balita = (Number(bd.baduta) || 0) + (Number(bd.balita) || 0) || Number(targetBalita) || 0;
-        ibuHamil = (Number(bd.bumil) || 0) || Math.ceil((Number(targetBumilBusui) || 0) / 2);
-        ibuMenyusui = (Number(bd.busui) || 0) || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        const tBalita511 = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) || Number(bd.baduta) || 0;
+        const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
+        const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
+        const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(targetGuru) || 0;
+
+        balita = (tBalita511 + tBalita1259) || Number(targetBalita) || 0;
+        ibuHamil = tBumil || Math.ceil((Number(targetBumilBusui) || 0) / 2);
+        ibuMenyusui = tBusui || Math.floor((Number(targetBumilBusui) || 0) / 2);
+        targetGuru = tKader;
         targetBalita = balita;
         targetBumilBusui = ibuHamil + ibuMenyusui;
         targetSiswa = 0;

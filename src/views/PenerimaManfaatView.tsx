@@ -57,6 +57,7 @@ import {
   getKategoriConfig,
   inferKategoriFromText
 } from '../components/common/GroupFormModal';
+import { calculateAutoPortion } from '../utils/portionHelper';
 
 interface PenerimaManfaatViewProps {
   currentPath?: string;
@@ -839,8 +840,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         const is3B = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
         if (is3B) {
-          b = sumClasses > 0 ? ((Number(bd['baduta']) || 0) + (Number(bd['balita']) || 0)) : (b || 0);
-          bb = sumClasses > 0 ? ((Number(bd['bumil']) || 0) + (Number(bd['busui']) || 0)) : (bb || 0);
+          const tBalita511 = (Number(bd['balita511_l']) || 0) + (Number(bd['balita511_p']) || 0) || Number(bd['baduta']) || 0;
+          const tBalita1259 = (Number(bd['balita1259_l']) || 0) + (Number(bd['balita1259_p']) || 0) || Number(bd['balita']) || 0;
+          const tBusui = Number(bd['busui_w']) || Number(bd['busui']) || 0;
+          const tBumil = Number(bd['bumil_w']) || Number(bd['bumil']) || 0;
+          const tKader = (Number(bd['kader_l']) || 0) + (Number(bd['kader_p']) || 0) || g;
+
+          b = (tBalita511 + tBalita1259) || b;
+          bb = (tBusui + tBumil) || bb;
+          g = tKader;
           s = 0;
         } else if (itemConf.targetCategory === 'Balita' || itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
           b = sumClasses > 0 ? sumClasses : (b || s || 0);
@@ -857,6 +865,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         }
 
         const total = s + g + b + bb;
+        const autoP = calculateAutoPortion({
+          kategoriLembaga: itemCat,
+          namaInstansi: l.namaInstansi,
+          breakdownKelas: bd,
+          targetSiswa: s,
+          targetGuru: g,
+          targetBalita: b,
+          targetBumilBusui: bb,
+          total
+        });
+
         return {
           ...l,
           kategoriLembaga: itemCat,
@@ -866,14 +885,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           targetBalita: b,
           targetBumilBusui: bb,
           total,
-          klasifikasiPorsi: itemKlas
+          klasifikasiPorsi: autoP.klasifikasi
         };
+      });
+
+      const groupAutoP = calculateAutoPortion({
+        kategoriLembaga: groupCat,
+        namaInstansi: editingGroup.nama,
+        targetSiswa: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetSiswa || 0), 0),
+        targetGuru: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetGuru || 0), 0),
+        targetBalita: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetBalita || 0), 0),
+        targetBumilBusui: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetBumilBusui || 0), 0)
       });
 
       const payload = {
         ...editingGroup,
         kategoriLembaga: groupCat,
         kategoriUtama: conf.targetCategory,
+        klasifikasiPorsi: groupAutoP.klasifikasi,
         lembagaList: sanitizedLembagaList
       };
 
@@ -1912,80 +1941,103 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
             </div>
 
             {(() => {
-              // Calculate portion breakdown dynamically from active groups & lembaga tables
+              // Calculate portion breakdown dynamically using user-specified automated rules:
+              // PAUD/TK: Porsi kecil
+              // SD/MI kelas 1–3: Porsi kecil
+              // SD/MI kelas 4–6: Porsi besar (+ guru: porsi besar)
+              // SMP/MTs: Porsi besar
+              // SMA/SMK/MA: Porsi besar
+              // Ibu hamil: Porsi besar
+              // Ibu menyusui: Porsi besar
+              // Balita: Porsi kecil
               let porsiBesarVal = 0;
               let porsiKecilVal = 0;
               let porsiBalitaVal = 0;
               let porsiIbuHamilVal = 0;
               let porsiIbuMenyusuiVal = 0;
 
+              const processedInstansi = new Set<string>();
+
               if (groups && groups.length > 0) {
                 groups.forEach((grp) => {
-                  const defaultGroupCat = grp.klasifikasiPorsi || (
-                    grp.nama.toUpperCase().includes('PAUD') || grp.nama.toUpperCase().includes('1-3') ? 'Porsi Kecil' :
-                    grp.nama.toUpperCase().includes('BALITA') ? 'Porsi Balita' :
-                    grp.nama.toUpperCase().includes('HAMIL') ? 'Porsi Ibu Hamil' :
-                    grp.nama.toUpperCase().includes('MENYUSUI') ? 'Porsi Ibu Menyusui' : 'Porsi Besar'
-                  );
-
                   if (grp.lembagaList && grp.lembagaList.length > 0) {
                     grp.lembagaList.forEach((l) => {
-                      const itemCat = l.klasifikasiPorsi || defaultGroupCat;
-                      const s = Number(l.targetSiswa) || 0;
-                      const g = Number(l.targetGuru) || 0;
-                      const b = Number(l.targetBalita) || 0;
-                      const bb = Number(l.targetBumilBusui) || 0;
-                      const totalLembaga = (s + g + b + bb) || Number(l.total) || 0;
+                      const itemCat = l.kategoriLembaga || grp.kategoriLembaga;
+                      const instKey = (l.namaInstansi || '').trim().toLowerCase();
+                      if (instKey) processedInstansi.add(instKey);
 
-                      if (itemCat === 'Porsi Besar') porsiBesarVal += totalLembaga;
-                      else if (itemCat === 'Porsi Kecil') porsiKecilVal += totalLembaga;
-                      else if (itemCat === 'Porsi Balita' || itemCat === 'Balita') porsiBalitaVal += totalLembaga;
-                      else if (itemCat === 'Porsi Ibu Hamil') porsiIbuHamilVal += totalLembaga;
-                      else if (itemCat === 'Porsi Ibu Menyusui') porsiIbuMenyusuiVal += totalLembaga;
-                      else if (itemCat === 'Bumil & Busui') {
-                        porsiIbuHamilVal += Math.ceil(totalLembaga / 2);
-                        porsiIbuMenyusuiVal += Math.floor(totalLembaga / 2);
-                      } else porsiBesarVal += totalLembaga;
+                      const auto = calculateAutoPortion({
+                        kategoriLembaga: itemCat,
+                        namaInstansi: l.namaInstansi,
+                        breakdownKelas: l.breakdownKelas || {},
+                        targetSiswa: Number(l.targetSiswa) || 0,
+                        targetGuru: Number(l.targetGuru) || 0,
+                        targetBalita: Number(l.targetBalita) || 0,
+                        targetBumilBusui: Number(l.targetBumilBusui) || 0,
+                        total: Number(l.total) || 0
+                      });
+
+                      porsiKecilVal += auto.porsiKecil;
+                      porsiBesarVal += auto.porsiBesar;
+                      porsiBalitaVal += auto.detail.balita;
+                      porsiIbuHamilVal += auto.detail.ibuHamil;
+                      porsiIbuMenyusuiVal += auto.detail.ibuMenyusui;
                     });
                   } else {
                     const grpLocs = locations.filter(loc => loc.groupId === grp.id || loc.groupNama === grp.nama);
                     if (grpLocs.length > 0) {
                       grpLocs.forEach((loc) => {
-                        const locCat = loc.klasifikasiPorsi || defaultGroupCat;
-                        const totalLoc = Number(loc.defaultJumlah) || 0;
-                        if (locCat === 'Porsi Besar') porsiBesarVal += totalLoc;
-                        else if (locCat === 'Porsi Kecil') porsiKecilVal += totalLoc;
-                        else if (locCat === 'Porsi Balita' || locCat === 'Balita') porsiBalitaVal += totalLoc;
-                        else if (locCat === 'Porsi Ibu Hamil') porsiIbuHamilVal += totalLoc;
-                        else if (locCat === 'Porsi Ibu Menyusui') porsiIbuMenyusuiVal += totalLoc;
-                        else if (locCat === 'Bumil & Busui') {
-                          porsiIbuHamilVal += Math.ceil(totalLoc / 2);
-                          porsiIbuMenyusuiVal += Math.floor(totalLoc / 2);
-                        } else porsiBesarVal += totalLoc;
+                        const instKey = (loc.namaInstansi || '').trim().toLowerCase();
+                        if (instKey) processedInstansi.add(instKey);
+
+                        const auto = calculateAutoPortion({
+                          kategoriLembaga: loc.kategoriLembaga || grp.kategoriLembaga,
+                          namaInstansi: loc.namaInstansi,
+                          breakdownKelas: loc.breakdownKelas || loc.kategoriBreakdown?.breakdownKelas || {},
+                          targetSiswa: Number(loc.kategoriBreakdown?.siswa) || Number(loc.defaultJumlah) || 0,
+                          targetGuru: Number(loc.kategoriBreakdown?.guru) || 0,
+                          targetBalita: Number(loc.kategoriBreakdown?.balita) || 0,
+                          targetBumilBusui: (Number(loc.kategoriBreakdown?.ibuHamil) || 0) + (Number(loc.kategoriBreakdown?.ibuMenyusui) || 0),
+                          total: Number(loc.defaultJumlah) || 0
+                        });
+
+                        porsiKecilVal += auto.porsiKecil;
+                        porsiBesarVal += auto.porsiBesar;
+                        porsiBalitaVal += auto.detail.balita;
+                        porsiIbuHamilVal += auto.detail.ibuHamil;
+                        porsiIbuMenyusuiVal += auto.detail.ibuMenyusui;
                       });
                     }
                   }
                 });
               }
 
-              const hasComputed = porsiBesarVal > 0 || porsiKecilVal > 0 || porsiBalitaVal > 0 || porsiIbuHamilVal > 0 || porsiIbuMenyusuiVal > 0;
-              if (!hasComputed && locations && locations.length > 0) {
+              // Check if any additional standalone locations exist
+              if (locations && locations.length > 0) {
                 locations.forEach((loc) => {
-                  const locCat = loc.klasifikasiPorsi || 'Porsi Besar';
-                  const totalLoc = Number(loc.defaultJumlah) || 0;
-                  if (locCat === 'Porsi Besar') porsiBesarVal += totalLoc;
-                  else if (locCat === 'Porsi Kecil') porsiKecilVal += totalLoc;
-                  else if (locCat === 'Porsi Balita' || locCat === 'Balita') porsiBalitaVal += totalLoc;
-                  else if (locCat === 'Porsi Ibu Hamil') porsiIbuHamilVal += totalLoc;
-                  else if (locCat === 'Porsi Ibu Menyusui') porsiIbuMenyusuiVal += totalLoc;
-                  else if (locCat === 'Bumil & Busui') {
-                    porsiIbuHamilVal += Math.ceil(totalLoc / 2);
-                    porsiIbuMenyusuiVal += Math.floor(totalLoc / 2);
-                  } else porsiBesarVal += totalLoc;
+                  const instKey = (loc.namaInstansi || '').trim().toLowerCase();
+                  if (instKey && processedInstansi.has(instKey)) return;
+
+                  const auto = calculateAutoPortion({
+                    kategoriLembaga: loc.kategoriLembaga,
+                    namaInstansi: loc.namaInstansi,
+                    breakdownKelas: loc.breakdownKelas || loc.kategoriBreakdown?.breakdownKelas || {},
+                    targetSiswa: Number(loc.kategoriBreakdown?.siswa) || Number(loc.defaultJumlah) || 0,
+                    targetGuru: Number(loc.kategoriBreakdown?.guru) || 0,
+                    targetBalita: Number(loc.kategoriBreakdown?.balita) || 0,
+                    targetBumilBusui: (Number(loc.kategoriBreakdown?.ibuHamil) || 0) + (Number(loc.kategoriBreakdown?.ibuMenyusui) || 0),
+                    total: Number(loc.defaultJumlah) || 0
+                  });
+
+                  porsiKecilVal += auto.porsiKecil;
+                  porsiBesarVal += auto.porsiBesar;
+                  porsiBalitaVal += auto.detail.balita;
+                  porsiIbuHamilVal += auto.detail.ibuHamil;
+                  porsiIbuMenyusuiVal += auto.detail.ibuMenyusui;
                 });
               }
 
-              if (porsiBesarVal === 0 && porsiKecilVal === 0 && porsiBalitaVal === 0 && porsiIbuHamilVal === 0 && porsiIbuMenyusuiVal === 0) {
+              if (porsiBesarVal === 0 && porsiKecilVal === 0) {
                 porsiBesarVal = dailySummary?.portionBreakdown?.porsiBesar ?? 810;
                 porsiKecilVal = dailySummary?.portionBreakdown?.porsiKecil ?? 287;
                 porsiBalitaVal = dailySummary?.portionBreakdown?.porsiBalita ?? dailySummary?.portionBreakdown?.balita ?? 68;
@@ -1993,7 +2045,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 porsiIbuMenyusuiVal = dailySummary?.portionBreakdown?.porsiIbuMenyusui ?? 21;
               }
 
-              const totalSeluruhPorsi = porsiBesarVal + porsiKecilVal + porsiBalitaVal + porsiIbuHamilVal + porsiIbuMenyusuiVal;
+              const totalSeluruhPorsi = porsiBesarVal + porsiKecilVal;
 
               return (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 pt-1">
@@ -2004,7 +2056,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="text-xl font-black text-emerald-400 mt-0.5">
                         {porsiBesarVal.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">SD 4-6, SMP, SMA, Guru/Staf</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">SD 4-6, SMP, SMA, Bumil, Busui, Guru/Kader</div>
                     </div>
                   </div>
 
@@ -2015,7 +2067,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="text-xl font-black text-cyan-400 mt-0.5">
                         {porsiKecilVal.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">SD 1-3, PAUD / TK</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">SD 1-3, PAUD / TK, Balita</div>
                     </div>
                   </div>
 
@@ -2026,7 +2078,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="text-xl font-black text-purple-400 mt-0.5">
                         {porsiBalitaVal.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Anak Balita Nutrisi</div>
+                      <div className="text-[10px] text-cyan-300/80 mt-0.5">Otomatis Masuk Porsi Kecil</div>
                     </div>
                   </div>
 
@@ -2037,7 +2089,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="text-xl font-black text-rose-400 mt-0.5">
                         {porsiIbuHamilVal.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Ibu Hamil Nutrisi</div>
+                      <div className="text-[10px] text-emerald-300/80 mt-0.5">Otomatis Masuk Porsi Besar</div>
                     </div>
                   </div>
 
@@ -2048,7 +2100,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <div className="text-xl font-black text-amber-400 mt-0.5">
                         {porsiIbuMenyusuiVal.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-300">Porsi</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Ibu Menyusui Nutrisi</div>
+                      <div className="text-[10px] text-emerald-300/80 mt-0.5">Otomatis Masuk Porsi Besar</div>
                     </div>
                   </div>
 
@@ -2095,11 +2147,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                     return acc + (sum > 0 ? sum : (l.defaultJumlah || 0));
                   }, 0);
 
-              const portionCategory = grp.klasifikasiPorsi || (
-                grp.nama.toUpperCase().includes('PAUD') || grp.nama.toUpperCase().includes('1-3') ? 'Porsi Kecil' :
-                grp.nama.toUpperCase().includes('BALITA') ? 'Balita' :
-                grp.nama.toUpperCase().includes('HAMIL') || grp.nama.toUpperCase().includes('MENYUSUI') ? 'Bumil & Busui' : 'Porsi Besar'
-              );
+              const groupAuto = calculateAutoPortion({
+                kategoriLembaga: grp.kategoriLembaga,
+                namaInstansi: grp.nama,
+                targetSiswa: totalSiswa,
+                targetGuru: totalGuru,
+                targetBalita: totalBalita,
+                targetBumilBusui: totalBumil,
+                total: totalPorsi
+              });
 
               return (
                 <div key={grp.id} className="bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all p-5 space-y-4">
@@ -2110,14 +2166,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         #{grp.urutan}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-base font-extrabold text-slate-900">{grp.nama}</h4>
-                          <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full ${
-                            portionCategory === 'Porsi Kecil' ? 'bg-cyan-100 text-cyan-800' :
-                            portionCategory === 'Balita' ? 'bg-purple-100 text-purple-800' :
-                            portionCategory === 'Bumil & Busui' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                          <span className={`px-2.5 py-0.5 text-[11px] font-extrabold rounded-full flex items-center gap-1 shadow-2xs ${
+                            groupAuto.porsiKecil > 0 && groupAuto.porsiBesar > 0 ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                            groupAuto.porsiKecil > 0 ? 'bg-cyan-100 text-cyan-900 border border-cyan-300' : 'bg-blue-100 text-blue-900 border border-blue-300'
                           }`}>
-                            🍱 {portionCategory}
+                            <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span>{groupAuto.summaryLabel}</span>
                           </span>
                           <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${
                             grp.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
@@ -2173,14 +2229,33 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                     bb = 0;
                                   }
 
-                                  let bd = l.breakdownKelas;
-                                  if (!bd || Object.keys(bd).length === 0) {
-                                    bd = {};
+                                  let bd = l.breakdownKelas ? { ...l.breakdownKelas } : {};
+                                  if (!l.breakdownKelas || Object.keys(l.breakdownKelas).length === 0 || (itemCat.includes('3B') && bd['busui_w'] === undefined)) {
                                     if (itemCat.includes('3B') || itemConf.id.includes('3B')) {
-                                      bd['baduta'] = Math.ceil(b / 2);
-                                      bd['balita'] = Math.floor(b / 2);
-                                      bd['bumil'] = Math.ceil(bb / 2);
-                                      bd['busui'] = Math.floor(bb / 2);
+                                      const rawBaduta = bd['baduta'] !== undefined ? bd['baduta'] : Math.ceil(b / 2);
+                                      const rawBalita = bd['balita'] !== undefined ? bd['balita'] : Math.floor(b / 2);
+                                      const bW = bd['busui_w'] !== undefined ? bd['busui_w'] : (bd['busui'] !== undefined ? bd['busui'] : Math.floor(bb / 2));
+                                      const mW = bd['bumil_w'] !== undefined ? bd['bumil_w'] : (bd['bumil'] !== undefined ? bd['bumil'] : Math.ceil(bb / 2));
+                                      const b511L = bd['balita511_l'] !== undefined ? bd['balita511_l'] : Math.ceil(rawBaduta / 2);
+                                      const b511P = bd['balita511_p'] !== undefined ? bd['balita511_p'] : Math.floor(rawBaduta / 2);
+                                      const b1259L = bd['balita1259_l'] !== undefined ? bd['balita1259_l'] : Math.ceil(rawBalita / 2);
+                                      const b1259P = bd['balita1259_p'] !== undefined ? bd['balita1259_p'] : Math.floor(rawBalita / 2);
+                                      const kL = bd['kader_l'] !== undefined ? bd['kader_l'] : Math.ceil(g / 2);
+                                      const kP = bd['kader_p'] !== undefined ? bd['kader_p'] : Math.floor(g / 2);
+
+                                      bd['busui_w'] = bW;
+                                      bd['busui'] = bW;
+                                      bd['bumil_w'] = mW;
+                                      bd['bumil'] = mW;
+                                      bd['balita511_l'] = b511L;
+                                      bd['balita511_p'] = b511P;
+                                      bd['baduta'] = b511L + b511P;
+                                      bd['balita1259_l'] = b1259L;
+                                      bd['balita1259_p'] = b1259P;
+                                      bd['balita'] = b1259L + b1259P;
+                                      bd['kader_l'] = kL;
+                                      bd['kader_p'] = kP;
+                                      bd['kader'] = kL + kP;
                                     } else {
                                       const mainVal = itemConf.targetCategory === 'Balita' ? b : (itemConf.targetCategory === 'Ibu Hamil' ? bb : s);
                                       if (itemConf.classes.length > 0 && mainVal > 0) {
@@ -2231,14 +2306,33 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                     bb = 0;
                                   }
 
-                                  let bd = l.breakdownKelas || l.kategoriBreakdown?.breakdownKelas;
-                                  if (!bd || Object.keys(bd).length === 0) {
-                                    bd = {};
+                                  let bd = (l.breakdownKelas || l.kategoriBreakdown?.breakdownKelas) ? { ...(l.breakdownKelas || l.kategoriBreakdown?.breakdownKelas) } : {};
+                                  if (!l.breakdownKelas && !l.kategoriBreakdown?.breakdownKelas || Object.keys(bd).length === 0 || (itemCat.includes('3B') && bd['busui_w'] === undefined)) {
                                     if (itemCat.includes('3B') || itemConf.id.includes('3B')) {
-                                      bd['baduta'] = Math.ceil(b / 2);
-                                      bd['balita'] = Math.floor(b / 2);
-                                      bd['bumil'] = Math.ceil(bb / 2);
-                                      bd['busui'] = Math.floor(bb / 2);
+                                      const rawBaduta = bd['baduta'] !== undefined ? bd['baduta'] : Math.ceil(b / 2);
+                                      const rawBalita = bd['balita'] !== undefined ? bd['balita'] : Math.floor(b / 2);
+                                      const bW = bd['busui_w'] !== undefined ? bd['busui_w'] : (bd['busui'] !== undefined ? bd['busui'] : Math.floor(bb / 2));
+                                      const mW = bd['bumil_w'] !== undefined ? bd['bumil_w'] : (bd['bumil'] !== undefined ? bd['bumil'] : Math.ceil(bb / 2));
+                                      const b511L = bd['balita511_l'] !== undefined ? bd['balita511_l'] : Math.ceil(rawBaduta / 2);
+                                      const b511P = bd['balita511_p'] !== undefined ? bd['balita511_p'] : Math.floor(rawBaduta / 2);
+                                      const b1259L = bd['balita1259_l'] !== undefined ? bd['balita1259_l'] : Math.ceil(rawBalita / 2);
+                                      const b1259P = bd['balita1259_p'] !== undefined ? bd['balita1259_p'] : Math.floor(rawBalita / 2);
+                                      const kL = bd['kader_l'] !== undefined ? bd['kader_l'] : Math.ceil(g / 2);
+                                      const kP = bd['kader_p'] !== undefined ? bd['kader_p'] : Math.floor(g / 2);
+
+                                      bd['busui_w'] = bW;
+                                      bd['busui'] = bW;
+                                      bd['bumil_w'] = mW;
+                                      bd['bumil'] = mW;
+                                      bd['balita511_l'] = b511L;
+                                      bd['balita511_p'] = b511P;
+                                      bd['baduta'] = b511L + b511P;
+                                      bd['balita1259_l'] = b1259L;
+                                      bd['balita1259_p'] = b1259P;
+                                      bd['balita'] = b1259L + b1259P;
+                                      bd['kader_l'] = kL;
+                                      bd['kader_p'] = kP;
+                                      bd['kader'] = kL + kP;
                                     } else {
                                       const mainVal = itemConf.targetCategory === 'Balita' ? b : (itemConf.targetCategory === 'Ibu Hamil' ? bb : s);
                                       if (itemConf.classes.length > 0 && mainVal > 0) {
@@ -2272,7 +2366,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                               ...grp,
                               alamat: grp.alamat || grp.deskripsi || '',
                               kategoriLembaga: groupCat,
-                              klasifikasiPorsi: portionCategory as any,
+                              klasifikasiPorsi: groupAuto.klasifikasi as any,
                               lembagaList: lembagaList.length > 0 ? lembagaList : [
                                 {
                                   namaInstansi: `${grp.nama} - Instansi 1`,
@@ -2283,7 +2377,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                   targetBalita: 0,
                                   targetBumilBusui: 0,
                                   total: 0,
-                                  klasifikasiPorsi: portionCategory as any
+                                  klasifikasiPorsi: groupAuto.klasifikasi as any
                                 }
                               ]
                             });
@@ -2329,7 +2423,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           </tr>
                         ) : (
                           (grpLocs.length > 0 ? grpLocs : grp.lembagaList || []).map((loc: any, idx: number) => {
-                            const pCat = loc.klasifikasiPorsi || portionCategory;
+                            const pCat = loc.klasifikasiPorsi || groupAuto.klasifikasi;
                             const norm = (loc.namaInstansi || loc.nama || '').trim().toLowerCase();
                             let s = loc.kategoriBreakdown?.siswa !== undefined ? loc.kategoriBreakdown.siswa : (loc.targetSiswa || 0);
                             let g = loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0);
@@ -2352,6 +2446,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
                             const calculatedSum = s + g + b + bb;
                             const tot = calculatedSum > 0 ? calculatedSum : (loc.total || loc.defaultJumlah || 0);
+
+                            const locAuto = calculateAutoPortion({
+                              kategoriLembaga: loc.kategoriLembaga || grp.kategoriLembaga,
+                              namaInstansi: loc.namaInstansi || loc.nama,
+                              breakdownKelas: loc.breakdownKelas || loc.kategoriBreakdown?.breakdownKelas || {},
+                              targetSiswa: s,
+                              targetGuru: g,
+                              targetBalita: b,
+                              targetBumilBusui: bb,
+                              total: tot
+                            });
 
                             return (
                               <tr key={loc.id || idx} className="hover:bg-white transition-all">
@@ -2380,8 +2485,13 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{bb}</td>
                                 <td className="px-3 py-2.5 text-center font-extrabold text-emerald-600">{tot} Porsi</td>
                                 <td className="px-4 py-2.5">
-                                  <span className="px-2 py-0.5 bg-slate-200/80 text-slate-800 text-[10px] font-bold rounded-md">
-                                    {pCat}
+                                  <span
+                                    className={`px-2.5 py-1 text-[10px] font-extrabold rounded-lg border flex items-center gap-1 w-fit shadow-2xs ${locAuto.badgePill.color}`}
+                                    title={locAuto.summaryLabel}
+                                  >
+                                    <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                                    <span>{locAuto.badgePill.text}</span>
+                                    <span className="opacity-80">({locAuto.badgePill.subtext})</span>
                                   </span>
                                 </td>
                               </tr>
@@ -3194,13 +3304,26 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
                         {/* Klasifikasi Porsi Badge & Delete */}
                         <div className="md:col-span-2 flex items-center justify-between gap-1.5 pt-4 md:pt-0">
-                          <span className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-[11px] font-bold shrink-0 truncate max-w-[130px]" title={item.klasifikasiPorsi || 'Porsi Besar'}>
-                            {item.klasifikasiPorsi === 'Porsi Kecil' ? '🥣 Porsi Kecil' :
-                             item.klasifikasiPorsi === 'Porsi Balita' || item.klasifikasiPorsi === 'Balita' ? '🍼 Porsi Balita' :
-                             item.klasifikasiPorsi === 'Porsi Ibu Hamil' ? '🤰 Porsi Ibu Hamil' :
-                             item.klasifikasiPorsi === 'Porsi Ibu Menyusui' ? '🤱 Porsi Ibu Menyusui' :
-                             '🍱 Porsi Besar'}
-                          </span>
+                          {(() => {
+                            const itemAuto = calculateAutoPortion({
+                              kategoriLembaga: (item as any).kategoriLembaga,
+                              namaInstansi: item.namaInstansi,
+                              targetSiswa: targetVal,
+                              targetGuru: g,
+                              targetBalita: isBalita ? targetVal : 0,
+                              targetBumilBusui: isBumil ? targetVal : 0,
+                              total: targetVal + g
+                            });
+                            return (
+                              <span
+                                className={`px-2.5 py-1.5 border rounded-xl text-[11px] font-extrabold shrink-0 truncate max-w-[140px] shadow-2xs flex items-center gap-1 ${itemAuto.badgePill.color}`}
+                                title={itemAuto.summaryLabel}
+                              >
+                                <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                                <span>{itemAuto.badgePill.text}</span>
+                              </span>
+                            );
+                          })()}
 
                           <button
                             type="button"

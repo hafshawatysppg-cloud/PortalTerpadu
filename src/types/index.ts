@@ -399,7 +399,7 @@ export interface TaskTemplate {
 // PENERIMA MANFAAT (BENEFICIARY MODULE) TYPES
 // ==========================================
 
-export type KlasifikasiPorsi = 'Porsi Besar' | 'Porsi Kecil' | 'Porsi Balita' | 'Porsi Ibu Hamil' | 'Porsi Ibu Menyusui' | 'Balita' | 'Bumil & Busui';
+export type KlasifikasiPorsi = 'Porsi Besar' | 'Porsi Kecil' | 'Porsi Balita' | 'Porsi Ibu Hamil' | 'Porsi Ibu Menyusui' | 'Balita' | 'Bumil & Busui' | 'Porsi Besar & Porsi Kecil';
 
 export type KategoriLembaga = 
   | 'SD / MI' 
