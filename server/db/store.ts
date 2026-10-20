@@ -59,7 +59,10 @@ import {
   FoodWasteItem,
   Petugas,
   SlipGajiHarian,
-  RekapGajiHarianSummary
+  RekapGajiHarianSummary,
+  RekapAbsensiHarian,
+  AbsensiPetugasItem,
+  StatusAbsensi
 } from '../../src/types';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
@@ -1869,15 +1872,15 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     kehadiranHari: 1,
     tarifGajiPerHari: 150000,
     gajiPokokHarian: 150000,
-    uangMakanHarian: 15000,
-    uangTransportHarian: 10000,
+    uangMakanHarian: 0,
+    uangTransportHarian: 0,
     uangLemburHarian: 0,
     bonusHarian: 0,
-    totalPenghasilanKotor: 175000,
+    totalPenghasilanKotor: 150000,
     potonganHarian: 0,
     keteranganPotongan: '-',
-    totalGajiBersih: 175000,
-    terbilang: 'Seratus Tujuh Puluh Lima Ribu Rupiah',
+    totalGajiBersih: 150000,
+    terbilang: 'Seratus Lima Puluh Ribu Rupiah',
     metodePembayaran: 'Tunai',
     statusPembayaran: 'Lunas',
     tanggalBayar: '2026-10-10',
@@ -1902,15 +1905,15 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     kehadiranHari: 1,
     tarifGajiPerHari: 125000,
     gajiPokokHarian: 125000,
-    uangMakanHarian: 15000,
-    uangTransportHarian: 10000,
+    uangMakanHarian: 0,
+    uangTransportHarian: 0,
     uangLemburHarian: 0,
     bonusHarian: 0,
-    totalPenghasilanKotor: 150000,
+    totalPenghasilanKotor: 125000,
     potonganHarian: 0,
     keteranganPotongan: '-',
-    totalGajiBersih: 150000,
-    terbilang: 'Seratus Lima Puluh Ribu Rupiah',
+    totalGajiBersih: 125000,
+    terbilang: 'Seratus Dua Puluh Lima Ribu Rupiah',
     metodePembayaran: 'Tunai',
     statusPembayaran: 'Lunas',
     tanggalBayar: '2026-10-10',
@@ -1935,15 +1938,15 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     kehadiranHari: 1,
     tarifGajiPerHari: 110000,
     gajiPokokHarian: 110000,
-    uangMakanHarian: 15000,
-    uangTransportHarian: 10000,
+    uangMakanHarian: 0,
+    uangTransportHarian: 0,
     uangLemburHarian: 0,
     bonusHarian: 0,
-    totalPenghasilanKotor: 135000,
+    totalPenghasilanKotor: 110000,
     potonganHarian: 0,
     keteranganPotongan: '-',
-    totalGajiBersih: 135000,
-    terbilang: 'Seratus Tiga Puluh Lima Ribu Rupiah',
+    totalGajiBersih: 110000,
+    terbilang: 'Seratus Sepuluh Ribu Rupiah',
     metodePembayaran: 'Tunai',
     statusPembayaran: 'Lunas',
     tanggalBayar: '2026-10-10',
@@ -1968,15 +1971,15 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     kehadiranHari: 1,
     tarifGajiPerHari: 130000,
     gajiPokokHarian: 130000,
-    uangMakanHarian: 15000,
-    uangTransportHarian: 15000,
-    uangLemburHarian: 20000,
+    uangMakanHarian: 0,
+    uangTransportHarian: 0,
+    uangLemburHarian: 0,
     bonusHarian: 0,
-    totalPenghasilanKotor: 180000,
+    totalPenghasilanKotor: 130000,
     potonganHarian: 0,
     keteranganPotongan: '-',
-    totalGajiBersih: 180000,
-    terbilang: 'Seratus Delapan Puluh Ribu Rupiah',
+    totalGajiBersih: 130000,
+    terbilang: 'Seratus Tiga Puluh Ribu Rupiah',
     metodePembayaran: 'Transfer Bank',
     statusPembayaran: 'Lunas',
     tanggalBayar: '2026-10-10',
@@ -2001,15 +2004,15 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     kehadiranHari: 1,
     tarifGajiPerHari: 100000,
     gajiPokokHarian: 100000,
-    uangMakanHarian: 15000,
-    uangTransportHarian: 10000,
+    uangMakanHarian: 0,
+    uangTransportHarian: 0,
     uangLemburHarian: 0,
     bonusHarian: 0,
-    totalPenghasilanKotor: 125000,
+    totalPenghasilanKotor: 100000,
     potonganHarian: 0,
     keteranganPotongan: '-',
-    totalGajiBersih: 125000,
-    terbilang: 'Seratus Dua Puluh Lima Ribu Rupiah',
+    totalGajiBersih: 100000,
+    terbilang: 'Seratus Ribu Rupiah',
     metodePembayaran: 'Tunai',
     statusPembayaran: 'Lunas',
     tanggalBayar: '2026-10-10',
@@ -2020,6 +2023,168 @@ export const initialSlipGajiList: SlipGajiHarian[] = [
     namaKepalaSppg: 'Sri Rohayu, S. Pd',
     createdAt: '2026-10-10T15:10:00Z',
     createdBy: 'Bendahara SPPG'
+  }
+];
+
+export function formatHariTanggalIndo(dateStr: string): string {
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return dateStr;
+    const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const hari = days[date.getDay()];
+    const tanggal = date.getDate();
+    const bulan = months[date.getMonth()];
+    const tahun = date.getFullYear();
+    return `${hari}, ${tanggal} ${bulan} ${tahun}`;
+  } catch {
+    return dateStr;
+  }
+}
+
+export const initialRekapAbsensiList: RekapAbsensiHarian[] = [
+  {
+    id: 'ABS-20261010',
+    tanggal: '2026-10-10',
+    hariTanggalFormatted: 'Sabtu, 10 Oktober 2026',
+    totalPetugas: 10,
+    totalHadir: 5,
+    totalSetengahHari: 0,
+    totalSakit: 2,
+    totalIzin: 2,
+    totalAlpha: 1,
+    totalMasuk: 5,
+    totalTidakMasuk: 5,
+    statusRekap: 'Selesai',
+    disinkronkanKeSlipGaji: true,
+    tanggalSinkronisasi: '2026-10-10T14:20:00Z',
+    diverifikasiOleh: 'Bendahara SPPG & HRD',
+    items: [
+      {
+        petugasId: 'PTG-001',
+        nomorPetugas: '01',
+        namaPetugas: 'Budi Hartono',
+        jabatan: 'Kepala Juru Masak (Head Chef)',
+        besaranGaji: 150000,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: '05:00',
+        jamKeluar: '14:30',
+        keterangan: 'Piket operasional masak menu pagi tuntas'
+      },
+      {
+        petugasId: 'PTG-002',
+        nomorPetugas: '02',
+        namaPetugas: 'Siti Maisaroh',
+        jabatan: 'Asisten Juru Masak',
+        besaranGaji: 125000,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: '05:15',
+        jamKeluar: '14:30',
+        keterangan: 'Pengolahan sayur & lauk pendamping'
+      },
+      {
+        petugasId: 'PTG-003',
+        nomorPetugas: '03',
+        namaPetugas: 'Ahmad Syarifudin',
+        jabatan: 'Petugas Pemorsian & Packing',
+        besaranGaji: 110000,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: '05:30',
+        jamKeluar: '14:35',
+        keterangan: 'Pemorsian ompreng porsi kecil dan besar'
+      },
+      {
+        petugasId: 'PTG-004',
+        nomorPetugas: '04',
+        namaPetugas: 'Siti Khodijah',
+        jabatan: 'Petugas Pemorsian & Packing',
+        besaranGaji: 110000,
+        statusAbsensi: 'Sakit',
+        kehadiranHari: 0,
+        jamMasuk: '-',
+        jamKeluar: '-',
+        keterangan: 'Sakit demam & flu (surat dokter terlampir)'
+      },
+      {
+        petugasId: 'PTG-005',
+        nomorPetugas: '05',
+        namaPetugas: 'Joko Widodo Santoso',
+        jabatan: 'Driver Distribusi & Armada',
+        besaranGaji: 130000,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: '05:30',
+        jamKeluar: '15:00',
+        keterangan: 'Distribusi 6 rute sekolah tuntas tepat waktu'
+      },
+      {
+        petugasId: 'PTG-006',
+        nomorPetugas: '06',
+        namaPetugas: 'Hendra Setiawan',
+        jabatan: 'Driver Distribusi & Armada',
+        besaranGaji: 130000,
+        statusAbsensi: 'Izin',
+        kehadiranHari: 0,
+        jamMasuk: '-',
+        jamKeluar: '-',
+        keterangan: 'Izin urusan keluarga mendesak'
+      },
+      {
+        petugasId: 'PTG-007',
+        nomorPetugas: '07',
+        namaPetugas: 'Suminah',
+        jabatan: 'Petugas Cuci Ompreng & Sanitasi',
+        besaranGaji: 100000,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: '06:00',
+        jamKeluar: '15:10',
+        keterangan: 'Pencucian & sterilisasi ompreng balik'
+      },
+      {
+        petugasId: 'PTG-008',
+        nomorPetugas: '08',
+        namaPetugas: 'Rahmat Hidayat',
+        jabatan: 'Petugas Logistik & Gudang',
+        besaranGaji: 120000,
+        statusAbsensi: 'Sakit',
+        kehadiranHari: 0,
+        jamMasuk: '-',
+        jamKeluar: '-',
+        keterangan: 'Sakit rawat jalan puskesmas'
+      },
+      {
+        petugasId: 'PTG-009',
+        nomorPetugas: '09',
+        namaPetugas: 'Dewi Anggraini, S.Gz',
+        jabatan: 'Ahli Gizi & Pengawas Mutu',
+        besaranGaji: 160000,
+        statusAbsensi: 'Izin',
+        kehadiranHari: 0,
+        jamMasuk: '-',
+        jamKeluar: '-',
+        keterangan: 'Izin koordinasi dinas luar Puskesmas'
+      },
+      {
+        petugasId: 'PTG-010',
+        nomorPetugas: '10',
+        namaPetugas: 'Sugeng Riyadi',
+        jabatan: 'Petugas Kebersihan & Lingkungan',
+        besaranGaji: 95000,
+        statusAbsensi: 'Alpha',
+        kehadiranHari: 0,
+        jamMasuk: '-',
+        jamKeluar: '-',
+        keterangan: 'Tanpa keterangan'
+      }
+    ]
   }
 ];
 
@@ -2273,6 +2438,7 @@ class EnterpriseDataStore {
   public foodWasteRecords: FoodWasteRecord[] = [...initialFoodWasteRecords];
   public petugasList: Petugas[] = [...initialPetugasList];
   public slipGajiList: SlipGajiHarian[] = [...initialSlipGajiList];
+  public rekapAbsensiList: RekapAbsensiHarian[] = [...initialRekapAbsensiList];
 
   // Helper method to compute and construct a synchronized RAB Plan
   public calculateRABPlan(
@@ -3762,6 +3928,13 @@ class EnterpriseDataStore {
   }
 
   public generateDailySlipBatch(tanggal: string): SlipGajiHarian[] {
+    const existingAbsensi = this.rekapAbsensiList.find(a => a.tanggal === tanggal);
+    if (existingAbsensi) {
+      // Use existing absensi to generate and filter
+      const result = this.saveRekapAbsensi(existingAbsensi, true);
+      return result.generatedSlips;
+    }
+
     const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
     const existingForDate = this.slipGajiList.filter(s => s.tanggal === tanggal);
     const existingPetugasIds = new Set(existingForDate.map(s => s.petugasId));
@@ -3778,8 +3951,8 @@ class EnterpriseDataStore {
           alamat: petugas.alamat,
           kehadiranHari: 1,
           tarifGajiPerHari: petugas.besaranGaji,
-          uangMakanHarian: 15000,
-          uangTransportHarian: petugas.jabatan.includes('Driver') ? 15000 : 10000,
+          uangMakanHarian: 0,
+          uangTransportHarian: 0,
           uangLemburHarian: 0,
           bonusHarian: 0,
           potonganHarian: 0,
@@ -3819,6 +3992,173 @@ class EnterpriseDataStore {
       totalGajiBelumLunas,
       rataRataGajiHarian
     };
+  }
+
+  // ==========================================
+  // REKAP ABSENSI PETUGAS HARIAN
+  // ==========================================
+
+  public getRekapAbsensi(tanggal: string): RekapAbsensiHarian {
+    const existing = this.rekapAbsensiList.find(a => a.tanggal === tanggal);
+    if (existing) {
+      return existing;
+    }
+
+    // Default auto-generated absensi for active staff
+    const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
+    const items: AbsensiPetugasItem[] = activeStaff.map(p => ({
+      petugasId: p.id,
+      nomorPetugas: p.nomor,
+      namaPetugas: p.nama,
+      jabatan: p.jabatan,
+      besaranGaji: p.besaranGaji,
+      statusAbsensi: 'Hadir',
+      kehadiranHari: 1,
+      jamMasuk: '05:30',
+      jamKeluar: '14:00',
+      keterangan: '-'
+    }));
+
+    const cleanDate = tanggal.replace(/-/g, '');
+    const draftRekap: RekapAbsensiHarian = {
+      id: `ABS-${cleanDate}`,
+      tanggal,
+      hariTanggalFormatted: formatHariTanggalIndo(tanggal),
+      totalPetugas: items.length,
+      totalHadir: items.length,
+      totalSetengahHari: 0,
+      totalSakit: 0,
+      totalIzin: 0,
+      totalAlpha: 0,
+      totalMasuk: items.length,
+      totalTidakMasuk: 0,
+      statusRekap: 'Draft',
+      items,
+      catatan: 'Rekap absensi staf operasional SPPG',
+      disinkronkanKeSlipGaji: false
+    };
+
+    return draftRekap;
+  }
+
+  public saveRekapAbsensi(
+    data: Partial<RekapAbsensiHarian> & { tanggal: string },
+    autoSyncSlip: boolean = true
+  ): { absensi: RekapAbsensiHarian; generatedSlips: SlipGajiHarian[] } {
+    const tanggal = data.tanggal;
+    const cleanDate = tanggal.replace(/-/g, '');
+    const id = data.id || `ABS-${cleanDate}`;
+
+    const items: AbsensiPetugasItem[] = (data.items || []).map(it => {
+      let kehadiranHari = 0;
+      if (it.statusAbsensi === 'Hadir') kehadiranHari = 1;
+      else if (it.statusAbsensi === 'Setengah Hari') kehadiranHari = 0.5;
+      else kehadiranHari = 0;
+
+      return {
+        ...it,
+        kehadiranHari,
+        jamMasuk: it.jamMasuk || (kehadiranHari > 0 ? '05:30' : '-'),
+        jamKeluar: it.jamKeluar || (kehadiranHari > 0 ? '14:00' : '-'),
+        keterangan: it.keterangan || '-'
+      };
+    });
+
+    const totalPetugas = items.length;
+    const totalHadir = items.filter(i => i.statusAbsensi === 'Hadir').length;
+    const totalSetengahHari = items.filter(i => i.statusAbsensi === 'Setengah Hari').length;
+    const totalSakit = items.filter(i => i.statusAbsensi === 'Sakit').length;
+    const totalIzin = items.filter(i => i.statusAbsensi === 'Izin').length;
+    const totalAlpha = items.filter(i => i.statusAbsensi === 'Alpha').length;
+    const totalMasuk = totalHadir + totalSetengahHari;
+    const totalTidakMasuk = totalSakit + totalIzin + totalAlpha;
+
+    const now = new Date();
+    const record: RekapAbsensiHarian = {
+      id,
+      tanggal,
+      hariTanggalFormatted: data.hariTanggalFormatted || formatHariTanggalIndo(tanggal),
+      totalPetugas,
+      totalHadir,
+      totalSetengahHari,
+      totalSakit,
+      totalIzin,
+      totalAlpha,
+      totalMasuk,
+      totalTidakMasuk,
+      statusRekap: 'Selesai',
+      items,
+      catatan: data.catatan || 'Rekap absensi harian staf SPPG diverifikasi',
+      disinkronkanKeSlipGaji: true,
+      tanggalSinkronisasi: now.toISOString(),
+      diverifikasiOleh: data.diverifikasiOleh || 'Bendahara SPPG & HRD',
+      createdAt: data.createdAt || now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+
+    const existingIdx = this.rekapAbsensiList.findIndex(a => a.tanggal === tanggal);
+    if (existingIdx !== -1) {
+      this.rekapAbsensiList[existingIdx] = record;
+    } else {
+      this.rekapAbsensiList.unshift(record);
+    }
+
+    const generatedSlips: SlipGajiHarian[] = [];
+    if (autoSyncSlip) {
+      // 1. FILTER KARYAWAN: Yang TIDAK MASUK (Sakit, Izin, Alpha) difilter keluar dari slip gaji hari ini
+      const attendingPetugasIds = new Set(
+        items.filter(i => i.statusAbsensi === 'Hadir' || i.statusAbsensi === 'Setengah Hari').map(i => i.petugasId)
+      );
+
+      // Hapus slip gaji tanggal ini bagi petugas yang TIDAK MASUK
+      this.slipGajiList = this.slipGajiList.filter(s => {
+        if (s.tanggal !== tanggal) return true;
+        return attendingPetugasIds.has(s.petugasId);
+      });
+
+      // 2. Buat atau update slip untuk karyawan yang MASUK (Hadir 1 hari atau Setengah Hari 0.5 hari)
+      items.forEach(item => {
+        if (item.statusAbsensi === 'Hadir' || item.statusAbsensi === 'Setengah Hari') {
+          const petugas = this.petugasList.find(p => p.id === item.petugasId);
+          const tarif = item.besaranGaji || petugas?.besaranGaji || 100000;
+          const kehadiran = item.kehadiranHari; // 1 atau 0.5
+          const gajiPokok = Math.round(kehadiran * tarif);
+
+          const existingSlip = this.slipGajiList.find(s => s.tanggal === tanggal && s.petugasId === item.petugasId);
+          const slip = this.saveSlipGaji({
+            id: existingSlip?.id,
+            nomorSlip: existingSlip?.nomorSlip,
+            tanggal,
+            hariTanggalFormatted: formatHariTanggalIndo(tanggal),
+            petugasId: item.petugasId,
+            nomorPetugas: item.nomorPetugas,
+            namaPetugas: item.namaPetugas,
+            jabatan: item.jabatan,
+            alamat: petugas?.alamat || '',
+            kehadiranHari: kehadiran,
+            tarifGajiPerHari: tarif,
+            gajiPokokHarian: gajiPokok,
+            uangMakanHarian: 0,
+            uangTransportHarian: 0,
+            uangLemburHarian: 0,
+            bonusHarian: 0,
+            potonganHarian: 0,
+            keteranganPotongan: '-',
+            totalPenghasilanKotor: gajiPokok,
+            totalGajiBersih: gajiPokok,
+            terbilang: angkaKeTerbilang(gajiPokok),
+            metodePembayaran: existingSlip?.metodePembayaran || (petugas?.namaBank === 'Tunai' ? 'Tunai' : 'Transfer Bank'),
+            statusPembayaran: existingSlip?.statusPembayaran || 'Lunas',
+            tanggalBayar: tanggal,
+            jamBayar: '15:00 WIB',
+            catatanTugas: `Operasional SPPG divisi ${item.jabatan} (Absensi: ${item.statusAbsensi})`
+          });
+          generatedSlips.push(slip);
+        }
+      });
+    }
+
+    return { absensi: record, generatedSlips };
   }
 }
 

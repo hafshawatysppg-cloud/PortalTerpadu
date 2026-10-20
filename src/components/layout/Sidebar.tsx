@@ -94,6 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     ],
     petugas: [
       { title: 'Daftar Petugas', path: '/petugas/daftar', icon: Icons.Users },
+      { title: 'Rekap Absensi Harian', path: '/petugas/absensi', icon: Icons.UserCheck },
       { title: 'Slip Gaji Harian', path: '/petugas/slip-gaji', icon: Icons.Receipt },
     ],
     po: [

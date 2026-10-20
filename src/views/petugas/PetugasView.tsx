@@ -18,19 +18,32 @@ import {
   FileText,
   DollarSign,
   UserCheck,
+  UserX,
   ChevronLeft,
   ChevronRight,
   CreditCard,
   Banknote,
   AlertCircle,
+  AlertTriangle,
   X,
   Save,
   Sparkles,
   Layers,
   ArrowUpRight,
-  Info
+  Info,
+  Check,
+  Filter,
+  ClipboardList,
+  CheckSquare
 } from 'lucide-react';
-import { Petugas, SlipGajiHarian, RekapGajiHarianSummary } from '../../types';
+import {
+  Petugas,
+  SlipGajiHarian,
+  RekapGajiHarianSummary,
+  RekapAbsensiHarian,
+  AbsensiPetugasItem,
+  StatusAbsensi
+} from '../../types';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 
 interface PetugasViewProps {
@@ -91,20 +104,27 @@ function formatHariTanggalIndo(dateStr: string): string {
 export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petugas', onNavigate }) => {
   // Determine active tab from URL or state
   const isSlipTab = currentPath.includes('slip-gaji');
-  const [activeTab, setActiveTab] = useState<'daftar' | 'slip'>(isSlipTab ? 'slip' : 'daftar');
+  const isAbsensiTab = currentPath.includes('absensi');
+  const [activeTab, setActiveTab] = useState<'daftar' | 'absensi' | 'slip'>(
+    isAbsensiTab ? 'absensi' : isSlipTab ? 'slip' : 'daftar'
+  );
 
   useEffect(() => {
-    if (currentPath.includes('slip-gaji')) {
+    if (currentPath.includes('absensi')) {
+      setActiveTab('absensi');
+    } else if (currentPath.includes('slip-gaji')) {
       setActiveTab('slip');
     } else {
       setActiveTab('daftar');
     }
   }, [currentPath]);
 
-  const handleTabSwitch = (tab: 'daftar' | 'slip') => {
+  const handleTabSwitch = (tab: 'daftar' | 'absensi' | 'slip') => {
     setActiveTab(tab);
     if (onNavigate) {
-      onNavigate(tab === 'daftar' ? '/petugas/daftar' : '/petugas/slip-gaji');
+      if (tab === 'absensi') onNavigate('/petugas/absensi');
+      else if (tab === 'slip') onNavigate('/petugas/slip-gaji');
+      else onNavigate('/petugas/daftar');
     }
   };
 
@@ -118,11 +138,19 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const [filterJabatan, setFilterJabatan] = useState<string>('Semua');
   const [filterStatus, setFilterStatus] = useState<string>('Semua');
 
-  // Filters for Slip Gaji Harian
+  // Filters for Slip Gaji Harian & Absensi
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedTanggal, setSelectedTanggal] = useState<string>(todayStr);
   const [filterStatusBayar, setFilterStatusBayar] = useState<string>('Semua');
   const [searchSlip, setSearchSlip] = useState<string>('');
+
+  // State Rekap Absensi
+  const [rekapAbsensi, setRekapAbsensi] = useState<RekapAbsensiHarian | null>(null);
+  const [loadingAbsensi, setLoadingAbsensi] = useState<boolean>(false);
+  const [filterAbsensiStatus, setFilterAbsensiStatus] = useState<string>('Semua');
+  const [searchAbsensi, setSearchAbsensi] = useState<string>('');
+  const [isModalPrintAbsensiOpen, setIsModalPrintAbsensiOpen] = useState<boolean>(false);
+  const [isSavingAbsensi, setIsSavingAbsensi] = useState<boolean>(false);
 
   // Modals
   const [isModalPetugasOpen, setIsModalPetugasOpen] = useState<boolean>(false);
@@ -155,13 +183,29 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     onConfirm: () => {}
   });
 
-  // Fetch Petugas & Slip Gaji
+  const fetchAbsensi = async (date: string) => {
+    setLoadingAbsensi(true);
+    try {
+      const res = await fetch(`/api/petugas/absensi?tanggal=${date}`);
+      const data = await res.json();
+      if (data.success && data.data) {
+        setRekapAbsensi(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load absensi:', err);
+    } finally {
+      setLoadingAbsensi(false);
+    }
+  };
+
+  // Fetch Petugas & Slip Gaji & Absensi
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resPetugas, resSlip] = await Promise.all([
+      const [resPetugas, resSlip, resAbsensi] = await Promise.all([
         fetch('/api/petugas').then(r => r.json()),
-        fetch('/api/petugas/slip-gaji').then(r => r.json())
+        fetch('/api/petugas/slip-gaji').then(r => r.json()),
+        fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`).then(r => r.json())
       ]);
 
       if (resPetugas.success) {
@@ -169,6 +213,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       }
       if (resSlip.success) {
         setSlipList(resSlip.data || []);
+      }
+      if (resAbsensi.success && resAbsensi.data) {
+        setRekapAbsensi(resAbsensi.data);
       }
     } catch (err) {
       console.error('Failed to load petugas/slip data:', err);
@@ -180,6 +227,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    fetchAbsensi(selectedTanggal);
+  }, [selectedTanggal]);
 
   // Notification helper
   const showNotif = (type: 'success' | 'error', text: string) => {
@@ -306,6 +357,142 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         }
       }
     });
+  };
+
+  // ==========================================
+  // REKAP ABSENSI HARIAN LOGIC
+  // ==========================================
+  const filteredAbsensiItems = useMemo(() => {
+    if (!rekapAbsensi || !rekapAbsensi.items) return [];
+    return rekapAbsensi.items.filter(item => {
+      const matchSearch =
+        item.namaPetugas.toLowerCase().includes(searchAbsensi.toLowerCase()) ||
+        item.nomorPetugas.toLowerCase().includes(searchAbsensi.toLowerCase()) ||
+        item.jabatan.toLowerCase().includes(searchAbsensi.toLowerCase());
+
+      let matchFilter = true;
+      if (filterAbsensiStatus === 'Masuk') {
+        matchFilter = item.statusAbsensi === 'Hadir' || item.statusAbsensi === 'Setengah Hari';
+      } else if (filterAbsensiStatus === 'Tidak Masuk') {
+        matchFilter = item.statusAbsensi === 'Sakit' || item.statusAbsensi === 'Izin' || item.statusAbsensi === 'Alpha';
+      } else if (filterAbsensiStatus !== 'Semua') {
+        matchFilter = item.statusAbsensi === filterAbsensiStatus;
+      }
+      return matchSearch && matchFilter;
+    });
+  }, [rekapAbsensi, searchAbsensi, filterAbsensiStatus]);
+
+  const totalUpahHadir = useMemo(() => {
+    if (!rekapAbsensi || !rekapAbsensi.items) return 0;
+    return rekapAbsensi.items.reduce((sum, item) => {
+      const tarif = item.besaranGaji || 0;
+      return sum + Math.round(item.kehadiranHari * tarif);
+    }, 0);
+  }, [rekapAbsensi]);
+
+  const handleUpdateAbsensiItem = (petugasId: string, updates: Partial<AbsensiPetugasItem>) => {
+    if (!rekapAbsensi) return;
+    const newItems = rekapAbsensi.items.map(item => {
+      if (item.petugasId !== petugasId) return item;
+      const updated = { ...item, ...updates };
+      if (updates.statusAbsensi) {
+        if (updates.statusAbsensi === 'Hadir') {
+          updated.kehadiranHari = 1;
+          if (!updated.jamMasuk || updated.jamMasuk === '-') updated.jamMasuk = '05:30';
+          if (!updated.jamKeluar || updated.jamKeluar === '-') updated.jamKeluar = '14:00';
+        } else if (updates.statusAbsensi === 'Setengah Hari') {
+          updated.kehadiranHari = 0.5;
+          if (!updated.jamMasuk || updated.jamMasuk === '-') updated.jamMasuk = '05:30';
+          if (!updated.jamKeluar || updated.jamKeluar === '-') updated.jamKeluar = '10:30';
+        } else {
+          updated.kehadiranHari = 0;
+          updated.jamMasuk = '-';
+          updated.jamKeluar = '-';
+        }
+      }
+      return updated;
+    });
+
+    const totalHadir = newItems.filter(i => i.statusAbsensi === 'Hadir').length;
+    const totalSetengahHari = newItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
+    const totalSakit = newItems.filter(i => i.statusAbsensi === 'Sakit').length;
+    const totalIzin = newItems.filter(i => i.statusAbsensi === 'Izin').length;
+    const totalAlpha = newItems.filter(i => i.statusAbsensi === 'Alpha').length;
+
+    setRekapAbsensi({
+      ...rekapAbsensi,
+      items: newItems,
+      totalPetugas: newItems.length,
+      totalHadir,
+      totalSetengahHari,
+      totalSakit,
+      totalIzin,
+      totalAlpha,
+      totalMasuk: totalHadir + totalSetengahHari,
+      totalTidakMasuk: totalSakit + totalIzin + totalAlpha
+    });
+  };
+
+  const handleMarkAllAbsensi = (status: StatusAbsensi) => {
+    if (!rekapAbsensi) return;
+    const newItems = rekapAbsensi.items.map(item => ({
+      ...item,
+      statusAbsensi: status,
+      kehadiranHari: status === 'Hadir' ? 1 : status === 'Setengah Hari' ? 0.5 : 0,
+      jamMasuk: (status === 'Hadir' || status === 'Setengah Hari') ? '05:30' : '-',
+      jamKeluar: status === 'Hadir' ? '14:00' : status === 'Setengah Hari' ? '10:30' : '-',
+      keterangan: status === 'Hadir' ? '-' : item.keterangan
+    }));
+
+    const totalHadir = newItems.filter(i => i.statusAbsensi === 'Hadir').length;
+    const totalSetengahHari = newItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
+    const totalSakit = newItems.filter(i => i.statusAbsensi === 'Sakit').length;
+    const totalIzin = newItems.filter(i => i.statusAbsensi === 'Izin').length;
+    const totalAlpha = newItems.filter(i => i.statusAbsensi === 'Alpha').length;
+
+    setRekapAbsensi({
+      ...rekapAbsensi,
+      items: newItems,
+      totalPetugas: newItems.length,
+      totalHadir,
+      totalSetengahHari,
+      totalSakit,
+      totalIzin,
+      totalAlpha,
+      totalMasuk: totalHadir + totalSetengahHari,
+      totalTidakMasuk: totalSakit + totalIzin + totalAlpha
+    });
+  };
+
+  const handleSaveAndSyncAbsensi = async (goToSlipAfterSync = false) => {
+    if (!rekapAbsensi) return;
+    setIsSavingAbsensi(true);
+
+    try {
+      const res = await fetch('/api/petugas/absensi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rekapAbsensi)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotif(
+          'success',
+          `Rekap absensi berhasil disimpan! ${data.data.totalMasuk} petugas masuk otomatis masuk ke rekap slip gaji (${data.data.totalTidakMasuk} tidak masuk difilter).`
+        );
+        setRekapAbsensi(data.data);
+        await fetchData();
+        if (goToSlipAfterSync) {
+          handleTabSwitch('slip');
+        }
+      } else {
+        showNotif('error', data.message || 'Gagal menyimpan absensi');
+      }
+    } catch (err: any) {
+      showNotif('error', err.message || 'Gagal menyimpan absensi');
+    } finally {
+      setIsSavingAbsensi(false);
+    }
   };
 
   // ==========================================
@@ -453,9 +640,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     } else {
       const targetPetugas = prefillPetugas || petugasList.find(p => p.status === 'Aktif') || petugasList[0];
       const tarif = targetPetugas ? targetPetugas.besaranGaji : 120000;
-      const uangMakan = 15000;
-      const uangTransport = targetPetugas?.jabatan.includes('Driver') ? 15000 : 10000;
-      const totalKotor = tarif + uangMakan + uangTransport;
+      const totalKotor = tarif;
       const totalBersih = totalKotor;
 
       setEditingSlip({
@@ -469,8 +654,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         kehadiranHari: 1,
         tarifGajiPerHari: tarif,
         gajiPokokHarian: tarif,
-        uangMakanHarian: uangMakan,
-        uangTransportHarian: uangTransport,
+        uangMakanHarian: 0,
+        uangTransportHarian: 0,
         uangLemburHarian: 0,
         bonusHarian: 0,
         totalPenghasilanKotor: totalKotor,
@@ -499,13 +684,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     const kehadiran = Number(editingSlip.kehadiranHari !== undefined ? editingSlip.kehadiranHari : 1);
     const tarif = selected.besaranGaji || 120000;
     const gajiPokok = Math.round(kehadiran * tarif);
-    const uangMakan = Number(editingSlip.uangMakanHarian || 15000);
-    const uangTransport = selected.jabatan.includes('Driver') ? 15000 : 10000;
-    const uangLembur = Number(editingSlip.uangLemburHarian || 0);
-    const bonus = Number(editingSlip.bonusHarian || 0);
-    const totalKotor = gajiPokok + uangMakan + uangTransport + uangLembur + bonus;
-    const potongan = Number(editingSlip.potonganHarian || 0);
-    const totalBersih = Math.max(0, totalKotor - potongan);
+    const totalKotor = gajiPokok;
+    const totalBersih = totalKotor;
 
     setEditingSlip({
       ...editingSlip,
@@ -516,8 +696,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       alamat: selected.alamat,
       tarifGajiPerHari: tarif,
       gajiPokokHarian: gajiPokok,
-      uangMakanHarian: uangMakan,
-      uangTransportHarian: uangTransport,
+      uangMakanHarian: 0,
+      uangTransportHarian: 0,
+      uangLemburHarian: 0,
+      bonusHarian: 0,
+      potonganHarian: 0,
+      keteranganPotongan: '-',
       totalPenghasilanKotor: totalKotor,
       totalGajiBersih: totalBersih,
       terbilang: angkaKeTerbilangIndo(totalBersih),
@@ -535,19 +719,19 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     const kehadiran = Number(current.kehadiranHari !== undefined ? current.kehadiranHari : 1);
     const tarif = Number(current.tarifGajiPerHari || 0);
     const gajiPokok = Math.round(kehadiran * tarif);
-    const uangMakan = Number(current.uangMakanHarian || 0);
-    const uangTransport = Number(current.uangTransportHarian || 0);
-    const uangLembur = Number(current.uangLemburHarian || 0);
-    const bonus = Number(current.bonusHarian || 0);
-    const totalKotor = gajiPokok + uangMakan + uangTransport + uangLembur + bonus;
-
-    const potongan = Number(current.potonganHarian || 0);
-    const totalBersih = Math.max(0, totalKotor - potongan);
+    const totalKotor = gajiPokok;
+    const totalBersih = totalKotor;
     const terbilang = angkaKeTerbilangIndo(totalBersih);
 
     setEditingSlip({
       ...current,
       gajiPokokHarian: gajiPokok,
+      uangMakanHarian: 0,
+      uangTransportHarian: 0,
+      uangLemburHarian: 0,
+      bonusHarian: 0,
+      potonganHarian: 0,
+      keteranganPotongan: '-',
       totalPenghasilanKotor: totalKotor,
       totalGajiBersih: totalBersih,
       terbilang
@@ -644,6 +828,26 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
               Sub Menu: Daftar Petugas
             </button>
             <button
+              onClick={() => handleTabSwitch('absensi')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all shadow-sm ${
+                activeTab === 'absensi'
+                  ? 'bg-white text-indigo-900 shadow-lg scale-105 font-bold'
+                  : 'bg-indigo-900/60 text-indigo-200 hover:bg-indigo-900 border border-indigo-500/30'
+              }`}
+            >
+              <UserCheck className="w-4 h-4" />
+              Sub Menu: Rekap Absensi Harian
+              {rekapAbsensi && (
+                <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  rekapAbsensi.statusRekap === 'Selesai'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-amber-400 text-slate-900'
+                }`}>
+                  {rekapAbsensi.totalMasuk}/{rekapAbsensi.totalPetugas} Masuk
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => handleTabSwitch('slip')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all shadow-sm ${
                 activeTab === 'slip'
@@ -653,6 +857,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
             >
               <Receipt className="w-4 h-4" />
               Sub Menu: Slip Gaji Harian
+              {dailySlips.length > 0 && (
+                <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-500 text-white">
+                  {dailySlips.length} Slip
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -946,17 +1155,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         </div>
       )}
 
-      {/* TAB 2: SLIP GAJI HARIAN */}
-      {activeTab === 'slip' && (
+      {/* TAB 2: REKAP ABSENSI HARIAN (FILTER KARYAWAN TIDAK MASUK & SINKRON KE SLIP GAJI) */}
+      {activeTab === 'absensi' && (
         <div className="space-y-6">
           {/* Daily Date Navigation & Controls */}
           <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-2">Pilih Tanggal Gaji Harian:</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-2">Pilih Tanggal Absensi:</span>
                 <button
                   onClick={() => handleDateShift(-1)}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                   title="Hari Sebelumnya"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -971,14 +1180,528 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 </div>
                 <button
                   onClick={() => handleDateShift(1)}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                   title="Hari Berikutnya"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setSelectedTanggal(todayStr)}
-                  className={`px-3 py-2 text-xs font-bold rounded-xl transition-all ${
+                  className={`px-3 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                    selectedTanggal === todayStr
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  Hari Ini
+                </button>
+              </div>
+
+              {/* Action Buttons for Absensi */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleMarkAllAbsensi('Hadir')}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  title="Set seluruh petugas menjadi Hadir"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Tandai Semua Hadir
+                </button>
+
+                <button
+                  onClick={() => setIsModalPrintAbsensiOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Cetak Rekap Absensi
+                </button>
+
+                <button
+                  onClick={() => handleSaveAndSyncAbsensi(true)}
+                  disabled={isSavingAbsensi}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-extrabold shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                >
+                  {isSavingAbsensi ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckSquare className="w-3.5 h-3.5" />
+                  )}
+                  ⚡ Selesaikan Absensi & Masuk ke Slip Gaji
+                </button>
+              </div>
+            </div>
+
+            {/* Display formatted date & sync status */}
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 dark:text-slate-300 gap-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-indigo-500" />
+                <span className="font-extrabold uppercase text-indigo-700 dark:text-indigo-400">
+                  {formatHariTanggalIndo(selectedTanggal)}
+                </span>
+                <span className={`ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  rekapAbsensi?.statusRekap === 'Selesai'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                }`}>
+                  {rekapAbsensi?.statusRekap === 'Selesai' ? '✓ Rekap Selesai Disinkronkan' : '• Draf Rekapitulasi Absensi'}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Data absensi menjadi filter dasar penerbitan slip upah harian kerja SPPG
+              </div>
+            </div>
+          </div>
+
+          {/* Educational Notice Banner on Automatic Filtering */}
+          <div className="bg-gradient-to-r from-indigo-50/90 via-sky-50/70 to-emerald-50/80 dark:from-indigo-950/40 dark:via-sky-950/30 dark:to-emerald-950/30 p-4 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/60 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Info className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-indigo-950 dark:text-indigo-200 text-sm flex items-center gap-2">
+                  <span>Alur Otomatisasi: Filter Petugas Tidak Masuk → Masuk Otomatis ke Slip Gaji</span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold">Otomatis Aktif</span>
+                </h4>
+                <p className="text-slate-600 dark:text-slate-300 text-xs mt-0.5 leading-relaxed">
+                  Petugas dengan status <strong>Sakit</strong>, <strong>Izin</strong>, atau <strong>Alpha</strong> otomatis difilter keluar (tidak diterbitkan slip gaji hari ini). Hanya petugas yang berstatus <strong>Hadir (1 Hari)</strong> atau <strong>Setengah Hari (0.5 Hari)</strong> yang akan masuk dan dibuatkan slip gaji.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => handleSaveAndSyncAbsensi(false)}
+                disabled={isSavingAbsensi}
+                className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 font-bold hover:bg-indigo-50 text-xs cursor-pointer shadow-xs"
+              >
+                {isSavingAbsensi ? 'Menyimpan...' : 'Simpan Draf Saja'}
+              </button>
+              <button
+                onClick={() => handleSaveAndSyncAbsensi(true)}
+                disabled={isSavingAbsensi}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs cursor-pointer shadow-xs flex items-center gap-1.5"
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                Selesai & Buka Slip Gaji
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards Absensi */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Petugas</p>
+                <h3 className="text-2xl font-extrabold text-slate-900 dark:text-white">
+                  {rekapAbsensi?.totalPetugas || petugasList.length} <span className="text-xs font-normal text-slate-400">Orang</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Staf operasional SPPG</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                <UserCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                  Total Masuk Kerja
+                </p>
+                <h3 className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
+                  {rekapAbsensi?.totalMasuk || 0} <span className="text-xs font-normal text-slate-400">Orang</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {rekapAbsensi?.totalHadir || 0} Penuh • {rekapAbsensi?.totalSetengahHari || 0} 1/2 Hari (Masuk Slip)
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rose-50 dark:bg-rose-950/60 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                <UserX className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                  Tidak Masuk (Difilter)
+                </p>
+                <h3 className="text-2xl font-extrabold text-rose-600 dark:text-rose-400">
+                  {rekapAbsensi?.totalTidakMasuk || 0} <span className="text-xs font-normal text-slate-400">Orang</span>
+                </h3>
+                <p className="text-xs text-rose-600/80 dark:text-rose-400/80 mt-0.5">
+                  {rekapAbsensi?.totalSakit || 0} Sakit • {rekapAbsensi?.totalIzin || 0} Izin • {rekapAbsensi?.totalAlpha || 0} Alpha
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-950/60 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                <Wallet className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Alokasi Upah Hadir</p>
+                <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                  {formatRupiah(totalUpahHadir)}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Estimasi bruto hari ini</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container & Filter Toolbar */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+            {/* Filter Toolbar */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama petugas, nomor, atau jabatan..."
+                  value={searchAbsensi}
+                  onChange={e => setSearchAbsensi(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Status Filter Buttons */}
+              <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
+                <button
+                  onClick={() => setFilterAbsensiStatus('Semua')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Semua'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  Semua ({rekapAbsensi?.items?.length || 0})
+                </button>
+                <button
+                  onClick={() => setFilterAbsensiStatus('Masuk')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Masuk'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50'
+                  }`}
+                >
+                  ✓ Masuk ({rekapAbsensi?.totalMasuk || 0})
+                </button>
+                <button
+                  onClick={() => setFilterAbsensiStatus('Tidak Masuk')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Tidak Masuk'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-rose-700 dark:text-rose-400 hover:bg-rose-50'
+                  }`}
+                >
+                  ✗ Tidak Masuk ({rekapAbsensi?.totalTidakMasuk || 0})
+                </button>
+                <button
+                  onClick={() => setFilterAbsensiStatus('Sakit')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Sakit'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Sakit ({rekapAbsensi?.totalSakit || 0})
+                </button>
+                <button
+                  onClick={() => setFilterAbsensiStatus('Izin')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Izin'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Izin ({rekapAbsensi?.totalIzin || 0})
+                </button>
+                <button
+                  onClick={() => setFilterAbsensiStatus('Alpha')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    filterAbsensiStatus === 'Alpha'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Alpha ({rekapAbsensi?.totalAlpha || 0})
+                </button>
+              </div>
+            </div>
+
+            {/* Attendance Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/70 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 text-xs uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+                    <th className="py-3.5 px-4 text-center w-12">No</th>
+                    <th className="py-3.5 px-4">Petugas SPPG</th>
+                    <th className="py-3.5 px-4">Jabatan</th>
+                    <th className="py-3.5 px-4 text-center w-80">Status Kehadiran Hari Ini</th>
+                    <th className="py-3.5 px-4 text-center w-36">Jam Kerja</th>
+                    <th className="py-3.5 px-4">Keterangan / Alasan</th>
+                    <th className="py-3.5 px-4 text-center w-48 font-extrabold text-indigo-700 dark:text-indigo-400">
+                      Otomatisasi Slip Gaji
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
+                  {loadingAbsensi ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
+                        Memuat data absensi harian...
+                      </td>
+                    </tr>
+                  ) : filteredAbsensiItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                        <UserCheck className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                        Tidak ada data petugas yang cocok dengan filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAbsensiItems.map((item, idx) => {
+                      const isMasuk = item.statusAbsensi === 'Hadir' || item.statusAbsensi === 'Setengah Hari';
+                      const upahHariIni = Math.round(item.kehadiranHari * (item.besaranGaji || 0));
+
+                      return (
+                        <tr
+                          key={item.petugasId}
+                          className={`transition-colors ${
+                            !isMasuk
+                              ? 'bg-rose-50/40 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                              : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <td className="py-3.5 px-4 text-center font-mono text-slate-400">
+                            {idx + 1}
+                          </td>
+
+                          {/* Petugas */}
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-extrabold text-[11px]">
+                                {item.nomorPetugas}
+                              </span>
+                              <span>{item.namaPetugas}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              Tarif Pokok: {formatRupiah(item.besaranGaji)}/hari
+                            </div>
+                          </td>
+
+                          {/* Jabatan */}
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              {item.jabatan}
+                            </span>
+                          </td>
+
+                          {/* Interactive Status Buttons */}
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAbsensiItem(item.petugasId, { statusAbsensi: 'Hadir' })}
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                  item.statusAbsensi === 'Hadir'
+                                    ? 'bg-emerald-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                                }`}
+                                title="Hadir 100% Upah"
+                              >
+                                Hadir
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAbsensiItem(item.petugasId, { statusAbsensi: 'Setengah Hari' })}
+                                className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                  item.statusAbsensi === 'Setengah Hari'
+                                    ? 'bg-amber-500 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                                }`}
+                                title="Hadir 0.5 Hari (50% Upah)"
+                              >
+                                1/2 Hari
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAbsensiItem(item.petugasId, { statusAbsensi: 'Sakit' })}
+                                className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                  item.statusAbsensi === 'Sakit'
+                                    ? 'bg-blue-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30'
+                                }`}
+                                title="Sakit (Difilter dari Slip Gaji)"
+                              >
+                                Sakit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAbsensiItem(item.petugasId, { statusAbsensi: 'Izin' })}
+                                className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                  item.statusAbsensi === 'Izin'
+                                    ? 'bg-purple-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30'
+                                }`}
+                                title="Izin (Difilter dari Slip Gaji)"
+                              >
+                                Izin
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAbsensiItem(item.petugasId, { statusAbsensi: 'Alpha' })}
+                                className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                  item.statusAbsensi === 'Alpha'
+                                    ? 'bg-rose-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                                }`}
+                                title="Alpha Tanpa Keterangan (Difilter dari Slip Gaji)"
+                              >
+                                Alpha
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* Jam Kerja */}
+                          <td className="py-3.5 px-4 text-center font-mono">
+                            {isMasuk ? (
+                              <div className="flex items-center justify-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
+                                <input
+                                  type="text"
+                                  value={item.jamMasuk}
+                                  onChange={e => handleUpdateAbsensiItem(item.petugasId, { jamMasuk: e.target.value })}
+                                  className="w-14 text-center py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md focus:ring-1 focus:ring-indigo-500"
+                                />
+                                <span>-</span>
+                                <input
+                                  type="text"
+                                  value={item.jamKeluar}
+                                  onChange={e => handleUpdateAbsensiItem(item.petugasId, { jamKeluar: e.target.value })}
+                                  className="w-14 text-center py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md focus:ring-1 focus:ring-indigo-500"
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-sans italic text-[11px]">Tidak Masuk</span>
+                            )}
+                          </td>
+
+                          {/* Keterangan */}
+                          <td className="py-3.5 px-4">
+                            <input
+                              type="text"
+                              value={item.keterangan || ''}
+                              onChange={e => handleUpdateAbsensiItem(item.petugasId, { keterangan: e.target.value })}
+                              placeholder={
+                                item.statusAbsensi === 'Sakit'
+                                  ? 'Alasan sakit / no surat dokter...'
+                                  : item.statusAbsensi === 'Izin'
+                                  ? 'Keperluan izin...'
+                                  : item.statusAbsensi === 'Alpha'
+                                  ? 'Tanpa keterangan...'
+                                  : 'Catatan tugas operasional...'
+                              }
+                              className="w-full px-2.5 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </td>
+
+                          {/* Otomatisasi Slip Gaji Badge */}
+                          <td className="py-3.5 px-4 text-center">
+                            {isMasuk ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                                  item.statusAbsensi === 'Hadir'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                                }`}>
+                                  <Check className="w-3 h-3" />
+                                  Masuk Slip ({item.kehadiranHari} Hari)
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 mt-0.5">
+                                  {formatRupiah(upahHariIni)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="inline-flex flex-col items-center">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800">
+                                  <UserX className="w-3 h-3" />
+                                  Difilter (Tanpa Slip)
+                                </span>
+                                <span className="text-[10px] text-rose-500 font-semibold mt-0.5">
+                                  Rp 0 (Tidak Dibayar)
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer Summary & Selesai Button */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3">
+              <div>
+                Petugas Masuk: <strong className="text-emerald-600 dark:text-emerald-400">{rekapAbsensi?.totalMasuk || 0}</strong> •{' '}
+                Petugas Tidak Masuk Difilter: <strong className="text-rose-600 dark:text-rose-400">{rekapAbsensi?.totalTidakMasuk || 0}</strong> dari total{' '}
+                <strong>{rekapAbsensi?.totalPetugas || petugasList.length}</strong> orang
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleSaveAndSyncAbsensi(true)}
+                  disabled={isSavingAbsensi}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  Selesaikan & Masuk Otomatis ke Slip Gaji
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: SLIP GAJI HARIAN */}
+      {activeTab === 'slip' && (
+        <div className="space-y-6">
+          {/* Daily Date Navigation & Controls */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-2">Pilih Tanggal Gaji Harian:</span>
+                <button
+                  onClick={() => handleDateShift(-1)}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  title="Hari Sebelumnya"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={selectedTanggal}
+                    onChange={e => setSelectedTanggal(e.target.value)}
+                    className="pl-3 pr-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <button
+                  onClick={() => handleDateShift(1)}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  title="Hari Berikutnya"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setSelectedTanggal(todayStr)}
+                  className={`px-3 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                     selectedTanggal === todayStr
                       ? 'bg-indigo-600 text-white'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
@@ -992,7 +1715,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleBatchGenerate}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-bold shadow-xs hover:from-amber-600 hover:to-orange-700 transition-all"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-bold shadow-xs hover:from-amber-600 hover:to-orange-700 transition-all cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   ⚡ Generate Massal Slip Hari Ini
@@ -1000,7 +1723,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
                 <button
                   onClick={() => handleOpenSlipModal()}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Buat Slip Gaji Harian
@@ -1008,7 +1731,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
                 <button
                   onClick={() => setIsModalPrintRekapOpen(true)}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-bold transition-all shadow-xs"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-bold transition-all shadow-xs cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   Cetak Rekap Gaji Harian
@@ -1029,6 +1752,46 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
               </div>
             </div>
           </div>
+
+          {/* Attendance Synchronization Status Banner in Slip Tab */}
+          {rekapAbsensi && (
+            <div className={`p-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-xs ${
+              rekapAbsensi.totalTidakMasuk > 0
+                ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/50 text-amber-950 dark:text-amber-200'
+                : 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-950 dark:text-emerald-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  rekapAbsensi.totalTidakMasuk > 0 ? 'bg-amber-200/70 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200' : 'bg-emerald-200/70 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
+                }`}>
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold flex items-center gap-2">
+                    <span>Sinkronisasi Rekap Absensi Tanggal: {formatHariTanggalIndo(selectedTanggal)}</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                      rekapAbsensi.statusRekap === 'Selesai'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-500 text-white'
+                    }`}>
+                      {rekapAbsensi.statusRekap === 'Selesai' ? '✓ Telah Disinkronkan Otomatis' : 'Draf Rekap'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] opacity-80 mt-0.5">
+                    <strong>{rekapAbsensi.totalMasuk} Petugas Masuk Kerja</strong> diterbitkan slip •{' '}
+                    <strong className="text-rose-600 dark:text-rose-400 font-extrabold">{rekapAbsensi.totalTidakMasuk} Petugas Tidak Masuk</strong> otomatis difilter keluar dari slip gaji.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleTabSwitch('absensi')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-50 transition-all text-xs shrink-0 shadow-xs cursor-pointer"
+              >
+                <ClipboardList className="w-3.5 h-3.5 text-indigo-600" />
+                Buka & Sesuaikan Rekap Absensi
+              </button>
+            </div>
+          )}
 
           {/* Daily KPI Summary Cards for Selected Date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1138,9 +1901,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     <th className="py-3.5 px-4">Petugas</th>
                     <th className="py-3.5 px-4">Jabatan</th>
                     <th className="py-3.5 px-4 text-right">Tarif Harian</th>
-                    <th className="py-3.5 px-4 text-right">Makan & Transport</th>
-                    <th className="py-3.5 px-4 text-right">Lembur/Bonus</th>
-                    <th className="py-3.5 px-4 text-right font-extrabold text-indigo-700 dark:text-indigo-400">Total Bersih</th>
+                    <th className="py-3.5 px-4 text-right font-extrabold text-indigo-700 dark:text-indigo-400">Total Diterima</th>
                     <th className="py-3.5 px-4 text-center">Metode</th>
                     <th className="py-3.5 px-4 text-center">Status</th>
                     <th className="py-3.5 px-4 text-center w-36">Aksi</th>
@@ -1149,14 +1910,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                   {loading ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
                         Memuat data slip gaji...
                       </td>
                     </tr>
                   ) : dailySlips.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
                         <Receipt className="w-8 h-8 mx-auto mb-2 opacity-40" />
                         Belum ada slip gaji harian untuk tanggal {formatHariTanggalIndo(selectedTanggal)}.
                         <div className="mt-3">
@@ -1211,17 +1972,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                           <div className="text-[10px] text-slate-400">{slip.kehadiranHari} hari kerja</div>
                         </td>
 
-                        {/* Makan & Transport */}
-                        <td className="py-3 px-4 text-right text-slate-600 dark:text-slate-400">
-                          {formatRupiah((slip.uangMakanHarian || 0) + (slip.uangTransportHarian || 0))}
-                        </td>
-
-                        {/* Lembur / Bonus */}
-                        <td className="py-3 px-4 text-right text-slate-600 dark:text-slate-400">
-                          {formatRupiah((slip.uangLemburHarian || 0) + (slip.bonusHarian || 0))}
-                        </td>
-
-                        {/* Total Bersih */}
+                        {/* Total Diterima */}
                         <td className="py-3 px-4 text-right font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
                           {formatRupiah(slip.totalGajiBersih)}
                         </td>
@@ -1673,89 +2424,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     </div>
                   </div>
                 </div>
-
-                {/* Tunjangan Harian: Uang Makan & Transport */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Uang Makan Harian (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      step={1000}
-                      value={editingSlip.uangMakanHarian || 0}
-                      onChange={e => handleRecalculateSlipAmounts({ uangMakanHarian: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Uang Transport (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      step={1000}
-                      value={editingSlip.uangTransportHarian || 0}
-                      onChange={e => handleRecalculateSlipAmounts({ uangTransportHarian: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Uang Lembur Harian (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      step={1000}
-                      value={editingSlip.uangLemburHarian || 0}
-                      onChange={e => handleRecalculateSlipAmounts({ uangLemburHarian: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Bonus / Insentif (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      step={1000}
-                      value={editingSlip.bonusHarian || 0}
-                      onChange={e => handleRecalculateSlipAmounts({ bonusHarian: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Potongan Harian */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-rose-600 dark:text-rose-400 mb-1">
-                      Potongan Harian (Kasbon / Terlambat)
-                    </label>
-                    <input
-                      type="number"
-                      step={1000}
-                      value={editingSlip.potonganHarian || 0}
-                      onChange={e => handleRecalculateSlipAmounts({ potonganHarian: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 text-xs font-bold text-rose-600 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Keterangan Potongan
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Terlambat 30 menit / Kasbon harian"
-                      value={editingSlip.keteranganPotongan || ''}
-                      onChange={e => setEditingSlip({ ...editingSlip, keteranganPotongan: e.target.value })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-                    />
-                  </div>
-                </div>
               </div>
 
               {/* Total Bersih Display & Terbilang */}
@@ -1977,16 +2645,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                       <td className="py-2 px-3 text-center text-slate-500">{selectedPrintSlip.kehadiranHari} hari kerja</td>
                       <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.gajiPokokHarian)}</td>
                     </tr>
-                    <tr>
-                      <td className="py-2 px-3">Uang Makan Harian</td>
-                      <td className="py-2 px-3 text-center text-slate-500">Operasional dapur</td>
-                      <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.uangMakanHarian || 0)}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 px-3">Uang Transport Harian</td>
-                      <td className="py-2 px-3 text-center text-slate-500">Mobilitas tugas</td>
-                      <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.uangTransportHarian || 0)}</td>
-                    </tr>
+                    {(selectedPrintSlip.uangMakanHarian || 0) > 0 && (
+                      <tr>
+                        <td className="py-2 px-3">Uang Makan Harian</td>
+                        <td className="py-2 px-3 text-center text-slate-500">Operasional dapur</td>
+                        <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.uangMakanHarian)}</td>
+                      </tr>
+                    )}
+                    {(selectedPrintSlip.uangTransportHarian || 0) > 0 && (
+                      <tr>
+                        <td className="py-2 px-3">Uang Transport Harian</td>
+                        <td className="py-2 px-3 text-center text-slate-500">Mobilitas tugas</td>
+                        <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.uangTransportHarian)}</td>
+                      </tr>
+                    )}
                     {(selectedPrintSlip.uangLemburHarian || 0) > 0 && (
                       <tr>
                         <td className="py-2 px-3">Uang Lembur Harian</td>
@@ -2001,20 +2673,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                         <td className="py-2 px-3 text-right font-semibold">{formatRupiah(selectedPrintSlip.bonusHarian)}</td>
                       </tr>
                     )}
-                    <tr className="bg-slate-50 font-bold border-t border-slate-200">
-                      <td colSpan={2} className="py-2 px-3">Subtotal Penghasilan Kotor</td>
-                      <td className="py-2 px-3 text-right">{formatRupiah(selectedPrintSlip.totalPenghasilanKotor)}</td>
-                    </tr>
-                    {(selectedPrintSlip.potonganHarian || 0) > 0 && (
-                      <tr className="text-rose-700">
-                        <td className="py-2 px-3">Potongan Harian</td>
-                        <td className="py-2 px-3 text-center text-rose-500">{selectedPrintSlip.keteranganPotongan || '-'}</td>
-                        <td className="py-2 px-3 text-right font-semibold">-{formatRupiah(selectedPrintSlip.potonganHarian)}</td>
-                      </tr>
-                    )}
                     <tr className="bg-emerald-50 border-t-2 border-emerald-600 font-black text-sm text-emerald-900">
                       <td colSpan={2} className="py-3 px-3 uppercase tracking-wider">
-                        TOTAL BERSIH DITERIMA (TAKE HOME PAY)
+                        TOTAL DITERIMA (TAKE HOME PAY)
                       </td>
                       <td className="py-3 px-3 text-right text-emerald-800">
                         {formatRupiah(selectedPrintSlip.totalGajiBersih)}
@@ -2116,9 +2777,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     <th className="py-2 px-3 text-left border-r border-slate-300">Nama Petugas</th>
                     <th className="py-2 px-3 text-left border-r border-slate-300">Jabatan</th>
                     <th className="py-2 px-2 text-center border-r border-slate-300 w-16">Hari</th>
-                    <th className="py-2 px-3 text-right border-r border-slate-300">Upah Pokok</th>
-                    <th className="py-2 px-3 text-right border-r border-slate-300">Tunjangan</th>
-                    <th className="py-2 px-3 text-right border-r border-slate-300">Total Bersih</th>
+                    <th className="py-2 px-3 text-right border-r border-slate-300">Besaran Gaji Harian</th>
+                    <th className="py-2 px-3 text-right border-r border-slate-300">Total Diterima</th>
                     <th className="py-2 px-2 text-center border-r border-slate-300 w-20">Metode</th>
                     <th className="py-2 px-4 text-center w-28">Tanda Tangan</th>
                   </tr>
@@ -2131,9 +2791,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                       <td className="py-2.5 px-3 border-r border-slate-200">{slip.jabatan}</td>
                       <td className="py-2.5 px-2 text-center border-r border-slate-200">{slip.kehadiranHari}</td>
                       <td className="py-2.5 px-3 text-right border-r border-slate-200 font-mono">{formatRupiah(slip.gajiPokokHarian)}</td>
-                      <td className="py-2.5 px-3 text-right border-r border-slate-200 font-mono">
-                        {formatRupiah((slip.uangMakanHarian || 0) + (slip.uangTransportHarian || 0) + (slip.uangLemburHarian || 0))}
-                      </td>
                       <td className="py-2.5 px-3 text-right border-r border-slate-200 font-mono font-bold text-slate-900">
                         {formatRupiah(slip.totalGajiBersih)}
                       </td>
@@ -2144,7 +2801,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     </tr>
                   ))}
                   <tr className="bg-slate-100 font-black border-t-2 border-slate-900">
-                    <td colSpan={6} className="py-2.5 px-4 text-right uppercase border-r border-slate-300">
+                    <td colSpan={5} className="py-2.5 px-4 text-right uppercase border-r border-slate-300">
                       TOTAL DIBAYARKAN HARI INI:
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-emerald-800 border-r border-slate-300">
@@ -2268,6 +2925,157 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   <div>
                     <p className="font-bold text-slate-900 underline">Hj. Siti Aminah, S.E.</p>
                     <p className="text-[10px] text-slate-500">Koordinator HR & Keuangan</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 6: CETAK REKAPITULASI ABSENSI HARIAN PETUGAS SPPG */}
+      {/* ========================================================= */}
+      {isModalPrintAbsensiOpen && rekapAbsensi && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full text-slate-900 shadow-2xl overflow-hidden my-6 border border-slate-200">
+            {/* Top Toolbar (hidden on print) */}
+            <div className="p-4 bg-slate-100 border-b border-slate-200 flex items-center justify-between print:hidden">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                <Printer className="w-4 h-4 text-indigo-600" />
+                Pratinjau Lembar Rekapitulasi Absensi & Kehadiran Petugas SPPG
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Cetak Lembar Absensi
+                </button>
+                <button
+                  onClick={() => setIsModalPrintAbsensiOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Body */}
+            <div className="p-8 space-y-6 font-sans">
+              {/* Header Kop Resmi */}
+              <div className="border-b-2 border-slate-900 pb-3 text-center space-y-1">
+                <div className="text-xs font-black tracking-widest uppercase text-slate-600">
+                  BADAN GIZI NASIONAL (BGN) • REPUBLIK INDONESIA
+                </div>
+                <div className="text-lg font-black tracking-tight uppercase text-slate-950">
+                  SATUAN PELAYANAN PANGAN GIZI (SPPG) KREJENGAN TEMENGGUNGAN
+                </div>
+                <div className="text-sm font-extrabold uppercase text-indigo-900 tracking-wide mt-1">
+                  LEMBAR REKAPITULASI ABSENSI & FILTER KEHADIRAN HARIAN PETUGAS
+                </div>
+                <div className="text-xs text-slate-600 font-bold">
+                  HARI & TANGGAL: {formatHariTanggalIndo(selectedTanggal).toUpperCase()}
+                </div>
+              </div>
+
+              {/* Attendance Statistics Summary Box */}
+              <div className="grid grid-cols-4 gap-3 text-center text-xs">
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                  <span className="text-slate-500 font-medium">Total Petugas:</span>
+                  <div className="text-base font-bold text-slate-900">{rekapAbsensi.totalPetugas} Orang</div>
+                </div>
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <span className="text-emerald-700 font-medium">Masuk Kerja (Diterbitkan Slip):</span>
+                  <div className="text-base font-bold text-emerald-800">
+                    {rekapAbsensi.totalMasuk} Orang ({rekapAbsensi.totalHadir} Hadir, {rekapAbsensi.totalSetengahHari} 1/2 Hari)
+                  </div>
+                </div>
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg">
+                  <span className="text-rose-700 font-medium">Tidak Masuk (Difilter Keluar):</span>
+                  <div className="text-base font-bold text-rose-800">
+                    {rekapAbsensi.totalTidakMasuk} Orang ({rekapAbsensi.totalSakit} Sakit, {rekapAbsensi.totalIzin} Izin, {rekapAbsensi.totalAlpha} Alpha)
+                  </div>
+                </div>
+                <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <span className="text-indigo-700 font-medium">Tingkat Kehadiran:</span>
+                  <div className="text-base font-bold text-indigo-900">
+                    {Math.round(((rekapAbsensi.totalMasuk) / (rekapAbsensi.totalPetugas || 1)) * 100)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance Details Table */}
+              <table className="w-full text-xs border border-slate-300">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                    <th className="py-2 px-2 text-center border-r border-slate-300 w-10">No</th>
+                    <th className="py-2 px-3 text-left border-r border-slate-300">Nama Petugas</th>
+                    <th className="py-2 px-3 text-left border-r border-slate-300">Jabatan</th>
+                    <th className="py-2 px-2 text-center border-r border-slate-300 w-24">Status Kehadiran</th>
+                    <th className="py-2 px-2 text-center border-r border-slate-300 w-16">Jam Masuk</th>
+                    <th className="py-2 px-2 text-center border-r border-slate-300 w-16">Jam Keluar</th>
+                    <th className="py-2 px-3 text-left border-r border-slate-300">Keterangan / Alasan</th>
+                    <th className="py-2 px-3 text-center border-r border-slate-300 w-28">Status Slip Gaji</th>
+                    <th className="py-2 px-3 text-center w-24">Paraf</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {rekapAbsensi.items.map((it, idx) => (
+                    <tr
+                      key={it.petugasId}
+                      className={it.statusAbsensi !== 'Hadir' && it.statusAbsensi !== 'Setengah Hari' ? 'bg-rose-50/50' : ''}
+                    >
+                      <td className="py-2 px-2 text-center border-r border-slate-200 font-bold">{idx + 1}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-900">{it.namaPetugas}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-slate-700">{it.jabatan}</td>
+                      <td className="py-2 px-2 text-center border-r border-slate-200 font-bold">
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${
+                          it.statusAbsensi === 'Hadir' ? 'bg-emerald-100 text-emerald-800' :
+                          it.statusAbsensi === 'Setengah Hari' ? 'bg-amber-100 text-amber-800' :
+                          it.statusAbsensi === 'Sakit' ? 'bg-blue-100 text-blue-800' :
+                          it.statusAbsensi === 'Izin' ? 'bg-purple-100 text-purple-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {it.statusAbsensi}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-center border-r border-slate-200 font-mono">{it.jamMasuk}</td>
+                      <td className="py-2 px-2 text-center border-r border-slate-200 font-mono">{it.jamKeluar}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-slate-600 text-[11px]">{it.keterangan || '-'}</td>
+                      <td className="py-2 px-3 text-center border-r border-slate-200 font-bold text-[10px]">
+                        {it.statusAbsensi === 'Hadir' || it.statusAbsensi === 'Setengah Hari' ? (
+                          <span className="text-emerald-700">Diterbitkan Slip</span>
+                        ) : (
+                          <span className="text-rose-700">Difilter (Tidak Ada Slip)</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center text-slate-400 font-mono text-[10px]">
+                        {idx + 1}. .........
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Tanda Tangan */}
+              <div className="pt-6 grid grid-cols-2 text-center text-xs gap-8">
+                <div className="space-y-12">
+                  <p className="text-slate-600">Mengetahui,<br />Kepala SPPG Krejengan Temenggungan</p>
+                  <div>
+                    <p className="font-bold text-slate-900 underline">Sri Rohayu, S. Pd</p>
+                    <p className="text-[10px] text-slate-500">Penanggung Jawab Operasional</p>
+                  </div>
+                </div>
+
+                <div className="space-y-12">
+                  <p className="text-slate-600">
+                    Krejengan, {formatHariTanggalIndo(selectedTanggal)}<br />
+                    Verifikator Absensi & Kepegawaian,
+                  </p>
+                  <div>
+                    <p className="font-bold text-slate-900 underline">Hj. Siti Aminah, S.E.</p>
+                    <p className="text-[10px] text-slate-500">Koordinator Administrasi & Keuangan</p>
                   </div>
                 </div>
               </div>

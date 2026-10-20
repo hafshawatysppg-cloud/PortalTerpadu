@@ -308,6 +308,7 @@ const PortalMain: React.FC = () => {
         return <FoodWasteView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       case '/petugas':
       case '/petugas/daftar':
+      case '/petugas/absensi':
       case '/petugas/slip-gaji':
         return <PetugasView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       default:

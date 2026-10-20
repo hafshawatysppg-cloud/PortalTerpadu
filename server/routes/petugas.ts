@@ -48,6 +48,62 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // ==========================================
+// 1.5. REKAP ABSENSI HARIAN ENDPOINTS
+// ==========================================
+
+/**
+ * GET /api/petugas/absensi
+ * Mengambil data rekap absensi pada tanggal tertentu (atau draft otomatis jika belum ada).
+ */
+router.get('/absensi', (req: Request, res: Response) => {
+  try {
+    const tanggal = (req.query.tanggal as string) || new Date().toISOString().split('T')[0];
+    const data = dbStore.getRekapAbsensi(tanggal);
+    return res.json({
+      success: true,
+      data
+    });
+  } catch (error: any) {
+    console.error('Error fetching absensi:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil rekap absensi', error: error.message });
+  }
+});
+
+/**
+ * POST /api/petugas/absensi
+ * Menyimpan rekap absensi dan otomatis memfilter karyawan yang tidak masuk serta menyinkronkan ke slip gaji harian.
+ */
+router.post('/absensi', async (req: Request, res: Response) => {
+  try {
+    const { tanggal, items } = req.body;
+    if (!tanggal || !items) {
+      return res.status(400).json({ success: false, message: 'Parameter tanggal dan items absensi wajib diisi' });
+    }
+
+    const autoSync = req.body.autoSync !== false;
+    const result = dbStore.saveRekapAbsensi(req.body, autoSync);
+
+    // Sync absensi to Firestore
+    await syncSaveDoc('rekapAbsensiList', result.absensi.id, result.absensi);
+
+    // Sync generated slips to Firestore
+    for (const slip of result.generatedSlips) {
+      await syncSaveDoc('slipGajiList', slip.id, slip);
+    }
+
+    return res.json({
+      success: true,
+      message: `Rekap absensi tanggal ${tanggal} berhasil disimpan. ${result.absensi.totalMasuk} petugas masuk otomatis masuk ke rekap slip gaji (${result.absensi.totalTidakMasuk} petugas tidak masuk difilter).`,
+      data: result.absensi,
+      slips: result.generatedSlips
+    });
+  } catch (error: any) {
+    console.error('Error saving absensi:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan rekap absensi', error: error.message });
+  }
+});
+
+// ==========================================
 // 2. SLIP GAJI HARIAN ENDPOINTS
 // (PENTING: Definisikan rute spesifik sebelum /:id agar tidak tertabrak)
 // ==========================================

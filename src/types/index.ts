@@ -1087,6 +1087,40 @@ export interface RekapGajiHarianSummary {
   rataRataGajiHarian: number;
 }
 
+// --- REKAP ABSENSI PETUGAS HARIAN ---
+export type StatusAbsensi = 'Hadir' | 'Setengah Hari' | 'Sakit' | 'Izin' | 'Alpha';
 
+export interface AbsensiPetugasItem {
+  petugasId: string;
+  nomorPetugas: string;
+  namaPetugas: string;
+  jabatan: string;
+  besaranGaji: number;
+  statusAbsensi: StatusAbsensi;
+  kehadiranHari: number; // 1, 0.5, 0
+  jamMasuk?: string;
+  jamKeluar?: string;
+  keterangan?: string;
+}
 
-
+export interface RekapAbsensiHarian {
+  id: string; // e.g. 'ABS-20261020'
+  tanggal: string; // YYYY-MM-DD
+  hariTanggalFormatted?: string;
+  totalPetugas: number;
+  totalHadir: number;
+  totalSetengahHari: number;
+  totalSakit: number;
+  totalIzin: number;
+  totalAlpha: number;
+  totalMasuk: number;
+  totalTidakMasuk: number;
+  statusRekap: 'Draft' | 'Selesai';
+  items: AbsensiPetugasItem[];
+  catatan?: string;
+  disinkronkanKeSlipGaji?: boolean;
+  tanggalSinkronisasi?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  diverifikasiOleh?: string;
+}
