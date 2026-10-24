@@ -74,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     ],
     penerima: [
       { title: 'Summary Hari Ini', path: '/penerima-manfaat/hari-ini', icon: Icons.BarChart3 },
+      { title: 'BAST (Berita Acara)', path: '/penerima-manfaat/bast', icon: Icons.FileCheck },
       { title: 'Pengaturan Kelompok & Sasaran', path: '/penerima-manfaat/kelompok', icon: Icons.Settings },
       { title: 'Rekapitulasi Harian', path: '/penerima-manfaat/rekap-harian', icon: Icons.Calendar },
       { title: 'Rekapitulasi Bulanan', path: '/penerima-manfaat/rekap-bulanan', icon: Icons.FileText },

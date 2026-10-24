@@ -32,6 +32,7 @@ import {
   Award,
   Sparkles,
   Eye,
+  FileCheck,
   X
 } from 'lucide-react';
 import {
@@ -58,6 +59,7 @@ import {
   inferKategoriFromText
 } from '../components/common/GroupFormModal';
 import { calculateAutoPortion } from '../utils/portionHelper';
+import { BastSubView } from '../components/penerima/BastSubView';
 
 interface PenerimaManfaatViewProps {
   currentPath?: string;
@@ -68,13 +70,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   const { user } = useAuth();
 
   const getSubTabFromPath = (path: string) => {
+    if (path.includes('bast')) return 'bast';
     if (path.includes('rekap-harian')) return 'rekap-harian';
     if (path.includes('rekap-bulanan')) return 'rekap-bulanan';
     if (path.includes('kelompok')) return 'kelompok';
     return 'hari-ini';
   };
 
-  const [activeTab, setActiveTab] = useState<'hari-ini' | 'rekap-harian' | 'rekap-bulanan' | 'kelompok'>(getSubTabFromPath(currentPath));
+  const [activeTab, setActiveTab] = useState<'hari-ini' | 'bast' | 'rekap-harian' | 'rekap-bulanan' | 'kelompok'>(getSubTabFromPath(currentPath));
 
   useEffect(() => {
     setActiveTab(getSubTabFromPath(currentPath));
@@ -1099,18 +1102,22 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       {/* SUBMENU NAVIGATION TABS */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-slate-200/80">
         {[
-          { id: 'hari-ini', label: 'Penerima Hari Ini', icon: Users },
-          { id: 'rekap-harian', label: 'Rekap Harian', icon: FileText },
-          { id: 'rekap-bulanan', label: 'Rekap Bulanan', icon: BarChart3 },
-          { id: 'kelompok', label: 'Pengaturan Kelompok', icon: Settings }
+          { id: 'hari-ini', label: 'Penerima Hari Ini', icon: Users, path: '/penerima-manfaat' },
+          { id: 'bast', label: 'BAST (Berita Acara)', icon: FileCheck, path: '/penerima-manfaat/bast' },
+          { id: 'rekap-harian', label: 'Rekap Harian', icon: FileText, path: '/penerima-manfaat/rekap-harian' },
+          { id: 'rekap-bulanan', label: 'Rekap Bulanan', icon: BarChart3, path: '/penerima-manfaat/rekap-bulanan' },
+          { id: 'kelompok', label: 'Pengaturan Kelompok', icon: Settings, path: '/penerima-manfaat/kelompok' }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium text-sm whitespace-nowrap transition-all duration-200 ${
+              onClick={() => {
+                setActiveTab(tab.id as any);
+                if (onNavigate && tab.path) onNavigate(tab.path);
+              }}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${
                 isActive
                   ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
                   : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
@@ -1467,6 +1474,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           </div>
 
         </div>
+      )}
+
+      {/* TAB BAST: BERITA ACARA SERAH TERIMA */}
+      {activeTab === 'bast' && (
+        <BastSubView
+          initialDate={selectedDate}
+          onShowToast={showToast}
+          openConfirmModal={setConfirmModal}
+        />
       )}
 
       {/* TAB 2: REKAP HARIAN & AUDIT LOG */}

@@ -260,6 +260,7 @@ const PortalMain: React.FC = () => {
         return <LaporanBbmView />;
       case '/penerima-manfaat':
       case '/penerima-manfaat/hari-ini':
+      case '/penerima-manfaat/bast':
       case '/penerima-manfaat/rekap-harian':
       case '/penerima-manfaat/rekap-bulanan':
       case '/penerima-manfaat/kelompok':

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
-import { DailyBeneficiaryRecord, BeneficiaryGroup, BeneficiaryLocation, BeneficiaryAuditLog } from '../../src/types';
+import { DailyBeneficiaryRecord, BeneficiaryGroup, BeneficiaryLocation, BeneficiaryAuditLog, BastDocument } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../db/firestore';
+import { createBastWordDocument } from '../../src/utils/bastDocxGenerator';
+import { Packer } from 'docx';
 
 const router = Router();
 
@@ -1180,6 +1182,204 @@ router.get('/summary', (req: Request, res: Response): void => {
     tanggal,
     summary
   });
+});
+
+// ==========================================
+// 17. BAST (BERITA ACARA SERAH TERIMA) ENDPOINTS
+// ==========================================
+
+// GET /api/v1/penerima-manfaat/bast
+router.get('/bast', (req: Request, res: Response): void => {
+  try {
+    const { tanggal, startDate, endDate, search } = req.query;
+    const docs = dbStore.getBastDocuments({
+      tanggal: typeof tanggal === 'string' && tanggal !== 'all' ? tanggal : undefined,
+      startDate: typeof startDate === 'string' ? startDate : undefined,
+      endDate: typeof endDate === 'string' ? endDate : undefined,
+      search: typeof search === 'string' ? search : undefined
+    });
+
+    res.json({
+      success: true,
+      data: docs
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal mengambil data BAST', error: error.message });
+  }
+});
+
+// GET /api/v1/penerima-manfaat/bast/:id
+router.get('/bast/:id', (req: Request, res: Response): void => {
+  try {
+    const doc = dbStore.getBastById(req.params.id);
+    if (!doc) {
+      res.status(404).json({ success: false, message: 'Dokumen BAST tidak ditemukan' });
+      return;
+    }
+    res.json({ success: true, data: doc });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal mengambil detail BAST', error: error.message });
+  }
+});
+
+// POST /api/v1/penerima-manfaat/bast/generate
+router.post('/bast/generate', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tanggal, force } = req.body;
+    if (!tanggal) {
+      res.status(400).json({ success: false, message: 'Parameter tanggal wajib diisi' });
+      return;
+    }
+
+    const docs = dbStore.generateDailyBastBatch(tanggal, Boolean(force));
+    for (const d of docs) {
+      await syncSaveDoc('bastDocuments', d.id, d);
+    }
+
+    res.json({
+      success: true,
+      message: `Berhasil generate ${docs.length} dokumen BAST untuk tanggal ${tanggal}`,
+      data: docs
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal generate BAST harian', error: error.message });
+  }
+});
+
+// POST /api/v1/penerima-manfaat/bast
+router.post('/bast', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const saved = dbStore.saveBastDocument(req.body);
+    await syncSaveDoc('bastDocuments', saved.id, saved);
+    res.json({
+      success: true,
+      message: 'Dokumen BAST berhasil disimpan',
+      data: saved
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menyimpan BAST', error: error.message });
+  }
+});
+
+// PUT /api/v1/penerima-manfaat/bast/:id
+router.put('/bast/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const existing = dbStore.getBastById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ success: false, message: 'Dokumen BAST tidak ditemukan' });
+      return;
+    }
+
+    const updated = dbStore.saveBastDocument({
+      ...existing,
+      ...req.body,
+      id: req.params.id
+    });
+
+    if (req.body.namaPic || req.body.telponPic) {
+      const locIdx = dbStore.beneficiaryLocations.findIndex(l =>
+        l.id === updated.instansiId ||
+        l.namaInstansi.trim().toLowerCase() === updated.namaSekolah.trim().toLowerCase()
+      );
+      if (locIdx !== -1) {
+        if (req.body.namaPic) dbStore.beneficiaryLocations[locIdx].picNama = req.body.namaPic;
+        if (req.body.telponPic) {
+          dbStore.beneficiaryLocations[locIdx].picTelepon = req.body.telponPic;
+          dbStore.beneficiaryLocations[locIdx].kontak = req.body.telponPic;
+        }
+        await syncSaveDoc('beneficiaryLocations', dbStore.beneficiaryLocations[locIdx].id, dbStore.beneficiaryLocations[locIdx]);
+      }
+    }
+
+    await syncSaveDoc('bastDocuments', updated.id, updated);
+
+    res.json({
+      success: true,
+      message: 'Dokumen BAST berhasil diperbarui',
+      data: updated
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal memperbarui BAST', error: error.message });
+  }
+});
+
+// POST /api/v1/penerima-manfaat/bast/:id/regenerate
+router.post('/bast/:id/regenerate', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const existing = dbStore.getBastById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ success: false, message: 'Dokumen BAST tidak ditemukan' });
+      return;
+    }
+
+    const dailyRecs = dbStore.getBeneficiaryRecordsForDate(existing.tanggal);
+    const matching = dailyRecs.filter(r => {
+      let clean = r.namaInstansi.trim();
+      if (clean.includes(' (Guru)')) clean = clean.replace(' (Guru)', '').trim();
+      return r.locationId === existing.instansiId || clean.toLowerCase() === existing.namaSekolah.trim().toLowerCase();
+    });
+
+    let newCount = matching.reduce((sum, r) => sum + (Number(r.totalPenerima) || 0), 0);
+    if (newCount === 0) {
+      const loc = dbStore.beneficiaryLocations.find(l => l.id === existing.instansiId || l.namaInstansi.trim().toLowerCase() === existing.namaSekolah.trim().toLowerCase());
+      newCount = loc?.defaultJumlah || existing.jumlahPaketMakanan;
+    }
+
+    const updated = dbStore.saveBastDocument({
+      ...existing,
+      jumlahPaketMakanan: newCount,
+      jumlahAlatMakan: newCount,
+      updatedAt: new Date().toISOString()
+    });
+
+    await syncSaveDoc('bastDocuments', updated.id, updated);
+
+    res.json({
+      success: true,
+      message: `BAST ${updated.nomorBast} berhasil digenerate ulang dengan jumlah ${newCount} paket.`,
+      data: updated
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal meregenerasi BAST', error: error.message });
+  }
+});
+
+// DELETE /api/v1/penerima-manfaat/bast/:id
+router.delete('/bast/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const success = dbStore.deleteBastDocument(req.params.id);
+    if (success) {
+      await syncDeleteDoc('bastDocuments', req.params.id);
+      res.json({ success: true, message: 'Dokumen BAST berhasil dihapus' });
+    } else {
+      res.status(404).json({ success: false, message: 'Dokumen BAST tidak ditemukan' });
+    }
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menghapus BAST', error: error.message });
+  }
+});
+
+// GET /api/v1/penerima-manfaat/bast/:id/docx
+router.get('/bast/:id/docx', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const doc = dbStore.getBastById(req.params.id);
+    if (!doc) {
+      res.status(404).json({ success: false, message: 'Dokumen BAST tidak ditemukan' });
+      return;
+    }
+
+    const wordDoc = await createBastWordDocument(doc);
+    const buffer = await Packer.toBuffer(wordDoc);
+
+    const cleanSchool = doc.namaSekolah.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `BAST_${cleanSchool}_${doc.tanggal}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal mengunduh dokumen Word', error: error.message });
+  }
 });
 
 export default router;

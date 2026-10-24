@@ -445,6 +445,8 @@ export interface BeneficiaryLocation {
   namaInstansi: string; // e.g. SD Zainul Hasan Genggong, MA Model Hafshawaty
   alamat?: string;
   kontak?: string;
+  picNama?: string;
+  picTelepon?: string;
   kategoriLembaga?: KategoriLembaga;
   klasifikasiPorsi?: KlasifikasiPorsi;
   breakdownKelas?: Record<string, number>;
@@ -1123,4 +1125,47 @@ export interface RekapAbsensiHarian {
   createdAt?: string;
   updatedAt?: string;
   diverifikasiOleh?: string;
+}
+
+// --- BAST (BERITA ACARA SERAH TERIMA) DOKUMEN ---
+export type BastStatus = 'DRAFT' | 'SIAP_DICETAK' | 'FINAL';
+
+export interface BastDocument {
+  id: string; // e.g. 'BAST-20261025-001'
+  nomorBast: string; // e.g. '0103/BAST/SPPG-TMG/X/2026'
+  tanggal: string; // YYYY-MM-DD
+  hari: string; // e.g. 'Minggu'
+  hariTanggalFormatted: string; // e.g. 'Minggu, 25 Oktober 2026'
+  waktuPenerimaan?: string; // e.g. '07:30 WIB' or 'Jam …………… WIB'
+
+  // School / Lembaga
+  instansiId: string;
+  namaSekolah: string; // e.g. 'TK ZAINUL HASAN'
+  alamatSekolah?: string;
+  namaPic: string; // e.g. 'Lulut Biyadillah'
+  telponPic: string; // e.g. '085234834095'
+  isDataLengkap: boolean;
+
+  // Beneficiary count / Package count
+  jumlahPaketMakanan: number; // e.g. 221
+  jumlahAlatMakan: number; // e.g. 221
+
+  // SPPG Info
+  namaSppg: string;
+  unitCode: string; // e.g. 'SPPG-TMG'
+
+  // Distribution Team
+  namaTimDistribusi: string; // e.g. 'Tim Distribusi SPPG Hafshawaty 001 Genggong'
+  namaPetugasDistribusi: string; // e.g. 'Abdus Salam'
+  telponPetugasDistribusi: string; // e.g. '085212581665'
+
+  // Authorized Official / Mengetahui
+  namaKepalaSppg: string; // e.g. 'Sri Rohayu, S.Pd.'
+  jabatanKepalaSppg: string; // e.g. 'Kepala SPPG Probolinggo Krejengan Temenggungan'
+
+  status: BastStatus;
+  catatan?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
 }
