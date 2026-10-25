@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
+import { syncSaveDoc } from '../db/firestore';
 
 const router = Router();
 
@@ -9,7 +10,7 @@ router.get('/', (req: Request, res: Response): void => {
 });
 
 // Update role permissions
-router.put('/:roleName', (req: Request, res: Response): void => {
+router.put('/:roleName', async (req: Request, res: Response): Promise<void> => {
   const { roleName } = req.params;
   const index = dbStore.roles.findIndex(r => r.role === roleName);
 
@@ -22,6 +23,8 @@ router.put('/:roleName', (req: Request, res: Response): void => {
     ...dbStore.roles[index],
     ...req.body
   };
+
+  await syncSaveDoc('roles', roleName, dbStore.roles[index]);
 
   dbStore.addLog('ADMIN', 'System Administrator', 'Manajemen Hak Akses', 'Update Role Matrix', `Mengubah hak akses untuk role ${roleName}`, req.ip);
 

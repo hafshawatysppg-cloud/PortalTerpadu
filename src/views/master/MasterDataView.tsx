@@ -37,6 +37,21 @@ export const MasterDataView: React.FC = () => {
   const [editingPeg, setEditingPeg] = useState<MasterPegawai | null>(null);
   const [deletingPeg, setDeletingPeg] = useState<MasterPegawai | null>(null);
 
+  // Modals for other master tabs
+  const [isAddDivisiOpen, setIsAddDivisiOpen] = useState(false);
+  const [formDivisi, setFormDivisi] = useState({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
+
+  const [isAddGudangOpen, setIsAddGudangOpen] = useState(false);
+  const [formGudang, setFormGudang] = useState({ nama: '', kode: '', lokasi: '', penanggungJawab: '', kapasitasM3: 100 });
+
+  const [isAddKategoriOpen, setIsAddKategoriOpen] = useState(false);
+  const [formKategori, setFormKategori] = useState({ nama: '', kode: '', deskripsi: '' });
+
+  const [isAddInstansiOpen, setIsAddInstansiOpen] = useState(false);
+  const [formInstansi, setFormInstansi] = useState({ nama: '', jenis: 'Sekolah / Madrasah', alamat: '', kontak: '', telepon: '', email: '' });
+
+  const [isSubmittingMaster, setIsSubmittingMaster] = useState(false);
+
   const [form, setForm] = useState({
     nama: '',
     nip: '',
@@ -122,6 +137,106 @@ export const MasterDataView: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleAddDivisi = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formDivisi.nama.trim()) return;
+    setIsSubmittingMaster(true);
+    try {
+      const res = await fetch('/api/v1/master/divisi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formDivisi)
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setDivisi(prev => [data.data, ...prev]);
+        setIsAddDivisiOpen(false);
+        setFormDivisi({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
+      } else {
+        alert(data.message || 'Gagal menambahkan divisi');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleAddGudang = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formGudang.nama.trim()) return;
+    setIsSubmittingMaster(true);
+    try {
+      const res = await fetch('/api/v1/master/gudang', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formGudang)
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setGudang(prev => [data.data, ...prev]);
+        setIsAddGudangOpen(false);
+        setFormGudang({ nama: '', kode: '', lokasi: '', penanggungJawab: '', kapasitasM3: 100 });
+      } else {
+        alert(data.message || 'Gagal menambahkan gudang');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleAddKategori = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formKategori.nama.trim()) return;
+    setIsSubmittingMaster(true);
+    try {
+      const res = await fetch('/api/v1/master/kategori', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formKategori)
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setKategori(prev => [data.data, ...prev]);
+        setIsAddKategoriOpen(false);
+        setFormKategori({ nama: '', kode: '', deskripsi: '' });
+      } else {
+        alert(data.message || 'Gagal menambahkan kategori');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleAddInstansi = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formInstansi.nama.trim()) return;
+    setIsSubmittingMaster(true);
+    try {
+      const res = await fetch('/api/v1/master/instansi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formInstansi)
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setInstansi(prev => [data.data, ...prev]);
+        setIsAddInstansiOpen(false);
+        setFormInstansi({ nama: '', jenis: 'Sekolah / Madrasah', alamat: '', kontak: '', telepon: '', email: '' });
+      } else {
+        alert(data.message || 'Gagal menambahkan instansi mitra');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingMaster(false);
     }
   };
 
@@ -282,14 +397,48 @@ export const MasterDataView: React.FC = () => {
           </button>
         </div>
 
-        {activeTab === 'pegawai' && (
-          <button
-            onClick={() => setIsAddOpen(true)}
-            className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4" /> Tambah Pegawai / User
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+          {activeTab === 'pegawai' && (
+            <button
+              onClick={() => setIsAddOpen(true)}
+              className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Pegawai / User
+            </button>
+          )}
+          {activeTab === 'divisi' && (
+            <button
+              onClick={() => setIsAddDivisiOpen(true)}
+              className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Divisi
+            </button>
+          )}
+          {activeTab === 'gudang' && (
+            <button
+              onClick={() => setIsAddGudangOpen(true)}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Gudang
+            </button>
+          )}
+          {activeTab === 'kategori' && (
+            <button
+              onClick={() => setIsAddKategoriOpen(true)}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Kategori
+            </button>
+          )}
+          {activeTab === 'instansi' && (
+            <button
+              onClick={() => setIsAddInstansiOpen(true)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Instansi Mitra
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar for Pegawai */}
@@ -718,33 +867,332 @@ export const MasterDataView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Hapus Pegawai */}
-      {deletingPeg && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-sm w-full p-6 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 flex items-center justify-center mx-auto">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Konfirmasi Hapus Pegawai</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Apakah Anda yakin ingin menghapus <strong>{deletingPeg.nama}</strong>? Tindakan ini juga akan menghapus akses user SSO terkait dari Google Cloud Firestore.
-              </p>
-            </div>
-            <div className="flex justify-center gap-2 pt-2">
-              <button
-                onClick={() => setDeletingPeg(null)}
-                className="px-4 py-2 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition"
-              >
-                Ya, Hapus Data
+      {/* Modal Tambah Divisi */}
+      {isAddDivisiOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Building className="w-4 h-4 text-purple-600" /> Tambah Divisi Baru
+              </h3>
+              <button onClick={() => setIsAddDivisiOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
               </button>
             </div>
+            <form onSubmit={handleAddDivisi} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Divisi</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Logistik & Pengadaan"
+                  value={formDivisi.nama}
+                  onChange={(e) => setFormDivisi({ ...formDivisi, nama: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Singkatan</label>
+                  <input
+                    type="text"
+                    placeholder="LOG"
+                    value={formDivisi.kode}
+                    onChange={(e) => setFormDivisi({ ...formDivisi, kode: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kepala Divisi</label>
+                  <input
+                    type="text"
+                    placeholder="Nama PIC..."
+                    value={formDivisi.kepalaDivisi}
+                    onChange={(e) => setFormDivisi({ ...formDivisi, kepalaDivisi: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Keterangan / Fungsi</label>
+                <textarea
+                  rows={2}
+                  placeholder="Deskripsi tugas divisi..."
+                  value={formDivisi.keterangan}
+                  onChange={(e) => setFormDivisi({ ...formDivisi, keterangan: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddDivisiOpen(false)}
+                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMaster}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold shadow-xs"
+                >
+                  {isSubmittingMaster ? 'Menyimpan...' : 'Simpan Divisi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tambah Gudang */}
+      {isAddGudangOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Warehouse className="w-4 h-4 text-amber-600" /> Tambah Gudang Baru
+              </h3>
+              <button onClick={() => setIsAddGudangOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleAddGudang} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Gudang</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Gudang Bahan Kering"
+                  value={formGudang.nama}
+                  onChange={(e) => setFormGudang({ ...formGudang, nama: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Gudang</label>
+                  <input
+                    type="text"
+                    placeholder="GDG-002"
+                    value={formGudang.kode}
+                    onChange={(e) => setFormGudang({ ...formGudang, kode: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kapasitas (m³)</label>
+                  <input
+                    type="number"
+                    value={formGudang.kapasitasM3}
+                    onChange={(e) => setFormGudang({ ...formGudang, kapasitasM3: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Lokasi Gedung / Ruangan</label>
+                <input
+                  type="text"
+                  placeholder="Lantai 1 Sayap Timur"
+                  value={formGudang.lokasi}
+                  onChange={(e) => setFormGudang({ ...formGudang, lokasi: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Penanggung Jawab Gudang</label>
+                <input
+                  type="text"
+                  placeholder="Petugas Logistik..."
+                  value={formGudang.penanggungJawab}
+                  onChange={(e) => setFormGudang({ ...formGudang, penanggungJawab: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddGudangOpen(false)}
+                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMaster}
+                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold shadow-xs"
+                >
+                  {isSubmittingMaster ? 'Menyimpan...' : 'Simpan Gudang'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tambah Kategori */}
+      {isAddKategoriOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-blue-600" /> Tambah Kategori Barang Baru
+              </h3>
+              <button onClick={() => setIsAddKategoriOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleAddKategori} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Kategori</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Bahan Pokok & Sembako"
+                  value={formKategori.nama}
+                  onChange={(e) => setFormKategori({ ...formKategori, nama: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Kategori</label>
+                <input
+                  type="text"
+                  placeholder="KAT-005"
+                  value={formKategori.kode}
+                  onChange={(e) => setFormKategori({ ...formKategori, kode: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Deskripsi Kategori</label>
+                <textarea
+                  rows={2}
+                  placeholder="Kategori untuk beras, minyak, gula, tepung..."
+                  value={formKategori.deskripsi}
+                  onChange={(e) => setFormKategori({ ...formKategori, deskripsi: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddKategoriOpen(false)}
+                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMaster}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold shadow-xs"
+                >
+                  {isSubmittingMaster ? 'Menyimpan...' : 'Simpan Kategori'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tambah Instansi */}
+      {isAddInstansiOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-indigo-600" /> Tambah Instansi Mitra Baru
+              </h3>
+              <button onClick={() => setIsAddInstansiOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleAddInstansi} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Instansi / Sekolah</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="SDN Kraksaan 1 / Puskesmas Krejengan"
+                  value={formInstansi.nama}
+                  onChange={(e) => setFormInstansi({ ...formInstansi, nama: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Jenis Instansi</label>
+                  <select
+                    value={formInstansi.jenis}
+                    onChange={(e) => setFormInstansi({ ...formInstansi, jenis: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Sekolah / Madrasah">Sekolah / Madrasah</option>
+                    <option value="Puskesmas / Posyandu">Puskesmas / Posyandu</option>
+                    <option value="Yayasan / Pesantren">Yayasan / Pesantren</option>
+                    <option value="Dinas / Lembaga Pemerintahan">Dinas / Pemerintahan</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama PIC / Kontak</label>
+                  <input
+                    type="text"
+                    placeholder="Bpk. Mulyadi"
+                    value={formInstansi.kontak}
+                    onChange={(e) => setFormInstansi({ ...formInstansi, kontak: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nomor Telepon</label>
+                  <input
+                    type="text"
+                    placeholder="081234567890"
+                    value={formInstansi.telepon}
+                    onChange={(e) => setFormInstansi({ ...formInstansi, telepon: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Email</label>
+                  <input
+                    type="email"
+                    placeholder="kontak@sekolah.sch.id"
+                    value={formInstansi.email}
+                    onChange={(e) => setFormInstansi({ ...formInstansi, email: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Alamat Lengkap</label>
+                <textarea
+                  rows={2}
+                  placeholder="Jl. Raya Kraksaan No. 12, Probolinggo..."
+                  value={formInstansi.alamat}
+                  onChange={(e) => setFormInstansi({ ...formInstansi, alamat: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddInstansiOpen(false)}
+                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMaster}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs"
+                >
+                  {isSubmittingMaster ? 'Menyimpan...' : 'Simpan Instansi'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

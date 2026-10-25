@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
 import { DriverStaff, DistributionReport } from '../../src/types';
+import { syncSaveDoc, syncDeleteDoc } from '../db/firestore';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/drivers', (req: Request, res: Response): void => {
 });
 
 // POST /api/v1/distribusi/drivers
-router.post('/drivers', (req: Request, res: Response): void => {
+router.post('/drivers', async (req: Request, res: Response): Promise<void> => {
   const { nama, telepon, noSim, kendaraan, platNomor, foto, status, catatan } = req.body;
 
   if (!nama) {
@@ -34,13 +35,15 @@ router.post('/drivers', (req: Request, res: Response): void => {
   };
 
   dbStore.drivers.unshift(newDriver);
+  await syncSaveDoc('drivers', newDriver.id, newDriver);
+
   dbStore.addLog('ADMIN', 'Operator Distribusi', 'Laporan Distribusi', 'Tambah Driver', `Menambahkan driver baru ${nama}`, req.ip);
 
   res.status(201).json({ success: true, message: 'Driver berhasil ditambahkan', data: newDriver });
 });
 
 // PUT /api/v1/distribusi/drivers/:id
-router.put('/drivers/:id', (req: Request, res: Response): void => {
+router.put('/drivers/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.drivers.findIndex(d => d.id === id);
 
@@ -54,13 +57,14 @@ router.put('/drivers/:id', (req: Request, res: Response): void => {
     ...req.body
   };
 
+  await syncSaveDoc('drivers', id, dbStore.drivers[index]);
   dbStore.addLog('ADMIN', 'Operator Distribusi', 'Laporan Distribusi', 'Edit Driver', `Memperbarui data driver ${dbStore.drivers[index].nama}`, req.ip);
 
   res.json({ success: true, message: 'Driver berhasil diperbarui', data: dbStore.drivers[index] });
 });
 
 // DELETE /api/v1/distribusi/drivers/:id
-router.delete('/drivers/:id', (req: Request, res: Response): void => {
+router.delete('/drivers/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.drivers.findIndex(d => d.id === id);
 
@@ -70,6 +74,7 @@ router.delete('/drivers/:id', (req: Request, res: Response): void => {
   }
 
   const deletedDriver = dbStore.drivers.splice(index, 1)[0];
+  await syncDeleteDoc('drivers', id);
   dbStore.addLog('ADMIN', 'Operator Distribusi', 'Laporan Distribusi', 'Hapus Driver', `Menghapus driver ${deletedDriver.nama}`, req.ip);
 
   res.json({ success: true, message: 'Driver berhasil dihapus', data: deletedDriver });
@@ -154,13 +159,16 @@ router.post('/reports', (req: Request, res: Response): void => {
   };
 
   dbStore.distributionReports.unshift(newReport);
+  await syncSaveDoc('distributionReports', newReport.id, newReport);
+  await syncSaveDoc('distribution_reports', newReport.id, newReport);
+
   dbStore.addLog('DISTRIBUSI', driverNama || 'Petugas Distribusi', 'Laporan Distribusi', 'Tambah Laporan Distribusi', `Input laporan distribusi untuk ${namaInstansi}`, req.ip);
 
   res.status(201).json({ success: true, message: 'Laporan distribusi berhasil disimpan', data: newReport });
 });
 
 // PUT /api/v1/distribusi/reports/:id
-router.put('/reports/:id', (req: Request, res: Response): void => {
+router.put('/reports/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.distributionReports.findIndex(r => r.id === id);
 
@@ -175,13 +183,16 @@ router.put('/reports/:id', (req: Request, res: Response): void => {
     updatedAt: new Date().toISOString()
   };
 
+  await syncSaveDoc('distributionReports', id, dbStore.distributionReports[index]);
+  await syncSaveDoc('distribution_reports', id, dbStore.distributionReports[index]);
+
   dbStore.addLog('DISTRIBUSI', 'Petugas Distribusi', 'Laporan Distribusi', 'Edit Laporan Distribusi', `Update laporan ID ${id}`, req.ip);
 
   res.json({ success: true, message: 'Laporan distribusi berhasil diperbarui', data: dbStore.distributionReports[index] });
 });
 
 // DELETE /api/v1/distribusi/reports/:id
-router.delete('/reports/:id', (req: Request, res: Response): void => {
+router.delete('/reports/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.distributionReports.findIndex(r => r.id === id);
 
@@ -191,6 +202,9 @@ router.delete('/reports/:id', (req: Request, res: Response): void => {
   }
 
   const deletedReport = dbStore.distributionReports.splice(index, 1)[0];
+  await syncDeleteDoc('distributionReports', id);
+  await syncDeleteDoc('distribution_reports', id);
+
   dbStore.addLog('DISTRIBUSI', 'Petugas Distribusi', 'Laporan Distribusi', 'Hapus Laporan Distribusi', `Menghapus laporan ${deletedReport.id}`, req.ip);
 
   res.json({ success: true, message: 'Laporan distribusi berhasil dihapus', data: deletedReport });

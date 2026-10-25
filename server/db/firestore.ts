@@ -405,10 +405,15 @@ export const SYNCED_COLLECTIONS = [
   { key: 'stockMovements', coll: 'stockMovements' },
   { key: 'opnameSessions', coll: 'opnameSessions' },
   { key: 'tugasDivisiRecords', coll: 'tugasDivisi' },
+  { key: 'taskTemplates', coll: 'taskTemplates' },
+  { key: 'waDivisiSettings', coll: 'whatsappDivisiSettings' },
   { key: 'beneficiaryGroups', coll: 'beneficiaryGroups' },
   { key: 'beneficiaryLocations', coll: 'beneficiaryLocations' },
   { key: 'dailyBeneficiaryRecords', coll: 'dailyBeneficiaryRecords' },
   { key: 'beneficiaryAuditLogs', coll: 'beneficiaryAuditLogs' },
+  { key: 'bastDocuments', coll: 'bastDocuments' },
+  { key: 'drivers', coll: 'drivers' },
+  { key: 'distributionReports', coll: 'distributionReports' },
   { key: 'suratMasuk', coll: 'suratMasuk' },
   { key: 'suratKeluar', coll: 'suratKeluar' },
   { key: 'disposisi', coll: 'disposisi' },
@@ -425,6 +430,7 @@ export const SYNCED_COLLECTIONS = [
   { key: 'foodWasteRecords', coll: 'foodWasteRecords' },
   { key: 'petugasList', coll: 'petugasList' },
   { key: 'slipGajiList', coll: 'slipGajiList' },
+  { key: 'rekapAbsensiList', coll: 'rekapAbsensiList' },
   { key: 'settings', coll: 'settings', isSingleDoc: true },
   { key: 'documentTemplate', coll: 'documentTemplate', isSingleDoc: true }
 ];
@@ -462,9 +468,9 @@ export async function initFirestoreSync() {
         }
 
         const snapshot = await getDocs(collRef);
+        const initialItems = (dbStore as any)[item.key];
 
         if (snapshot.empty) {
-          const initialItems = (dbStore as any)[item.key];
           if (Array.isArray(initialItems) && initialItems.length > 0) {
             const batchSize = 100;
             for (let i = 0; i < initialItems.length; i += batchSize) {
@@ -480,8 +486,36 @@ export async function initFirestoreSync() {
           }
         } else {
           const docsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          if (docsData.length > 0) {
-            (dbStore as any)[item.key] = docsData;
+          
+          // Smart merge: Keep initial pre-configured data and merge Firestore docs on top
+          const mergedMap = new Map<string, any>();
+          if (Array.isArray(initialItems)) {
+            initialItems.forEach(initDoc => {
+              if (initDoc?.id) mergedMap.set(initDoc.id, initDoc);
+            });
+          }
+          docsData.forEach(fsDoc => {
+            if (fsDoc?.id) mergedMap.set(fsDoc.id, fsDoc);
+          });
+
+          const finalItems = Array.from(mergedMap.values());
+          if (finalItems.length > 0) {
+            (dbStore as any)[item.key] = finalItems;
+          }
+
+          // If some initial pre-configured records weren't in Firestore yet, seed them in background
+          if (Array.isArray(initialItems)) {
+            const missingInFs = initialItems.filter(init => !docsData.some(fd => fd.id === init.id));
+            if (missingInFs.length > 0) {
+              const seedBatch = writeBatch(db);
+              missingInFs.forEach(missingDoc => {
+                if (missingDoc.id) {
+                  const dRef = doc(db, item.coll, missingDoc.id);
+                  seedBatch.set(dRef, JSON.parse(JSON.stringify(missingDoc)));
+                }
+              });
+              seedBatch.commit().catch(() => {});
+            }
           }
         }
       } catch (err: any) {

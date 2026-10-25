@@ -84,6 +84,7 @@ router.put('/record', (req: Request, res: Response): void => {
 
   const savedRecord = dbStore.tugasDivisiRecords[idx];
   syncSaveDoc('tugasDivisi', savedRecord.id, savedRecord);
+  syncSaveDoc('divisiTaskRecords', savedRecord.id, savedRecord);
 
   dbStore.addLog(
     'USER',
@@ -118,6 +119,7 @@ router.put('/menu-harian', (req: Request, res: Response): void => {
   });
 
   syncSaveBatch('tugasDivisi', records);
+  syncSaveBatch('divisiTaskRecords', records);
 
   dbStore.addLog(
     'USER',
@@ -150,6 +152,9 @@ router.delete('/menu-harian', (req: Request, res: Response): void => {
     r.menuHarian = '';
     r.updatedAt = new Date().toISOString();
   });
+
+  syncSaveBatch('tugasDivisi', records);
+  syncSaveBatch('divisiTaskRecords', records);
 
   dbStore.addLog(
     'USER',
@@ -209,14 +214,21 @@ router.put('/menu-harian-bulk', (req: Request, res: Response): void => {
     return;
   }
 
+  const allUpdated: any[] = [];
   items.forEach(item => {
     if (!item.tanggal) return;
     const records = dbStore.getOrCreateTugasDivisiForDate(item.tanggal);
     records.forEach(r => {
       r.menuHarian = item.menuHarian || '';
       r.updatedAt = new Date().toISOString();
+      allUpdated.push(r);
     });
   });
+
+  if (allUpdated.length > 0) {
+    syncSaveBatch('tugasDivisi', allUpdated);
+    syncSaveBatch('divisiTaskRecords', allUpdated);
+  }
 
   dbStore.addLog(
     'USER',
@@ -241,6 +253,7 @@ router.delete('/record/:id', (req: Request, res: Response): void => {
   if (idx !== -1) {
     const deleted = dbStore.tugasDivisiRecords.splice(idx, 1)[0];
     syncDeleteDoc('tugasDivisi', id);
+    syncDeleteDoc('divisiTaskRecords', id);
     dbStore.addLog(
       'USER',
       'Petugas SPPG',
@@ -315,6 +328,7 @@ router.put('/wa-settings', (req: Request, res: Response): void => {
 
   if (Array.isArray(newSettings)) {
     dbStore.waDivisiSettings = newSettings;
+    syncSaveBatch('whatsappDivisiSettings', newSettings);
     dbStore.addLog('ADMIN', 'Administrator', 'Pengaturan WhatsApp', 'Update WA Divisi', 'Memperbarui kontak WhatsApp divisi', req.ip);
     res.json({ success: true, message: 'Nomor WhatsApp Divisi berhasil diperbarui.', data: dbStore.waDivisiSettings });
   } else {
@@ -338,6 +352,7 @@ router.put('/templates', (req: Request, res: Response): void => {
     dbStore.taskTemplates.push(newTemplate);
   }
 
+  syncSaveDoc('taskTemplates', newTemplate.id, newTemplate);
   dbStore.addLog('ADMIN', 'Administrator', 'Template Tugas', 'Simpan Template', `Menyimpan template tugas untuk ${newTemplate.divisiNama}`, req.ip);
   res.json({ success: true, message: 'Template tugas berhasil disimpan.', data: dbStore.taskTemplates });
 });
@@ -348,6 +363,7 @@ router.delete('/templates/:id', (req: Request, res: Response): void => {
 
   if (idx !== -1) {
     const deleted = dbStore.taskTemplates.splice(idx, 1)[0];
+    syncDeleteDoc('taskTemplates', id);
     dbStore.addLog('ADMIN', 'Administrator', 'Template Tugas', 'Hapus Template', `Menghapus template ${deleted.judulTemplate}`, req.ip);
     res.json({ success: true, message: 'Template tugas berhasil dihapus.' });
   } else {
