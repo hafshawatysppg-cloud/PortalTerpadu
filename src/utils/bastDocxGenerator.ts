@@ -123,7 +123,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
             ],
           }),
           new Paragraph({
-            spacing: { before: 0, after: 360 },
+            spacing: { before: 0, after: 560 },
             children: [
               new TextRun({ text: 'Nomor Telpon        : ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: bast.telponPetugasDistribusi || '085212581665', font: 'Times New Roman', size: 21 }),
@@ -168,7 +168,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
                         ],
                       }),
                       new Paragraph({
-                        spacing: { before: 0, after: 320 },
+                        spacing: { before: 0, after: 560 },
                         children: [
                           new TextRun({ text: 'Nomor Telpon        : ', font: 'Times New Roman', size: 21 }),
                           new TextRun({ text: bast.telponPic || '085234834095', font: 'Times New Roman', size: 21 }),
@@ -331,7 +331,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
             ],
           }),
           new Paragraph({
-            spacing: { before: 0, after: 320 },
+            spacing: { before: 0, after: 560 },
             children: [
               new TextRun({ text: 'Nomor Telpon        : ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: bast.telponPic || '085234834095', font: 'Times New Roman', size: 21 }),
@@ -386,7 +386,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
                         ],
                       }),
                       new Paragraph({
-                        spacing: { before: 0, after: 360 },
+                        spacing: { before: 0, after: 560 },
                         children: [
                           new TextRun({ text: 'Nomor Telpon        : ', font: 'Times New Roman', size: 21 }),
                           new TextRun({ text: bast.telponPetugasDistribusi || '085212581665', font: 'Times New Roman', size: 21 }),

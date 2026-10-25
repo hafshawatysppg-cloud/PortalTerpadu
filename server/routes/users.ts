@@ -15,30 +15,50 @@ router.get('/', (req: Request, res: Response): void => {
 });
 
 // Create user
-router.post('/', (req: Request, res: Response): void => {
+router.post('/', async (req: Request, res: Response): Promise<void> => {
   const { nama, username, email, role, divisi, jabatan, status, foto, password, nip, telepon } = req.body;
 
-  if (!nama || !username || !email || !role) {
-    res.status(400).json({ success: false, message: 'Nama, Username, Email, dan Role wajib diisi.' });
+  if (!nama?.trim() || !username?.trim() || !email?.trim() || !role) {
+    res.status(400).json({ success: false, message: 'Nama Lengkap, Username, Email, dan Role wajib diisi.' });
     return;
   }
 
-  const existing = dbStore.users.find(u => u.username === username || u.email === email);
+  const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '_');
+  const cleanEmail = email.trim().toLowerCase();
+
+  const existing = dbStore.users.find(u =>
+    (u.username && u.username.trim().toLowerCase() === cleanUsername) ||
+    (u.email && u.email.trim().toLowerCase() === cleanEmail)
+  );
   if (existing) {
-    res.status(400).json({ success: false, message: 'Username atau Email sudah terdaftar.' });
+    res.status(400).json({
+      success: false,
+      message: `Username "@${cleanUsername}" atau Email "${cleanEmail}" sudah terdaftar.`
+    });
     return;
   }
+
+  // Calculate highest numeric ID among existing users
+  let maxId = 0;
+  dbStore.users.forEach(u => {
+    const match = u.id?.match(/^USR-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxId) maxId = num;
+    }
+  });
+  const newId = `USR-${String(maxId + 1).padStart(3, '0')}`;
 
   const newUser: User = {
-    id: `USR-${String(dbStore.users.length + 1).padStart(3, '0')}`,
-    nama,
-    username,
-    email,
+    id: newId,
+    nama: nama.trim(),
+    username: cleanUsername,
+    email: cleanEmail,
     role,
-    divisi: divisi || 'Sekretariat / Tata Usaha',
-    jabatan: jabatan || 'Staf Operasional',
+    divisi: divisi?.trim() || 'Logistik & Perlengkapan',
+    jabatan: jabatan?.trim() || 'Staf Operasional',
     status: status || 'Aktif',
-    password: password || 'password123',
+    password: password?.trim() || 'password123',
     foto: foto || `https://images.unsplash.com/photo-${1534528741775 + dbStore.users.length}?w=150`,
     createdAt: new Date().toISOString()
   };
@@ -47,12 +67,23 @@ router.post('/', (req: Request, res: Response): void => {
   if (telepon) (newUser as any).telepon = telepon;
 
   dbStore.users.unshift(newUser);
-  dbStore.addLog('ADMIN', 'System Administrator', 'Master User', 'Tambah User Baru', `Menambahkan user '${nama}' dengan role '${role}' dan password kustom`, req.ip);
+  dbStore.addLog(
+    'ADMIN',
+    'System Administrator',
+    'Master User',
+    'Tambah User Baru',
+    `Menambahkan user '${newUser.nama}' (@${newUser.username}) dengan role '${role}'`,
+    req.ip
+  );
 
   // Sync to Firestore
-  syncSaveDoc('users', newUser.id, newUser);
+  await syncSaveDoc('users', newUser.id, newUser);
 
-  res.status(201).json({ success: true, message: 'User berhasil ditambahkan dengan password SSO', data: newUser });
+  res.status(201).json({
+    success: true,
+    message: `Pengguna "${newUser.nama}" (@${newUser.username}) berhasil ditambahkan.`,
+    data: newUser
+  });
 });
 
 // Update user

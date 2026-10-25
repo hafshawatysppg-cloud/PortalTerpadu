@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { BastDocument, BastStatus } from '../../types';
 import { downloadBastDocx } from '../../utils/bastDocxGenerator';
+import { printBastDocumentDirectly } from '../../utils/bastPrintHelper';
 
 // Authentic stylized cursive signature for Sri Rohayu, S.Pd. matching PDF template
 const SriRohayuSignature: React.FC<{ className?: string }> = ({ className = 'h-14 w-auto' }) => (
@@ -290,11 +291,12 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     });
   };
 
-  // Print Document Trigger
+  // Print Document Trigger: Pops up the browser print dialog immediately with complete content!
   const handlePrintDocument = (doc?: BastDocument) => {
     const target = doc || previewDoc;
     if (!target) return;
-    window.print();
+    onShowToast(`Membuka kotak dialog cetak ${target.nomorBast}...`, 'success');
+    printBastDocumentDirectly(target, showDigitalSignature);
   };
 
   // Download Word (.docx)
@@ -697,12 +699,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
 
                           {/* Cetak Langsung */}
                           <button
-                            onClick={() => {
-                              setPreviewDoc(doc);
-                              setTimeout(() => window.print(), 300);
-                            }}
-                            className="p-2 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-xl transition-all"
-                            title="Cetak Dokumen"
+                            onClick={() => handlePrintDocument(doc)}
+                            className="p-2 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer"
+                            title="Cetak Dokumen BAST (Munculkan Kotak Print)"
                           >
                             <Printer className="w-4 h-4" />
                           </button>
@@ -908,10 +907,11 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                               : <strong className="font-bold">{previewDoc.telponPetugasDistribusi || '085212581665'}</strong>
                             </span>
                           </div>
-                          <div className="pt-10">
+                          <div className="pt-16">
                             <span className="font-bold">
                               ({previewDoc.namaPetugasDistribusi || 'Abdus Salam' } )
                             </span>
+                            <div className="w-56 border-b border-black mt-0.5"></div>
                           </div>
                         </div>
 
@@ -931,7 +931,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                               <span className="w-44">Nomor Telpon</span>
                               <span>: {previewDoc.telponPic || '085234834095'}</span>
                             </div>
-                            <div className="pt-8">
+                            <div className="pt-16">
                               <div className="font-bold">
                                 ( {previewDoc.namaPic || 'Lulut Biyadillah'} )
                               </div>
@@ -1023,7 +1023,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                             <span className="w-72">Nomor Telpon</span>
                             <span>: {previewDoc.telponPic || '085234834095'}</span>
                           </div>
-                          <div className="pt-8">
+                          <div className="pt-16">
                             <span className="font-bold">
                               ({previewDoc.namaPic || 'Lulut Biyadillah'})
                             </span>
@@ -1053,10 +1053,11 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                                 : <strong className="font-bold">{previewDoc.telponPetugasDistribusi || '085212581665'}</strong>
                               </span>
                             </div>
-                            <div className="pt-8">
+                            <div className="pt-16">
                               <div className="font-bold">
                                 ({previewDoc.namaPetugasDistribusi || 'Abdus Salam'})
                               </div>
+                              <div className="w-56 border-b border-black mt-0.5"></div>
                             </div>
                           </div>
 
