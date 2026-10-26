@@ -18,7 +18,10 @@ export const HistoryBarangKeluarView: React.FC = () => {
 
   useEffect(() => {
     if (realtimeMovements && realtimeMovements.length > 0) {
-      const outMovements = realtimeMovements.filter(m => m.jenis === 'Keluar');
+      const outMovements = realtimeMovements.filter(m => 
+        m.jenis === 'Keluar' || 
+        (m.keterangan && (m.keterangan.toLowerCase().includes('stok kosong') || m.keterangan.toLowerCase().includes('stok habis') || m.keterangan.toLowerCase().includes('auto hapus')))
+      );
       setMovements(outMovements);
       setLoading(false);
     }
@@ -35,7 +38,10 @@ export const HistoryBarangKeluarView: React.FC = () => {
       const dataBrg = await resBrg.json();
 
       if (dataMov.success) {
-        const outMovements = (dataMov.data as StockMovement[]).filter(m => m.jenis === 'Keluar');
+        const outMovements = (dataMov.data as StockMovement[]).filter(m => 
+          m.jenis === 'Keluar' || 
+          (m.keterangan && (m.keterangan.toLowerCase().includes('stok kosong') || m.keterangan.toLowerCase().includes('stok habis') || m.keterangan.toLowerCase().includes('auto hapus')))
+        );
         setMovements(outMovements);
       }
       if (dataBrg.success) {
@@ -248,7 +254,17 @@ export const HistoryBarangKeluarView: React.FC = () => {
                   <td className="p-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">{m.tanggal}</td>
                   <td className="p-3">
                     <div className="font-bold text-slate-900 dark:text-slate-100">{m.namaBarang}</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{m.kodeBarang}</div>
+                    <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                      <span>{m.kodeBarang}</span>
+                      {m.referensiNota && (
+                        <span className="text-slate-500 font-mono">({m.referensiNota})</span>
+                      )}
+                    </div>
+                    {m.keterangan && (
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mt-0.5 max-w-sm leading-tight">
+                        {m.keterangan}
+                      </div>
+                    )}
                   </td>
                   <td className="p-3 font-medium text-slate-600 dark:text-slate-400">{getItemSatuan(m)}</td>
                   <td className="p-3 text-right font-black text-rose-600 dark:text-rose-400">

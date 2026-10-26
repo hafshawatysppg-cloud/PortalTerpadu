@@ -38,7 +38,7 @@ export const StockDashboardView: React.FC<StockDashboardViewProps> = ({ onNaviga
       const dataBarang = await resBarang.json();
       if (dataBarang.success) {
         const items: MasterBarang[] = dataBarang.data;
-        const low = items.filter(b => b.stokSekarang <= b.stokMinimal);
+        const low = items.filter(b => (b.stokSekarang || 0) <= 0 || b.status === 'Arsip');
         setLowStockItems(low);
       }
 
@@ -232,7 +232,7 @@ export const StockDashboardView: React.FC<StockDashboardViewProps> = ({ onNaviga
 
                   <div className="text-right">
                     <span className="text-xs font-extrabold text-rose-600 dark:text-rose-400 block">
-                      {item.stokSekarang} / {item.stokMinimal} {item.satuan}
+                      {item.stokSekarang} {item.satuan} (Stok Kosong / 0)
                     </span>
                     <button
                       onClick={() => onNavigate('/stock-opname/barang-masuk')}

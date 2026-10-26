@@ -256,7 +256,7 @@ export const BarangKeluarView: React.FC = () => {
                       <div className={`text-base font-black ${
                         isSelected 
                           ? 'text-white' 
-                          : item.stokSekarang <= item.stokMinimal 
+                          : (item.stokSekarang || 0) <= 0 
                             ? 'text-rose-600 dark:text-rose-400' 
                             : 'text-indigo-600 dark:text-indigo-400'
                       }`}>

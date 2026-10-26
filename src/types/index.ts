@@ -185,7 +185,7 @@ export interface MasterBarang {
   gudangId: string;
   gudangNama: string;
   satuan: string;
-  stokMinimal: number;
+  stokMinimal?: number;
   stokSekarang: number;
   stokAwal?: number;
   hargaSatuan: number;
@@ -194,6 +194,7 @@ export interface MasterBarang {
   fotoUrl?: string;
   sumberSupplier?: string;
   keterangan?: string;
+  status?: 'Aktif' | 'Tidak Aktif' | 'Arsip';
   updatedAt?: string;
 }
 
@@ -216,6 +217,10 @@ export interface StockMovement {
   hargaSatuan?: number;
   totalHarga?: number;
   sisaStock?: number;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface StockOpnameSession {

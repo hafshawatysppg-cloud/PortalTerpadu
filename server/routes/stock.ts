@@ -83,9 +83,9 @@ router.post('/barang', async (req: Request, res: Response): Promise<void> => {
     gudangId,
     gudangNama: gdg?.nama || 'Gudang Utama Central',
     satuan: satuan || 'Pcs',
-    stokMinimal: Number(stokMinimal) || 10,
     stokSekarang: initStok,
     stokAwal: initStok,
+    status: 'Aktif',
     hargaSatuan: Number(hargaSatuan) || 0,
     barcode: `8991001${Date.now().toString().slice(-6)}`,
     qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=BRG-${Date.now()}`,
@@ -139,11 +139,12 @@ router.put('/barang/:id', async (req: Request, res: Response): Promise<void> => 
     kategoriId,
     gudangId,
     satuan,
-    stokMinimal,
+    stokSekarang,
     hargaSatuan,
     sumberSupplier,
     keterangan,
     fotoUrl,
+    status,
     petugas
   } = req.body;
 
@@ -165,7 +166,15 @@ router.put('/barang/:id', async (req: Request, res: Response): Promise<void> => 
 
   if (namaBarang) item.namaBarang = namaBarang;
   if (satuan) item.satuan = satuan;
-  if (typeof stokMinimal === 'number') item.stokMinimal = Number(stokMinimal);
+  if (typeof stokSekarang === 'number') {
+    item.stokSekarang = Number(stokSekarang);
+    if (item.stokSekarang <= 0 && !status) {
+      item.status = 'Arsip';
+    } else if (item.stokSekarang > 0 && item.status === 'Arsip') {
+      item.status = 'Aktif';
+    }
+  }
+  if (status) item.status = status;
   if (typeof hargaSatuan === 'number') item.hargaSatuan = Number(hargaSatuan);
   if (sumberSupplier !== undefined) item.sumberSupplier = sumberSupplier;
   if (keterangan !== undefined) item.keterangan = keterangan;
@@ -189,9 +198,42 @@ router.delete('/barang/:id', async (req: Request, res: Response): Promise<void> 
 
   const removed = dbStore.barang.splice(idx, 1)[0];
   await syncDeleteDoc('barang', id);
-  dbStore.addLog('USER', 'Admin', 'Stock Opname', 'Hapus Master Barang', `Menghapus barang: ${removed.namaBarang} (${removed.kodeBarang})`, req.ip);
 
-  res.json({ success: true, message: 'Master Barang Berhasil Dihapus' });
+  // If item had remaining stock or being removed, record outbound movement in history so it remains traceable
+  const opPetugas = (req.body && req.body.petugas) || 'Admin Logistik';
+  const nowIso = new Date().toISOString();
+  const movId = generateUniqueId('MOV');
+  const outQty = Number(removed.stokSekarang) || 0;
+
+  const movementRecord: StockMovement = {
+    id: movId,
+    jenis: 'Keluar',
+    barangId: removed.id,
+    kodeBarang: removed.kodeBarang,
+    namaBarang: removed.namaBarang,
+    satuan: removed.satuan || 'Pcs',
+    jumlah: outQty,
+    gudangId: removed.gudangId,
+    gudangNama: removed.gudangNama,
+    referensiNota: `HAPUS-${Date.now().toString(36).toUpperCase()}`,
+    keterangan: `Penghapusan Master Barang - Stok dikeluarkan (${outQty} ${removed.satuan})`,
+    tanggal: `${nowIso.split('T')[0]} ${new Date().toTimeString().slice(0, 5)}`,
+    petugas: opPetugas,
+    hargaSatuan: removed.hargaSatuan || 0,
+    totalHarga: outQty * (removed.hargaSatuan || 0),
+    sisaStock: 0,
+    createdAt: nowIso,
+    createdBy: opPetugas,
+    updatedAt: nowIso,
+    updatedBy: opPetugas
+  };
+
+  dbStore.stockMovements.unshift(movementRecord);
+  await syncSaveDoc('stockMovements', movementRecord.id, movementRecord, { name: opPetugas });
+
+  dbStore.addLog('USER', opPetugas, 'Stock Opname', 'Hapus Master Barang', `Menghapus barang: ${removed.namaBarang} (${removed.kodeBarang}) & mencatat saldo akhir ke History Keluar`, req.ip);
+
+  res.json({ success: true, message: `Master Barang "${removed.namaBarang}" Berhasil Dihapus & Dicatat ke History Keluar` });
 });
 
 // --- STOCK AWAL ADJUSTMENT (TRANSACTIONAL) ---
@@ -365,26 +407,71 @@ router.post('/opname-sessions', async (req: Request, res: Response): Promise<voi
   };
 
   // Process adjustments to master barang stocks & create adjustment movement records using transactions
+  let autoDeletedCount = 0;
+  const deletedItemsInfo: string[] = [];
+
   if (Array.isArray(items)) {
     for (const it of items) {
       const b = dbStore.barang.find(x => x.id === it.barangId);
-      if (b && typeof it.stokFisik === 'number') {
-        const stokLama = b.stokSekarang;
-        const selisih = it.stokFisik - stokLama;
+      if (!b || typeof it.stokFisik !== 'number') continue;
 
-        if (selisih !== 0) {
-          try {
-            await runStockTransaction({
-              barangId: b.id,
-              jenis: 'Penyesuaian Opname',
-              jumlah: it.stokFisik,
-              referensiNota: session.kodeOpname,
-              keterangan: `Penyesuaian Fisik Opname (${selisih > 0 ? '+' : ''}${selisih} ${b.satuan}) - ${it.catatan || 'Koreksi Stok Fisik'}`,
-              petugas: opPetugas
-            });
-          } catch (err: any) {
-            console.error(`Opname adjustment error for ${b.namaBarang}:`, err?.message);
-          }
+      const stokLama = Number(b.stokSekarang) || 0;
+      const selisih = it.stokFisik - stokLama;
+
+      // RULE: Jika stock barang kosong atau 0, otomatis dipindahkan ke arsip/status tidak aktif
+      // dan TETAP TEREKAM PADA HISTORY BARANG KELUAR!
+      if (it.stokFisik <= 0) {
+        const outQty = stokLama > 0 ? stokLama : 0;
+        const nowIso = new Date().toISOString();
+        const movId = generateUniqueId('MOV');
+
+        const zeroOutMovement: StockMovement = {
+          id: movId,
+          jenis: 'Keluar',
+          barangId: b.id,
+          kodeBarang: b.kodeBarang,
+          namaBarang: b.namaBarang,
+          satuan: b.satuan || 'Pcs',
+          jumlah: outQty,
+          gudangId: b.gudangId || session.gudangId,
+          gudangNama: b.gudangNama || session.gudangNama,
+          referensiNota: session.kodeOpname,
+          keterangan: `Stock Opname (Stok 0) - Otomatis dipindahkan ke Arsip / Status Tidak Aktif. ${it.catatan || ''}`.trim(),
+          tanggal: `${nowIso.split('T')[0]} ${new Date().toTimeString().slice(0, 5)}`,
+          petugas: opPetugas,
+          hargaSatuan: b.hargaSatuan || 0,
+          totalHarga: outQty * (b.hargaSatuan || 0),
+          sisaStock: 0,
+          createdAt: nowIso,
+          createdBy: opPetugas,
+          updatedAt: nowIso,
+          updatedBy: opPetugas
+        };
+
+        dbStore.stockMovements.unshift(zeroOutMovement);
+        await syncSaveDoc('stockMovements', zeroOutMovement.id, zeroOutMovement, { name: opPetugas });
+
+        // Update item status to 'Arsip' and stokSekarang to 0
+        b.stokSekarang = 0;
+        b.status = 'Arsip';
+        b.updatedAt = nowIso;
+        await syncSaveDoc('barang', b.id, b, { name: opPetugas });
+
+        autoDeletedCount++;
+        deletedItemsInfo.push(`${b.namaBarang} (${b.kodeBarang})`);
+      } else if (selisih !== 0) {
+        // Normal variance adjustment
+        try {
+          await runStockTransaction({
+            barangId: b.id,
+            jenis: 'Penyesuaian Opname',
+            jumlah: it.stokFisik,
+            referensiNota: session.kodeOpname,
+            keterangan: `Penyesuaian Fisik Opname (${selisih > 0 ? '+' : ''}${selisih} ${b.satuan}) - ${it.catatan || 'Koreksi Stok Fisik'}`,
+            petugas: opPetugas
+          });
+        } catch (err: any) {
+          console.error(`Opname adjustment error for ${b.namaBarang}:`, err?.message);
         }
       }
     }
@@ -393,10 +480,87 @@ router.post('/opname-sessions', async (req: Request, res: Response): Promise<voi
   dbStore.opnameSessions.unshift(session);
   await syncSaveDoc('opnameSessions', session.id, session, { name: opPetugas });
 
-  dbStore.addLog('USER', opPetugas, 'Stock Opname', 'Finish Opname Physical', `Menyelesaikan Sesi Stock Opname Kode: ${session.kodeOpname}`, req.ip);
-  dbStore.addNotification('Stock Opname', 'Stock Opname Physical Selesai', `Sesi opname ${session.kodeOpname} telah diproses dan stok disesuaikan.`, 'success', '/stock-opname/opname');
+  const deleteMsg = autoDeletedCount > 0 
+    ? ` (${autoDeletedCount} item stok kosong/0 otomatis dipindahkan ke Arsip Tidak Aktif & dicatat di History Keluar: ${deletedItemsInfo.join(', ')})`
+    : '';
 
-  res.status(201).json({ success: true, message: 'Sesi Stock Opname dan Penyesuaian Stok Berhasil Disimpan', data: session });
+  dbStore.addLog('USER', opPetugas, 'Stock Opname', 'Finish Opname Physical', `Menyelesaikan Sesi Stock Opname Kode: ${session.kodeOpname}${deleteMsg}`, req.ip);
+  dbStore.addNotification('Stock Opname', 'Stock Opname Physical Selesai', `Sesi opname ${session.kodeOpname} telah diproses.${deleteMsg}`, 'success', '/stock-opname/opname');
+
+  res.status(201).json({ 
+    success: true, 
+    message: `Sesi Stock Opname berhasil disimpan.${deleteMsg}`, 
+    data: session,
+    autoDeletedCount,
+    deletedItems: deletedItemsInfo
+  });
+});
+
+// Purge or Archive any zero-stock items from active master barang and record them into History Keluar
+router.post('/opname/purge-zero', async (req: Request, res: Response): Promise<void> => {
+  const { petugas = 'Admin Logistik', permanentDelete = false } = req.body;
+  const zeroItems = dbStore.barang.filter(b => (Number(b.stokSekarang) || 0) <= 0);
+
+  if (zeroItems.length === 0) {
+    res.json({ success: true, message: 'Tidak ada barang dengan stok 0 / kosong di Master Stok.', purgedCount: 0 });
+    return;
+  }
+
+  const purgedNames: string[] = [];
+  const nowIso = new Date().toISOString();
+  const dateStr = `${nowIso.split('T')[0]} ${new Date().toTimeString().slice(0, 5)}`;
+
+  for (const b of zeroItems) {
+    const movId = generateUniqueId('MOV');
+    const mov: StockMovement = {
+      id: movId,
+      jenis: 'Keluar',
+      barangId: b.id,
+      kodeBarang: b.kodeBarang,
+      namaBarang: b.namaBarang,
+      satuan: b.satuan || 'Pcs',
+      jumlah: 0,
+      gudangId: b.gudangId,
+      gudangNama: b.gudangNama,
+      referensiNota: `OPN-ZERO-${Date.now().toString(36).toUpperCase()}`,
+      keterangan: 'Stock Opname: Stok Kosong (0) - Dipindahkan ke Arsip / Status Tidak Aktif',
+      tanggal: dateStr,
+      petugas,
+      hargaSatuan: b.hargaSatuan || 0,
+      totalHarga: 0,
+      sisaStock: 0,
+      createdAt: nowIso,
+      createdBy: petugas,
+      updatedAt: nowIso,
+      updatedBy: petugas
+    };
+
+    dbStore.stockMovements.unshift(mov as any);
+    await syncSaveDoc('stockMovements', mov.id, mov, { name: petugas });
+
+    if (permanentDelete) {
+      const idx = dbStore.barang.findIndex(x => x.id === b.id);
+      if (idx !== -1) {
+        dbStore.barang.splice(idx, 1);
+      }
+      await syncDeleteDoc('barang', b.id);
+    } else {
+      b.stokSekarang = 0;
+      b.status = 'Arsip';
+      b.updatedAt = nowIso;
+      await syncSaveDoc('barang', b.id, b, { name: petugas });
+    }
+    purgedNames.push(`${b.namaBarang} (${b.kodeBarang})`);
+  }
+
+  dbStore.addLog('USER', petugas, 'Stock Opname', 'Arsip Barang Stok Kosong', `Memindahkan ${purgedNames.length} barang stok 0 ke Arsip Tidak Aktif: ${purgedNames.join(', ')}`, req.ip);
+
+  res.json({
+    success: true,
+    message: `Berhasil memindahkan ${purgedNames.length} barang stok 0 ke Arsip / Status Tidak Aktif. Riwayat tetap tersimpan di History Barang Keluar.`,
+    purgedCount: purgedNames.length,
+    purgedItems: purgedNames
+  });
 });
 
 export default router;

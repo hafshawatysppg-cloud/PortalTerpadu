@@ -169,7 +169,14 @@ export const StockOpnameView: React.FC = () => {
               {opnameItems.map((item, idx) => (
                 <div key={item.barangId} className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
                   <div>
-                    <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</div>
+                    <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
+                      <span>{item.namaBarang}</span>
+                      {item.stokFisik === 0 && (
+                        <span className="px-1.5 py-0.5 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 text-[10px] font-bold rounded">
+                          Stok 0: Auto Hapus & Rekam Keluar
+                        </span>
+                      )}
+                    </div>
                     <div className="text-slate-500 font-mono">{item.kodeBarang} • Stok Sistem: <span className="font-semibold text-blue-600">{item.stokSistem}</span></div>
                   </div>
 

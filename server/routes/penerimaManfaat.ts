@@ -7,31 +7,30 @@ import { Packer } from 'docx';
 
 const router = Router();
 
-// Helper to clean and deduplicate groups and locations in memory and Firestore, and sanitize subtotal portion counts
+// Helper to clean, re-index urutan sequentially (#1, #2, ...), and sanitize subtotal portion counts
 function cleanDuplicateGroupsAndLocations() {
-  // 1. Deduplicate beneficiaryGroups by normalized ID or normalized name
+  // 1. Deduplicate beneficiaryGroups strictly by unique ID (do NOT delete groups by name)
   const uniqueGroups: BeneficiaryGroup[] = [];
-  const groupNameMap = new Map<string, BeneficiaryGroup>();
+  const seenGroupIds = new Set<string>();
 
   dbStore.beneficiaryGroups.forEach((g) => {
-    const normName = (g.nama || '').trim().toLowerCase();
-    if (!normName) return;
+    if (!g.id) {
+      g.id = `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    }
+    if (seenGroupIds.has(g.id)) {
+      return;
+    }
+    seenGroupIds.add(g.id);
+    uniqueGroups.push(g);
+  });
 
-    if (groupNameMap.has(normName)) {
-      const existing = groupNameMap.get(normName)!;
-      // Merge lembagaList if existing has none
-      if (Array.isArray(g.lembagaList) && g.lembagaList.length > 0) {
-        if (!Array.isArray(existing.lembagaList) || existing.lembagaList.length === 0) {
-          existing.lembagaList = g.lembagaList;
-        }
-      }
-      // Delete duplicate document from Firestore if ID differs
-      if (g.id !== existing.id) {
-        syncDeleteDoc('beneficiaryGroups', g.id);
-      }
-    } else {
-      groupNameMap.set(normName, g);
-      uniqueGroups.push(g);
+  // Re-index urutan sequentially starting from 1 (#1, #2, #3, ...)
+  // When there is only 1 group, its urutan is always 1 (#1)
+  uniqueGroups.forEach((g, idx) => {
+    const correctUrutan = idx + 1;
+    if (g.urutan !== correctUrutan) {
+      g.urutan = correctUrutan;
+      syncSaveDoc('beneficiaryGroups', g.id, g);
     }
   });
 
@@ -301,38 +300,39 @@ function updateGroupHandler(id: string, body: any, res: Response) {
 }
 
 // 2. POST GROUP (Create Group with optional Lembaga Sasaran list)
-router.post('/groups', (req: Request, res: Response): void => {
+router.post('/groups', async (req: Request, res: Response): Promise<void> => {
   const { id, nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = req.body;
-  if (!nama) {
+  if (!nama || !nama.trim()) {
     res.status(400).json({ success: false, message: 'Nama kelompok wajib diisi' });
     return;
   }
 
-  // Check if group already exists by ID or by matching name
-  const existingIdx = dbStore.beneficiaryGroups.findIndex(
-    g => (id && g.id === id) || g.nama.trim().toLowerCase() === nama.trim().toLowerCase()
-  );
-
-  if (existingIdx !== -1) {
-    return updateGroupHandler(dbStore.beneficiaryGroups[existingIdx].id, req.body, res);
+  // Only update if an explicit existing group ID was supplied
+  if (id) {
+    const existingIdx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
+    if (existingIdx !== -1) {
+      updateGroupHandler(id, req.body, res);
+      return;
+    }
   }
 
-  const groupId = id || `GRP-${Date.now()}`;
+  const groupId = id || `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+  const nextUrutan = dbStore.beneficiaryGroups.length + 1;
   const newGroup: BeneficiaryGroup = {
     id: groupId,
-    nama,
+    nama: nama.trim(),
     kategoriUtama: kategoriUtama || 'Siswa',
-    kategoriLembaga: kategoriLembaga,
+    kategoriLembaga: kategoriLembaga || 'SD / MI',
     klasifikasiPorsi: klasifikasiPorsi || 'Porsi Besar',
     alamat: alamat || deskripsi || '',
     deskripsi: deskripsi || alamat || '',
-    urutan: dbStore.beneficiaryGroups.length + 1,
+    urutan: nextUrutan,
     status: status || 'Aktif',
     lembagaList: Array.isArray(lembagaList) ? lembagaList : []
   };
 
   dbStore.beneficiaryGroups.push(newGroup);
-  syncSaveDoc('beneficiaryGroups', newGroup.id, newGroup);
+  await syncSaveDoc('beneficiaryGroups', newGroup.id, newGroup);
 
   if (Array.isArray(lembagaList) && lembagaList.length > 0) {
     lembagaList.forEach((item: any, idx: number) => {
@@ -463,6 +463,9 @@ router.delete('/groups/:id', (req: Request, res: Response): void => {
   const locsToRemove = dbStore.beneficiaryLocations.filter(l => l.groupId === id);
   dbStore.beneficiaryLocations = dbStore.beneficiaryLocations.filter(l => l.groupId !== id);
   locsToRemove.forEach(l => syncDeleteDoc('beneficiaryLocations', l.id));
+
+  // Re-index remaining groups sequentially (#1, #2, ...)
+  cleanDuplicateGroupsAndLocations();
 
   dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Hapus Kelompok', `Menghapus kelompok: ${removed.nama}`);
   res.json({ success: true, message: `Kelompok "${removed.nama}" berhasil dihapus` });

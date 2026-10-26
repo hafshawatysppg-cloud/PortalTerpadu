@@ -486,36 +486,9 @@ export async function initFirestoreSync() {
           }
         } else {
           const docsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          
-          // Smart merge: Keep initial pre-configured data and merge Firestore docs on top
-          const mergedMap = new Map<string, any>();
-          if (Array.isArray(initialItems)) {
-            initialItems.forEach(initDoc => {
-              if (initDoc?.id) mergedMap.set(initDoc.id, initDoc);
-            });
-          }
-          docsData.forEach(fsDoc => {
-            if (fsDoc?.id) mergedMap.set(fsDoc.id, fsDoc);
-          });
-
-          const finalItems = Array.from(mergedMap.values());
-          if (finalItems.length > 0) {
-            (dbStore as any)[item.key] = finalItems;
-          }
-
-          // If some initial pre-configured records weren't in Firestore yet, seed them in background
-          if (Array.isArray(initialItems)) {
-            const missingInFs = initialItems.filter(init => !docsData.some(fd => fd.id === init.id));
-            if (missingInFs.length > 0) {
-              const seedBatch = writeBatch(db);
-              missingInFs.forEach(missingDoc => {
-                if (missingDoc.id) {
-                  const dRef = doc(db, item.coll, missingDoc.id);
-                  seedBatch.set(dRef, JSON.parse(JSON.stringify(missingDoc)));
-                }
-              });
-              seedBatch.commit().catch(() => {});
-            }
+          // Firestore is the Single Source of Truth
+          if (docsData.length > 0) {
+            (dbStore as any)[item.key] = docsData;
           }
         }
       } catch (err: any) {

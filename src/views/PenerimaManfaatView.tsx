@@ -923,7 +923,19 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         showToast(isEdit ? 'Kelompok berhasil diperbarui' : 'Kelompok baru berhasil ditambahkan');
         setIsGroupModalOpen(false);
         setEditingGroup(null);
-        fetchMasterData();
+        await fetchMasterData();
+        if (result.data) {
+          setGroups((prev) => {
+            if (isEdit) {
+              return prev.map((g) => (g.id === result.data.id ? result.data : g));
+            } else {
+              const filtered = prev.filter((g) => g.id !== result.data.id);
+              return [...filtered, result.data];
+            }
+          });
+        }
+      } else {
+        showToast(result.message || 'Gagal menyimpan kelompok', 'error');
       }
     } catch (err) {
       showToast('Gagal menyimpan kelompok', 'error');
@@ -1906,17 +1918,18 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   const initialBd: Record<string, number> = {};
                   conf.classes.forEach(c => { initialBd[c.key] = 0; });
 
+                  const nextNumber = groups.length + 1;
                   setEditingGroup({
-                    nama: 'SD / MI Kraksaan',
+                    nama: `Kelompok Sasaran #${nextNumber}`,
                     kategoriUtama: 'Siswa',
                     kategoriLembaga: defaultCat,
-                    alamat: 'Jl. Raya Kraksaan, Kab. Probolinggo',
-                    deskripsi: 'Jl. Raya Kraksaan, Kab. Probolinggo',
+                    alamat: '',
+                    deskripsi: '',
                     status: 'Aktif',
                     lembagaList: [
                       {
-                        namaInstansi: 'SD Negeri 1 Kraksaan',
-                        alamat: 'Jl. Raya Kraksaan No. 1',
+                        namaInstansi: `Instansi Sasaran 1`,
+                        alamat: '',
                         kategoriLembaga: defaultCat,
                         breakdownKelas: initialBd,
                         targetSiswa: 0,
@@ -2139,7 +2152,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           {/* GROUP LIST CARDS WITH EMBEDDED LEMBAGA SASARAN */}
           <div className="space-y-4">
-            {groups.map((grp) => {
+            {groups.map((grp, groupIdx) => {
               const grpLocs = locations.filter(l => l.groupId === grp.id || l.groupNama === grp.nama);
               const totalSiswa = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.siswa || 0), 0);
               const totalGuru = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0), 0);
@@ -2179,7 +2192,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-bold text-sm shrink-0">
-                        #{grp.urutan}
+                        #{groupIdx + 1}
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
