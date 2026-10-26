@@ -128,7 +128,7 @@ router.get('/groups', (req: Request, res: Response): void => {
 });
 
 // Helper for Updating Group & Lembaga List
-function updateGroupHandler(id: string, body: any, res: Response) {
+async function updateGroupHandler(id: string, body: any, res: Response): Promise<void> {
   const { nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = body;
   const idx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
   if (idx === -1) {
@@ -152,7 +152,7 @@ function updateGroupHandler(id: string, body: any, res: Response) {
   };
 
   dbStore.beneficiaryGroups[idx] = updatedGroup;
-  syncSaveDoc('beneficiaryGroups', id, updatedGroup);
+  await syncSaveDoc('beneficiaryGroups', id, updatedGroup);
 
   // If lembagaList provided, sync locations
   if (Array.isArray(lembagaList)) {
@@ -165,7 +165,8 @@ function updateGroupHandler(id: string, body: any, res: Response) {
 
     const updatedLocIds = new Set<string>();
 
-    lembagaList.forEach((item: any, lIdx: number) => {
+    for (let lIdx = 0; lIdx < lembagaList.length; lIdx++) {
+      const item = lembagaList[lIdx];
       const itemKlas = item.klasifikasiPorsi || klasifikasiPorsi || updatedGroup.klasifikasiPorsi || 'Porsi Besar';
       let targetSiswa = Number(item.targetSiswa) || 0;
       let targetGuru = Number(item.targetGuru) || 0;
@@ -268,7 +269,7 @@ function updateGroupHandler(id: string, body: any, res: Response) {
         dbStore.beneficiaryLocations.push(locData);
       }
 
-      syncSaveDoc('beneficiaryLocations', locId, locData);
+      await syncSaveDoc('beneficiaryLocations', locId, locData);
 
       // Sync daily record for today if exists
       const recIdx = dbStore.dailyBeneficiaryRecords.findIndex(
@@ -278,23 +279,23 @@ function updateGroupHandler(id: string, body: any, res: Response) {
       if (recIdx !== -1) {
         dbStore.dailyBeneficiaryRecords[recIdx].jumlahAwal = locData.defaultJumlah;
         dbStore.dailyBeneficiaryRecords[recIdx].totalPenerima = locData.defaultJumlah + dbStore.dailyBeneficiaryRecords[recIdx].penambahan - dbStore.dailyBeneficiaryRecords[recIdx].pengurangan;
-        syncSaveDoc('dailyBeneficiaryRecords', dbStore.dailyBeneficiaryRecords[recIdx].id, dbStore.dailyBeneficiaryRecords[recIdx]);
+        await syncSaveDoc('dailyBeneficiaryRecords', dbStore.dailyBeneficiaryRecords[recIdx].id, dbStore.dailyBeneficiaryRecords[recIdx]);
       }
-    });
+    }
 
     // Remove any orphaned locations belonging to this group that are no longer in lembagaList
     const orphanedLocs = groupLocs.filter(l => !updatedLocIds.has(l.id));
-    orphanedLocs.forEach(o => {
+    for (const o of orphanedLocs) {
       const oIdx = dbStore.beneficiaryLocations.findIndex(l => l.id === o.id);
       if (oIdx !== -1) {
         dbStore.beneficiaryLocations.splice(oIdx, 1);
       }
-      syncDeleteDoc('beneficiaryLocations', o.id);
-    });
+      await syncDeleteDoc('beneficiaryLocations', o.id);
+    }
 
     // Update group's stored lembagaList with IDs assigned
     dbStore.beneficiaryGroups[idx].lembagaList = lembagaList;
-    syncSaveDoc('beneficiaryGroups', id, dbStore.beneficiaryGroups[idx]);
+    await syncSaveDoc('beneficiaryGroups', id, dbStore.beneficiaryGroups[idx]);
   }
 
   cleanDuplicateGroupsAndLocations();
@@ -312,7 +313,7 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
   if (id) {
     const existingIdx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
     if (existingIdx !== -1) {
-      updateGroupHandler(id, { ...req.body, nama: groupNama }, res);
+      await updateGroupHandler(id, { ...req.body, nama: groupNama }, res);
       return;
     }
   }
@@ -336,7 +337,8 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
   await syncSaveDoc('beneficiaryGroups', newGroup.id, newGroup);
 
   if (Array.isArray(lembagaList) && lembagaList.length > 0) {
-    lembagaList.forEach((item: any, idx: number) => {
+    for (let idx = 0; idx < lembagaList.length; idx++) {
+      const item = lembagaList[idx];
       const itemKlas = item.klasifikasiPorsi || klasifikasiPorsi || 'Porsi Besar';
       let targetSiswa = Number(item.targetSiswa) || 0;
       let targetGuru = Number(item.targetGuru) || 0;
@@ -407,9 +409,9 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
       const locData: BeneficiaryLocation = {
         id: locId,
         groupId: groupId,
-        groupNama: nama,
-        namaInstansi: item.namaInstansi || `${nama} - Instansi ${idx + 1}`,
-        kategoriLembaga: item.kategoriLembaga || kategoriLembaga,
+        groupNama: groupNama,
+        namaInstansi: item.namaInstansi || `${groupNama} - Instansi ${idx + 1}`,
+        kategoriLembaga: item.kategoriLembaga || kategoriLembaga || newGroup.kategoriLembaga,
         klasifikasiPorsi: itemKlas,
         breakdownKelas: item.breakdownKelas || {},
         kategoriBreakdown: {
@@ -430,22 +432,22 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
       } else {
         dbStore.beneficiaryLocations.push(locData);
       }
-      syncSaveDoc('beneficiaryLocations', locId, locData);
-    });
+      await syncSaveDoc('beneficiaryLocations', locId, locData);
+    }
 
     newGroup.lembagaList = lembagaList;
-    syncSaveDoc('beneficiaryGroups', newGroup.id, newGroup);
+    await syncSaveDoc('beneficiaryGroups', newGroup.id, newGroup);
   }
 
   cleanDuplicateGroupsAndLocations();
-  dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Tambah Kelompok', `Menambahkan kelompok: ${nama} (${lembagaList?.length || 0} lembaga)`);
+  dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Tambah Kelompok', `Menambahkan kelompok: ${groupNama} (${lembagaList?.length || 0} lembaga)`);
   res.json({ success: true, data: newGroup, message: 'Kelompok dan spesifikasi lembaga sasaran berhasil disimpan' });
 });
 
 // 3. PUT GROUP (Update Group & Lembaga List)
-router.put('/groups/:id', (req: Request, res: Response): void => {
+router.put('/groups/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
-  updateGroupHandler(id, req.body, res);
+  await updateGroupHandler(id, req.body, res);
 });
 
 // DELETE ALL GROUPS (Clear all groups to start fresh)
