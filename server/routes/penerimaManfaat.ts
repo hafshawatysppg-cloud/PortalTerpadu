@@ -667,25 +667,65 @@ router.post('/plan', (req: Request, res: Response): void => {
     let ibuMenyusui = 0;
     let kategori: DailyBeneficiaryRecord['kategori'] = 'Siswa';
 
+    const matchedLoc = dbStore.beneficiaryLocations.find(l => (item.id && l.id === item.id) || l.namaInstansi.trim().toLowerCase() === normInstansi);
+    const matchedGroup = dbStore.beneficiaryGroups.find(
+      g => (item.groupId && g.id === item.groupId) || (matchedLoc?.groupId && g.id === matchedLoc.groupId) || (g.nama && g.nama.toLowerCase() === (item.groupNama || '').toLowerCase())
+    );
+    const groupName = matchedGroup?.nama || matchedLoc?.groupNama || item.groupNama || itemKlas;
+    const itemCat: KategoriLembaga = item.kategoriLembaga || matchedLoc?.kategoriLembaga || matchedGroup?.kategoriLembaga || (normInstansi.includes('3b') ? '3B (Balita, Ibu Hamil & Ibu Menyusui)' : normInstansi.includes('sd') ? 'SD / MI' : 'SD / MI');
+    const bd = item.breakdownKelas || matchedLoc?.breakdownKelas || {};
+
+    const is3B = itemCat.includes('3B') || normInstansi.includes('3b');
     if (statusKbm !== 'Libur Full') {
       guru = Number(item.targetGuru) || 0;
-      if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
-        balita = Number(item.targetBalita ?? item.targetSiswa) || 0;
+
+      if (is3B) {
+        const tBalita511 = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) || Number(bd.baduta) || 0;
+        const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
+        const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
+        const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || (Number(item.targetGuru) || 0);
+
+        balita = (tBalita511 + tBalita1259) || Number(item.targetBalita) || 0;
+        ibuHamil = tBumil || Math.ceil((Number(item.targetBumilBusui) || 0) / 2);
+        ibuMenyusui = tBusui || Math.floor((Number(item.targetBumilBusui) || 0) / 2);
+        guru = tKader;
+        siswa = 0;
         kategori = 'Balita';
-      } else if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
-        ibuHamil = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
-        kategori = 'Ibu Hamil';
-      } else if (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
-        ibuMenyusui = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
-        kategori = 'Ibu Menyusui';
-      } else if (itemKlas === 'Bumil & Busui') {
-        const val = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
-        ibuHamil = Math.ceil(val / 2);
-        ibuMenyusui = Math.floor(val / 2);
-        kategori = 'Ibu Hamil';
       } else {
-        siswa = Number(item.targetSiswa) || 0;
-        kategori = 'Siswa';
+        const sumClasses = Object.values(bd).reduce((sum: number, val: any) => sum + (Number(val) || 0), 0);
+        if (sumClasses > 0) {
+          if (itemCat === 'Balita / Posyandu' || itemKlas === 'Porsi Balita') {
+            balita = sumClasses;
+            siswa = 0;
+            kategori = 'Balita';
+          } else if (itemCat === 'Bumil & Busui' || itemKlas === 'Porsi Ibu Hamil' || itemKlas === 'Porsi Ibu Menyusui') {
+            ibuHamil = Math.ceil(sumClasses / 2);
+            ibuMenyusui = Math.floor(sumClasses / 2);
+            siswa = 0;
+            kategori = 'Ibu Hamil';
+          } else {
+            siswa = sumClasses;
+            kategori = 'Siswa';
+          }
+        } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
+          balita = Number(item.targetBalita ?? item.targetSiswa) || 0;
+          kategori = 'Balita';
+        } else if (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('ibu hamil') || (normInstansi.includes('hamil') && !normInstansi.includes('menyusui'))) {
+          ibuHamil = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
+          kategori = 'Ibu Hamil';
+        } else if (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('ibu menyusui') || normInstansi.includes('menyusui')) {
+          ibuMenyusui = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
+          kategori = 'Ibu Menyusui';
+        } else if (itemKlas === 'Bumil & Busui') {
+          const val = Number(item.targetBumilBusui ?? item.targetSiswa) || 0;
+          ibuHamil = Math.ceil(val / 2);
+          ibuMenyusui = Math.floor(val / 2);
+          kategori = 'Ibu Hamil';
+        } else {
+          siswa = Number(item.targetSiswa) || 0;
+          kategori = 'Siswa';
+        }
       }
     } else {
       if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || normInstansi.includes('balita')) {
@@ -709,18 +749,16 @@ router.post('/plan', (req: Request, res: Response): void => {
       ? `${statusNote} • ${item.keterangan}`
       : statusNote;
 
-    const matchedGroup = dbStore.beneficiaryGroups.find(
-      g => g.klasifikasiPorsi === itemKlas || g.nama.toLowerCase() === itemKlas.toLowerCase()
-    );
-
     return {
       id: `BEN-${tanggal}-${String(idx + 1).padStart(3, '0')}`,
       tanggal,
-      groupId: matchedGroup?.id || `GRP-${idx + 1}`,
-      groupNama: itemKlas,
-      locationId: item.id || `LOC-${idx + 1}`,
+      groupId: matchedGroup?.id || matchedLoc?.groupId || item.groupId || `GRP-${idx + 1}`,
+      groupNama: groupName,
+      locationId: item.id || matchedLoc?.id || `LOC-${idx + 1}`,
       namaInstansi: item.namaInstansi || `Instansi ${idx + 1}`,
       kategori,
+      kategoriLembaga: itemCat,
+      breakdownKelas: bd,
       klasifikasiPorsi: itemKlas,
       statusKbm,
       keteranganLibur: item.keteranganLibur || '',
@@ -730,7 +768,8 @@ router.post('/plan', (req: Request, res: Response): void => {
         guru,
         balita,
         ibuHamil,
-        ibuMenyusui
+        ibuMenyusui,
+        breakdownKelas: bd
       },
       jumlahAwal: total,
       penambahan: 0,

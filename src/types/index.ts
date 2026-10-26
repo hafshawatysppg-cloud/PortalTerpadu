@@ -476,6 +476,8 @@ export interface DailyBeneficiaryRecord {
   locationId: string;
   namaInstansi: string;
   kategori: 'Siswa' | 'Balita' | 'Ibu Hamil' | 'Ibu Menyusui' | 'Guru / Staf' | 'Lainnya';
+  kategoriLembaga?: KategoriLembaga;
+  breakdownKelas?: Record<string, number>;
   klasifikasiPorsi?: KlasifikasiPorsi;
   statusKbm?: 'Aktif' | 'Libur Full' | 'Libur Sebagian';
   keteranganLibur?: string;
@@ -486,6 +488,7 @@ export interface DailyBeneficiaryRecord {
     balita: number;
     ibuHamil: number;
     ibuMenyusui: number;
+    breakdownKelas?: Record<string, number>;
   };
   jumlahAwal: number;
   penambahan: number;
