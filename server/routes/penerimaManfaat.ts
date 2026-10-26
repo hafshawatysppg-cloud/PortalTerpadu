@@ -7,13 +7,16 @@ import { Packer } from 'docx';
 
 const router = Router();
 
-// Helper to clean, re-index urutan sequentially (#1, #2, ...), and sanitize subtotal portion counts
+// Helper to clean, re-index urutan sequentially (#1, #2, ... #10, #11, ...), and sanitize subtotal portion counts
 function cleanDuplicateGroupsAndLocations() {
-  // 1. Deduplicate beneficiaryGroups strictly by unique ID (do NOT delete groups by name)
+  // 1. Deduplicate beneficiaryGroups strictly by unique ID (never delete groups by name, support unlimited groups)
   const uniqueGroups: BeneficiaryGroup[] = [];
   const seenGroupIds = new Set<string>();
 
-  dbStore.beneficiaryGroups.forEach((g) => {
+  // Sort by existing urutan first so existing order is preserved
+  const sorted = [...dbStore.beneficiaryGroups].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
+
+  sorted.forEach((g) => {
     if (!g.id) {
       g.id = `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     }
@@ -24,8 +27,8 @@ function cleanDuplicateGroupsAndLocations() {
     uniqueGroups.push(g);
   });
 
-  // Re-index urutan sequentially starting from 1 (#1, #2, #3, ...)
-  // When there is only 1 group, its urutan is always 1 (#1)
+  // Re-index urutan sequentially starting from 1 (#1, #2, #3, ... #10, #11, ...)
+  // When there is only 1 group, its urutan is always 1 (#1). Groups can be 10 or more without limitation.
   uniqueGroups.forEach((g, idx) => {
     const correctUrutan = idx + 1;
     if (g.urutan !== correctUrutan) {
@@ -117,9 +120,10 @@ function cleanDuplicateGroupsAndLocations() {
 // 1. GET GROUPS
 router.get('/groups', (req: Request, res: Response): void => {
   cleanDuplicateGroupsAndLocations();
+  const sorted = [...dbStore.beneficiaryGroups].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
   res.json({
     success: true,
-    data: dbStore.beneficiaryGroups
+    data: sorted
   });
 });
 
@@ -302,25 +306,22 @@ function updateGroupHandler(id: string, body: any, res: Response) {
 // 2. POST GROUP (Create Group with optional Lembaga Sasaran list)
 router.post('/groups', async (req: Request, res: Response): Promise<void> => {
   const { id, nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = req.body;
-  if (!nama || !nama.trim()) {
-    res.status(400).json({ success: false, message: 'Nama kelompok wajib diisi' });
-    return;
-  }
+  const groupNama = (nama && nama.trim()) || `Kelompok Sasaran #${dbStore.beneficiaryGroups.length + 1}`;
 
   // Only update if an explicit existing group ID was supplied
   if (id) {
     const existingIdx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
     if (existingIdx !== -1) {
-      updateGroupHandler(id, req.body, res);
+      updateGroupHandler(id, { ...req.body, nama: groupNama }, res);
       return;
     }
   }
 
-  const groupId = id || `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+  const groupId = id || `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
   const nextUrutan = dbStore.beneficiaryGroups.length + 1;
   const newGroup: BeneficiaryGroup = {
     id: groupId,
-    nama: nama.trim(),
+    nama: groupNama,
     kategoriUtama: kategoriUtama || 'Siswa',
     kategoriLembaga: kategoriLembaga || 'SD / MI',
     klasifikasiPorsi: klasifikasiPorsi || 'Porsi Besar',

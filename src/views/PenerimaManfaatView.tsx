@@ -569,8 +569,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const dataG = await resG.json();
       const dataL = await resL.json();
 
-      if (dataG.success) setGroups(dataG.data);
-      if (dataL.success) setLocations(dataL.data);
+      if (dataG.success && Array.isArray(dataG.data)) {
+        setGroups((prev) => {
+          const map = new Map<string, BeneficiaryGroup>();
+          prev.forEach((g) => { if (g.id) map.set(g.id, g); });
+          dataG.data.forEach((g: BeneficiaryGroup) => { if (g.id) map.set(g.id, g); });
+          return Array.from(map.values()).sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
+        });
+      }
+      if (dataL.success && Array.isArray(dataL.data)) setLocations(dataL.data);
     } catch (err) {
       console.error('Failed to fetch beneficiary master data:', err);
     }
@@ -657,7 +664,16 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
   useEffect(() => {
     if (realtimeGroups && realtimeGroups.length > 0) {
-      setGroups(realtimeGroups);
+      setGroups((prev) => {
+        const map = new Map<string, BeneficiaryGroup>();
+        prev.forEach((g) => {
+          if (g.id) map.set(g.id, g);
+        });
+        realtimeGroups.forEach((g) => {
+          if (g.id) map.set(g.id, g);
+        });
+        return Array.from(map.values()).sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
+      });
     }
   }, [realtimeGroups]);
 
@@ -822,17 +838,34 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   // Master Group Save
   const handleSaveGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingGroup || !editingGroup.nama) return;
+    if (!editingGroup) return;
 
     try {
-      const groupCat: KategoriLembaga = editingGroup.kategoriLembaga || inferKategoriFromText(editingGroup.nama, 'SD / MI');
+      const groupNama = (editingGroup.nama || '').trim() || `Kelompok Sasaran #${groups.length + 1}`;
+      const groupCat: KategoriLembaga = editingGroup.kategoriLembaga || inferKategoriFromText(groupNama, 'SD / MI');
       const conf = getKategoriConfig(groupCat);
 
-      const sanitizedLembagaList = (editingGroup.lembagaList || []).map((l: any) => {
+      const rawLembagaList = (editingGroup.lembagaList && editingGroup.lembagaList.length > 0)
+        ? editingGroup.lembagaList
+        : [
+            {
+              namaInstansi: `${groupNama} - Instansi 1`,
+              kategoriLembaga: groupCat,
+              targetSiswa: 0,
+              targetGuru: 0,
+              targetBalita: 0,
+              targetBumilBusui: 0,
+              total: 0,
+              klasifikasiPorsi: conf.defaultKlasifikasi
+            }
+          ];
+
+      const sanitizedLembagaList = rawLembagaList.map((l: any, idx: number) => {
         const itemCat: KategoriLembaga = l.kategoriLembaga || groupCat;
         const itemConf = getKategoriConfig(itemCat);
         const itemKlas = l.klasifikasiPorsi || editingGroup.klasifikasiPorsi || itemConf.defaultKlasifikasi || 'Porsi Besar';
-        const norm = (l.namaInstansi || '').trim().toLowerCase();
+        const instName = (l.namaInstansi || '').trim() || `${groupNama} - Instansi ${idx + 1}`;
+        const norm = instName.toLowerCase();
         const bd = l.breakdownKelas || {};
 
         const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(bd[c.key]) || 0), 0);
@@ -870,7 +903,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         const total = s + g + b + bb;
         const autoP = calculateAutoPortion({
           kategoriLembaga: itemCat,
-          namaInstansi: l.namaInstansi,
+          namaInstansi: instName,
           breakdownKelas: bd,
           targetSiswa: s,
           targetGuru: g,
@@ -881,6 +914,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         return {
           ...l,
+          namaInstansi: instName,
           kategoriLembaga: itemCat,
           breakdownKelas: bd,
           targetSiswa: s,
@@ -894,7 +928,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
       const groupAutoP = calculateAutoPortion({
         kategoriLembaga: groupCat,
-        namaInstansi: editingGroup.nama,
+        namaInstansi: groupNama,
         targetSiswa: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetSiswa || 0), 0),
         targetGuru: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetGuru || 0), 0),
         targetBalita: sanitizedLembagaList.reduce((acc: number, item: any) => acc + (item.targetBalita || 0), 0),
@@ -903,6 +937,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
       const payload = {
         ...editingGroup,
+        nama: groupNama,
         kategoriLembaga: groupCat,
         kategoriUtama: conf.targetCategory,
         klasifikasiPorsi: groupAutoP.klasifikasi,
@@ -923,17 +958,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         showToast(isEdit ? 'Kelompok berhasil diperbarui' : 'Kelompok baru berhasil ditambahkan');
         setIsGroupModalOpen(false);
         setEditingGroup(null);
-        await fetchMasterData();
         if (result.data) {
+          const savedGroup = result.data;
           setGroups((prev) => {
-            if (isEdit) {
-              return prev.map((g) => (g.id === result.data.id ? result.data : g));
-            } else {
-              const filtered = prev.filter((g) => g.id !== result.data.id);
-              return [...filtered, result.data];
-            }
+            const exists = prev.some((g) => g.id === savedGroup.id);
+            const updated = exists
+              ? prev.map((g) => (g.id === savedGroup.id ? savedGroup : g))
+              : [...prev, savedGroup];
+            return updated.sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
           });
         }
+        await fetchMasterData();
       } else {
         showToast(result.message || 'Gagal menyimpan kelompok', 'error');
       }

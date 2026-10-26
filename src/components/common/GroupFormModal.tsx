@@ -307,11 +307,16 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     const newConf = getKategoriConfig(newCat);
     const is3B = newConf.targetCategory === '3B' || newConf.id.includes('3B');
 
-    // Sinkronisasi Nama Kelompok: Jika 3B maka nama kelompok otomatis mengikuti nama kategori 3B
-    // Sesuai instruksi: "nama kelompok juga akan mengikuti pilihan kategori, jika 3B maka nama kelompok akan mengikuti"
-    const newName = is3B 
-      ? '3B (Balita, Ibu Hamil & Ibu Menyusui)' 
-      : newConf.label;
+    const isCustomName = Boolean(
+      editingGroup.nama && 
+      !editingGroup.nama.startsWith('Kelompok Sasaran #') &&
+      !KATEGORI_LEMBAGA_CONFIGS.some(c => editingGroup.nama === c.label || editingGroup.nama === c.shortName) &&
+      editingGroup.nama !== '3B (Balita, Ibu Hamil & Ibu Menyusui)'
+    );
+
+    const newName = isCustomName 
+      ? editingGroup.nama! 
+      : (is3B ? '3B (Balita, Ibu Hamil & Ibu Menyusui)' : newConf.label);
 
     const currentList = editingGroup.lembagaList || [];
     const updatedList = (currentList.length > 0 ? currentList : [
@@ -804,7 +809,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={onSave} className="space-y-6">
+        <form onSubmit={onSave} noValidate className="space-y-6">
           {/* STEP 1: PILIH KATEGORI LEMBAGA (DROPDOWN SELECTOR) */}
           <div className="space-y-3 bg-slate-50/90 p-4 sm:p-5 rounded-2xl border border-slate-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
