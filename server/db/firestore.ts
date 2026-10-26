@@ -471,6 +471,11 @@ export async function initFirestoreSync() {
         const initialItems = (dbStore as any)[item.key];
 
         if (snapshot.empty) {
+          if (item.coll === 'beneficiaryGroups' || item.coll === 'beneficiaryLocations') {
+            // Respect admin action: never re-seed dummy beneficiary groups if admin deleted them
+            (dbStore as any)[item.key] = [];
+            return;
+          }
           if (Array.isArray(initialItems) && initialItems.length > 0) {
             const batchSize = 100;
             for (let i = 0; i < initialItems.length; i += batchSize) {

@@ -448,28 +448,49 @@ router.put('/groups/:id', (req: Request, res: Response): void => {
   updateGroupHandler(id, req.body, res);
 });
 
+// DELETE ALL GROUPS (Clear all groups to start fresh)
+router.delete('/groups', async (req: Request, res: Response): Promise<void> => {
+  const count = dbStore.beneficiaryGroups.length;
+  const allGroups = [...dbStore.beneficiaryGroups];
+  dbStore.beneficiaryGroups = [];
+  for (const g of allGroups) {
+    await syncDeleteDoc('beneficiaryGroups', g.id);
+  }
+  const allLocs = [...dbStore.beneficiaryLocations];
+  dbStore.beneficiaryLocations = [];
+  for (const l of allLocs) {
+    await syncDeleteDoc('beneficiaryLocations', l.id);
+  }
+  dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Hapus Semua Kelompok', `Menghapus seluruh kelompok (${count} kelompok)`);
+  res.json({ success: true, message: 'Seluruh kelompok penerima manfaat berhasil dihapus' });
+});
+
 // DELETE GROUP
-router.delete('/groups/:id', (req: Request, res: Response): void => {
+router.delete('/groups/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const idx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
-  if (idx === -1) {
-    res.status(404).json({ success: false, message: 'Kelompok tidak ditemukan' });
-    return;
+  let removedNama = id;
+
+  if (idx !== -1) {
+    const removed = dbStore.beneficiaryGroups.splice(idx, 1)[0];
+    removedNama = removed.nama;
   }
 
-  const removed = dbStore.beneficiaryGroups.splice(idx, 1)[0];
-  syncDeleteDoc('beneficiaryGroups', id);
+  // Always delete document from Firestore
+  await syncDeleteDoc('beneficiaryGroups', id);
 
   // Remove associated locations
   const locsToRemove = dbStore.beneficiaryLocations.filter(l => l.groupId === id);
   dbStore.beneficiaryLocations = dbStore.beneficiaryLocations.filter(l => l.groupId !== id);
-  locsToRemove.forEach(l => syncDeleteDoc('beneficiaryLocations', l.id));
+  for (const l of locsToRemove) {
+    await syncDeleteDoc('beneficiaryLocations', l.id);
+  }
 
   // Re-index remaining groups sequentially (#1, #2, ...)
   cleanDuplicateGroupsAndLocations();
 
-  dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Hapus Kelompok', `Menghapus kelompok: ${removed.nama}`);
-  res.json({ success: true, message: `Kelompok "${removed.nama}" berhasil dihapus` });
+  dbStore.addLog('USR-SYSTEM', 'Operator', 'Penerima Manfaat', 'Hapus Kelompok', `Menghapus kelompok: ${removedNama}`);
+  res.json({ success: true, message: `Kelompok "${removedNama}" berhasil dihapus` });
 });
 
 // 4. GET LOCATIONS

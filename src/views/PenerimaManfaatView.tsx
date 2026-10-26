@@ -570,12 +570,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const dataL = await resL.json();
 
       if (dataG.success && Array.isArray(dataG.data)) {
-        setGroups((prev) => {
-          const map = new Map<string, BeneficiaryGroup>();
-          prev.forEach((g) => { if (g.id) map.set(g.id, g); });
-          dataG.data.forEach((g: BeneficiaryGroup) => { if (g.id) map.set(g.id, g); });
-          return Array.from(map.values()).sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
-        });
+        setGroups([...dataG.data].sort((a, b) => (a.urutan || 0) - (b.urutan || 0)));
       }
       if (dataL.success && Array.isArray(dataL.data)) setLocations(dataL.data);
     } catch (err) {
@@ -663,17 +658,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   }, [realtimeDailyRecords]);
 
   useEffect(() => {
-    if (realtimeGroups && realtimeGroups.length > 0) {
-      setGroups((prev) => {
-        const map = new Map<string, BeneficiaryGroup>();
-        prev.forEach((g) => {
-          if (g.id) map.set(g.id, g);
-        });
-        realtimeGroups.forEach((g) => {
-          if (g.id) map.set(g.id, g);
-        });
-        return Array.from(map.values()).sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
-      });
+    if (Array.isArray(realtimeGroups)) {
+      setGroups([...realtimeGroups].sort((a, b) => (a.urutan || 0) - (b.urutan || 0)));
     }
   }, [realtimeGroups]);
 
@@ -995,7 +981,43 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
             showToast(result.message || 'Kelompok berhasil dihapus', 'success');
             setIsGroupModalOpen(false);
             setEditingGroup(null);
-            fetchMasterData();
+            setGroups((prev) => {
+              const remaining = prev.filter((g) => g.id !== id);
+              return remaining.map((g, idx) => ({ ...g, urutan: idx + 1 }));
+            });
+            await fetchMasterData();
+            fetchDailyByDate(selectedDate);
+          } else {
+            showToast(result.message || 'Gagal menghapus kelompok', 'error');
+          }
+        } catch (err) {
+          showToast('Gagal menghapus kelompok', 'error');
+        }
+      }
+    });
+  };
+
+  // Master Clear All Groups
+  const handleClearAllGroups = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Kosongkan Seluruh Kelompok',
+      message: 'Apakah Anda yakin ingin MENGHAPUS SEMUA kelompok penerima manfaat? Anda dapat menambahkan kelompok baru secara manual kapan saja.',
+      confirmText: 'Ya, Hapus Semua',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/v1/penerima-manfaat/groups', {
+            method: 'DELETE'
+          });
+          const result = await res.json();
+          if (result.success) {
+            showToast('Semua kelompok penerima manfaat berhasil dihapus', 'success');
+            setIsGroupModalOpen(false);
+            setEditingGroup(null);
+            setGroups([]);
+            setLocations([]);
+            await fetchMasterData();
             fetchDailyByDate(selectedDate);
           } else {
             showToast(result.message || 'Gagal menghapus kelompok', 'error');
@@ -1946,6 +1968,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 <span>Buka Perencanaan Menu</span>
               </button>
 
+              {groups.length > 0 && (
+                <button
+                  onClick={handleClearAllGroups}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-2xl border border-rose-200 transition-all cursor-pointer"
+                  title="Hapus / Kosongkan semua kelompok penerima manfaat"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Kosongkan Semua</span>
+                </button>
+              )}
+
               <button
                 onClick={() => {
                   const defaultCat: KategoriLembaga = 'SD / MI';
@@ -2187,7 +2220,18 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           {/* GROUP LIST CARDS WITH EMBEDDED LEMBAGA SASARAN */}
           <div className="space-y-4">
-            {groups.map((grp, groupIdx) => {
+            {groups.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center space-y-3">
+                <div className="w-14 h-14 rounded-3xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
+                  <Building2 className="w-7 h-7" />
+                </div>
+                <h4 className="text-base font-bold text-slate-800">Belum Ada Kelompok Penerima Manfaat</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Semua kelompok telah dikosongkan. Silakan klik tombol <span className="font-semibold text-slate-800">+ Tambah Kelompok Baru</span> di atas untuk menambahkan kelompok sasaran secara mandiri sesuai kebutuhan admin.
+                </p>
+              </div>
+            ) : (
+              groups.map((grp, groupIdx) => {
               const grpLocs = locations.filter(l => l.groupId === grp.id || l.groupNama === grp.nama);
               const totalSiswa = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.siswa || 0), 0);
               const totalGuru = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0), 0);
@@ -2567,7 +2611,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
           </div>
         </div>
       )}
