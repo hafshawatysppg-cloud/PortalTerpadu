@@ -169,13 +169,14 @@ router.post('/jabatan', async (req: Request, res: Response): Promise<void> => {
   }
   const newJabatan = {
     id: `JAB-${String(dbStore.jabatan.length + 1).padStart(3, '0')}`,
+    kode: (req.body.kode as string) || `JAB-${String(dbStore.jabatan.length + 1).padStart(3, '0')}`,
     nama,
     divisiNama: divisiNama || 'Umum',
     level: level || 'Staff',
     deskripsi: deskripsi || '',
     createdAt: new Date().toISOString()
   };
-  dbStore.jabatan.unshift(newJabatan);
+  dbStore.jabatan.unshift(newJabatan as any);
   await syncSaveDoc('jabatan', newJabatan.id, newJabatan);
   res.status(201).json({ success: true, message: 'Jabatan berhasil ditambahkan', data: newJabatan });
 });
@@ -222,10 +223,10 @@ router.post('/gudang', async (req: Request, res: Response): Promise<void> => {
     lokasi: lokasi || 'Area SPPG Kraksaan',
     penanggungJawab: penanggungJawab || 'Petugas Gudang',
     kapasitasM3: Number(kapasitasM3) || 100,
-    status: 'Aktif',
+    status: (status === 'Nonaktif' ? 'Nonaktif' : 'Aktif') as 'Aktif' | 'Nonaktif',
     createdAt: new Date().toISOString()
   };
-  dbStore.gudang.unshift(newGdg);
+  dbStore.gudang.unshift(newGdg as any);
   await syncSaveDoc('gudang', newGdg.id, newGdg);
   res.status(201).json({ success: true, message: 'Gudang berhasil ditambahkan', data: newGdg });
 });
@@ -315,16 +316,18 @@ router.post('/instansi', async (req: Request, res: Response): Promise<void> => {
   }
   const newInstansi = {
     id: `INS-${String(dbStore.instansi.length + 1).padStart(3, '0')}`,
+    kode: (req.body.kode as string) || `INS-${String(dbStore.instansi.length + 1).padStart(3, '0')}`,
     nama,
     jenis: jenis || 'Sekolah / Madrasah',
     alamat: alamat || 'Kabupaten Probolinggo',
     kontak: kontak || '-',
+    kontakPerson: (req.body.kontakPerson as string) || kontak || '-',
     telepon: telepon || '-',
     email: email || '-',
     status: status || 'Aktif',
     createdAt: new Date().toISOString()
   };
-  dbStore.instansi.unshift(newInstansi);
+  dbStore.instansi.unshift(newInstansi as any);
   await syncSaveDoc('instansi', newInstansi.id, newInstansi);
   res.status(201).json({ success: true, message: 'Instansi mitra berhasil ditambahkan', data: newInstansi });
 });

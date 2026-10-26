@@ -328,7 +328,7 @@ router.put('/wa-settings', (req: Request, res: Response): void => {
 
   if (Array.isArray(newSettings)) {
     dbStore.waDivisiSettings = newSettings;
-    syncSaveBatch('whatsappDivisiSettings', newSettings);
+    syncSaveBatch('whatsappDivisiSettings', newSettings.map((s, idx) => ({ ...s, id: (s as any).id || (s as any).divisiId || `wa-setting-${idx}` })));
     dbStore.addLog('ADMIN', 'Administrator', 'Pengaturan WhatsApp', 'Update WA Divisi', 'Memperbarui kontak WhatsApp divisi', req.ip);
     res.json({ success: true, message: 'Nomor WhatsApp Divisi berhasil diperbarui.', data: dbStore.waDivisiSettings });
   } else {

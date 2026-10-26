@@ -115,7 +115,7 @@ router.get('/reports', (req: Request, res: Response): void => {
 });
 
 // POST /api/v1/distribusi/reports
-router.post('/reports', (req: Request, res: Response): void => {
+router.post('/reports', async (req: Request, res: Response): Promise<void> => {
   const {
     tanggal,
     driverId,
