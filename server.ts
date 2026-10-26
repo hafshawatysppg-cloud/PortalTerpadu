@@ -56,7 +56,14 @@ import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './serv
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Dynamic port: 3000 for local dev behind nginx, or process.env.PORT (8080) for Cloud Run production
+  const distPath = path.join(process.cwd(), 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
+  const isProduction =
+    (process.env.NODE_ENV === 'production' ||
+      process.argv[1]?.includes('server.cjs')) &&
+    fs.existsSync(distIndexHtml);
+  const PORT = isProduction ? (Number(process.env.PORT) || 8080) : 3000;
 
   // Middleware
   app.use(cors());
@@ -134,13 +141,6 @@ async function startServer() {
   app.use('/api/food-waste', foodWasteRoutes);
   app.use('/api/v1/petugas', petugasRoutes);
   app.use('/api/petugas', petugasRoutes);
-
-  const distPath = path.join(process.cwd(), 'dist');
-  const distIndexHtml = path.join(distPath, 'index.html');
-  const isProduction =
-    (process.env.NODE_ENV === 'production' ||
-      process.argv[1]?.includes('server.cjs')) &&
-    fs.existsSync(distIndexHtml);
 
   // Development vs Production Environment Setup
   if (!isProduction) {

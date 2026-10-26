@@ -645,7 +645,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
   // Realtime Firestore synchronization for cross-device multi-client updates
   const { data: realtimeDailyRecords } = useFirestoreRealtime<DailyBeneficiaryRecord>('dailyBeneficiaryRecords');
-  const { data: realtimeGroups } = useFirestoreRealtime<BeneficiaryGroup>('beneficiaryGroups');
+  const { data: realtimeGroups, loading: realtimeGroupsLoading } = useFirestoreRealtime<BeneficiaryGroup>('beneficiaryGroups');
 
   useEffect(() => {
     if (realtimeDailyRecords) {
@@ -658,10 +658,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   }, [realtimeDailyRecords]);
 
   useEffect(() => {
-    if (Array.isArray(realtimeGroups)) {
+    if (!realtimeGroupsLoading && Array.isArray(realtimeGroups)) {
       setGroups([...realtimeGroups].sort((a, b) => (a.urutan || 0) - (b.urutan || 0)));
     }
-  }, [realtimeGroups]);
+  }, [realtimeGroups, realtimeGroupsLoading]);
 
   useEffect(() => {
     if (activeTab === 'hari-ini') {
