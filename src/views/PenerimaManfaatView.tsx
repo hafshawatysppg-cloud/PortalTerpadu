@@ -58,7 +58,8 @@ import {
 import {
   GroupFormModal,
   getKategoriConfig,
-  inferKategoriFromText
+  inferKategoriFromText,
+  KATEGORI_LEMBAGA_CONFIGS
 } from '../components/common/GroupFormModal';
 import { calculateAutoPortion } from '../utils/portionHelper';
 import { BastSubView } from '../components/penerima/BastSubView';
@@ -134,20 +135,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   );
   const [buatPenerimaStatusDoc, setBuatPenerimaStatusDoc] = useState<'FINAL' | 'DRAFT'>('FINAL');
   const [buatPenerimaCatatan, setBuatPenerimaCatatan] = useState<string>('');
-  const [buatPenerimaLembagaList, setBuatPenerimaLembagaList] = useState<
-    Array<{
-      id: string;
-      namaInstansi: string;
-      statusKbm: 'Aktif' | 'Libur Full' | 'Libur Sebagian';
-      keteranganLibur?: string;
-      keterangan?: string;
-      targetSiswa: number;
-      targetGuru: number;
-      targetBalita?: number;
-      targetBumilBusui?: number;
-      klasifikasiPorsi: KlasifikasiPorsi;
-    }>
-  >([]);
+  interface BuatPenerimaLembagaItem {
+    id: string;
+    groupId?: string;
+    groupNama?: string;
+    namaInstansi: string;
+    kategoriLembaga?: KategoriLembaga;
+    breakdownKelas?: Record<string, number>;
+    statusKbm: 'Aktif' | 'Libur Full' | 'Libur Sebagian';
+    keteranganLibur?: string;
+    keterangan?: string;
+    targetSiswa: number;
+    targetGuru: number;
+    targetBalita?: number;
+    targetBumilBusui?: number;
+    klasifikasiPorsi: KlasifikasiPorsi;
+  }
+
+  const [buatPenerimaLembagaList, setBuatPenerimaLembagaList] = useState<BuatPenerimaLembagaItem[]>([]);
 
   // Confirmation Modal State (replaces native window.confirm for iframe compatibility)
   const [confirmModal, setConfirmModal] = useState<{
@@ -168,19 +173,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   });
 
   // Helper to build fully synced lembaga list from Pengaturan Kelompok (groups & locations)
-  const buildSyncedLembagaList = (tanggalStr?: string) => {
-    const list: Array<{
-      id: string;
-      namaInstansi: string;
-      statusKbm: 'Aktif' | 'Libur Full' | 'Libur Sebagian';
-      keteranganLibur?: string;
-      keterangan?: string;
-      targetSiswa: number;
-      targetGuru: number;
-      targetBalita?: number;
-      targetBumilBusui?: number;
-      klasifikasiPorsi: KlasifikasiPorsi;
-    }> = [];
+  const buildSyncedLembagaList = (tanggalStr?: string): BuatPenerimaLembagaItem[] => {
+    const list: BuatPenerimaLembagaItem[] = [];
 
     const existingForDate = tanggalStr
       ? (historyRecords.filter((rec) => rec.tanggal === tanggalStr).length > 0
@@ -188,7 +182,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           : dailyRecords.filter((rec) => rec.tanggal === tanggalStr))
       : [];
 
-    // If records already exist for this date, restore them accurately
+    // If records already exist for this date, restore them accurately including breakdownKelas & kategoriLembaga
     if (existingForDate.length > 0) {
       return existingForDate.map((rec, idx) => {
         const klas = (rec.klasifikasiPorsi || rec.groupNama || 'Porsi Besar') as KlasifikasiPorsi;
@@ -197,6 +191,42 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         let targetGuru = 0;
         let targetBalita: number | undefined = undefined;
         let targetBumilBusui: number | undefined = undefined;
+
+        // Restore kategoriLembaga and breakdownKelas by cross-matching with master groups/locations if missing
+        const cleanName = rec.namaInstansi.trim().toLowerCase();
+        let matchedCat: KategoriLembaga | undefined = rec.kategoriLembaga;
+        let matchedBd: Record<string, number> = rec.breakdownKelas
+          ? { ...rec.breakdownKelas }
+          : (rs?.breakdownKelas ? { ...rs.breakdownKelas } : {});
+
+        if (!matchedCat || Object.keys(matchedBd).length === 0) {
+          for (const g of groups) {
+            if (g.lembagaList) {
+              const foundL = g.lembagaList.find((l) => l.namaInstansi.trim().toLowerCase() === cleanName);
+              if (foundL) {
+                if (!matchedCat) matchedCat = foundL.kategoriLembaga || g.kategoriLembaga;
+                if (Object.keys(matchedBd).length === 0 && foundL.breakdownKelas) {
+                  matchedBd = { ...foundL.breakdownKelas };
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        if (!matchedCat || Object.keys(matchedBd).length === 0) {
+          const foundLoc = locations.find((l) => l.namaInstansi.trim().toLowerCase() === cleanName);
+          if (foundLoc) {
+            if (!matchedCat) matchedCat = foundLoc.kategoriLembaga;
+            if (Object.keys(matchedBd).length === 0 && (foundLoc.breakdownKelas || foundLoc.kategoriBreakdown?.breakdownKelas)) {
+              matchedBd = { ...(foundLoc.breakdownKelas || foundLoc.kategoriBreakdown?.breakdownKelas) };
+            }
+          }
+        }
+
+        if (!matchedCat) {
+          matchedCat = inferKategoriFromText(rec.namaInstansi, 'SD / MI');
+        }
 
         if (rs) {
           targetGuru = Number(rs.guru) || 0;
@@ -230,7 +260,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         return {
           id: rec.locationId || rec.id || `lbg-${idx + 1}`,
+          groupId: rec.groupId,
+          groupNama: rec.groupNama,
           namaInstansi: rec.namaInstansi,
+          kategoriLembaga: matchedCat,
+          breakdownKelas: matchedBd,
           statusKbm,
           keteranganLibur,
           keterangan: rec.keterangan && !rec.keterangan.startsWith('Aktif') && !rec.keterangan.startsWith('Libur')
@@ -268,7 +302,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               keteranganLibur = savedRec.catatan.replace('Libur Sebagian:', '').trim();
             }
 
+            const itemCat: KategoriLembaga = l.kategoriLembaga || g.kategoriLembaga || inferKategoriFromText(l.namaInstansi, 'SD / MI');
+            const itemBd: Record<string, number> = l.breakdownKelas
+              ? { ...l.breakdownKelas }
+              : (savedRec?.breakdownKelas ? { ...savedRec.breakdownKelas } : {});
             const itemKlas = (l.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar';
+
             let targetMain = Number(l.targetSiswa) || 0;
             if (itemKlas === 'Porsi Ibu Hamil' || itemKlas === 'Porsi Ibu Menyusui' || itemKlas === 'Bumil & Busui') {
               targetMain = Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0;
@@ -287,12 +326,18 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
             list.push({
               id: l.id || `lbg-${Math.random().toString(36).substr(2, 6)}`,
+              groupId: g.id,
+              groupNama: g.nama,
               namaInstansi: l.namaInstansi,
+              kategoriLembaga: itemCat,
+              breakdownKelas: itemBd,
               statusKbm,
               keteranganLibur,
               keterangan: l.keterangan || '',
               targetSiswa: targetMain,
               targetGuru,
+              targetBalita: l.targetBalita,
+              targetBumilBusui: l.targetBumilBusui,
               klasifikasiPorsi: itemKlas
             });
           });
@@ -320,6 +365,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           const kb = loc.kategoriBreakdown || {};
           const locKlas = (loc.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar';
+          const itemCat: KategoriLembaga = loc.kategoriLembaga || g.kategoriLembaga || inferKategoriFromText(loc.namaInstansi, 'SD / MI');
+          const itemBd: Record<string, number> = loc.breakdownKelas || kb.breakdownKelas || (savedRec?.breakdownKelas ? { ...savedRec.breakdownKelas } : {});
+
           let locMain = 0;
           if (locKlas === 'Porsi Ibu Hamil') locMain = Number(kb.ibuHamil) || Number(kb.siswa) || 0;
           else if (locKlas === 'Porsi Ibu Menyusui') locMain = Number(kb.ibuMenyusui) || Number(kb.siswa) || 0;
@@ -333,7 +381,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           list.push({
             id: loc.id,
+            groupId: g.id,
+            groupNama: g.nama,
             namaInstansi: loc.namaInstansi,
+            kategoriLembaga: itemCat,
+            breakdownKelas: itemBd,
             statusKbm,
             keteranganLibur,
             keterangan: '',
@@ -367,6 +419,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         const kb = loc.kategoriBreakdown || {};
         const locKlas = (loc.klasifikasiPorsi as any) || 'Porsi Besar';
+        const itemCat: KategoriLembaga = loc.kategoriLembaga || inferKategoriFromText(loc.namaInstansi, 'SD / MI');
+        const itemBd: Record<string, number> = loc.breakdownKelas || kb.breakdownKelas || (savedRec?.breakdownKelas ? { ...savedRec.breakdownKelas } : {});
+
         let locMain = 0;
         if (locKlas === 'Porsi Ibu Hamil') locMain = Number(kb.ibuHamil) || Number(kb.siswa) || 0;
         else if (locKlas === 'Porsi Ibu Menyusui') locMain = Number(kb.ibuMenyusui) || Number(kb.siswa) || 0;
@@ -380,7 +435,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         list.push({
           id: loc.id,
+          groupId: loc.groupId,
+          groupNama: loc.groupNama,
           namaInstansi: loc.namaInstansi,
+          kategoriLembaga: itemCat,
+          breakdownKelas: itemBd,
           statusKbm,
           keteranganLibur,
           keterangan: '',
@@ -393,16 +452,381 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
     if (list.length === 0) {
       list.push(
-        { id: '1', namaInstansi: 'SD Zainul Hasan Genggong', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 384, targetGuru: 25, klasifikasiPorsi: 'Porsi Kecil' },
-        { id: '2', namaInstansi: 'SMP ZAHA Genggong', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 664, targetGuru: 36, klasifikasiPorsi: 'Porsi Besar' },
-        { id: '3', namaInstansi: 'MA Model Hafshawaty', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 272, targetGuru: 25, klasifikasiPorsi: 'Porsi Besar' },
-        { id: '4', namaInstansi: 'Anak Balita Nutrisi', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 68, targetGuru: 0, klasifikasiPorsi: 'Porsi Balita' },
-        { id: '5', namaInstansi: 'Posyandu Ibu Hamil', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 30, targetGuru: 0, klasifikasiPorsi: 'Porsi Ibu Hamil' },
-        { id: '6', namaInstansi: 'Posyandu Ibu Menyusui', statusKbm: 'Aktif', keteranganLibur: '', keterangan: '', targetSiswa: 21, targetGuru: 0, klasifikasiPorsi: 'Porsi Ibu Menyusui' }
+        {
+          id: '1',
+          namaInstansi: 'SD Zainul Hasan Genggong',
+          kategoriLembaga: 'SD / MI',
+          breakdownKelas: { kelas1: 60, kelas2: 62, kelas3: 64, kelas4: 65, kelas5: 66, kelas6: 67 },
+          statusKbm: 'Aktif',
+          keteranganLibur: '',
+          keterangan: '',
+          targetSiswa: 384,
+          targetGuru: 25,
+          klasifikasiPorsi: 'Porsi Kecil'
+        },
+        {
+          id: '2',
+          namaInstansi: 'SMP ZAINUL HASAN 1 GENGGONG',
+          kategoriLembaga: 'SMP / MTs',
+          breakdownKelas: { kelas7: 120, kelas8: 115, kelas9: 115 },
+          statusKbm: 'Aktif',
+          keteranganLibur: '',
+          keterangan: '',
+          targetSiswa: 350,
+          targetGuru: 20,
+          klasifikasiPorsi: 'Porsi Besar'
+        },
+        {
+          id: '3',
+          namaInstansi: 'MA Model Hafshawaty',
+          kategoriLembaga: 'SMA / SMK / MA',
+          breakdownKelas: { kelas10: 75, kelas11: 72, kelas12: 71 },
+          statusKbm: 'Aktif',
+          keteranganLibur: '',
+          keterangan: '',
+          targetSiswa: 218,
+          targetGuru: 25,
+          klasifikasiPorsi: 'Porsi Besar'
+        },
+        {
+          id: '4',
+          namaInstansi: 'Posyandu Desa Temenggungan',
+          kategoriLembaga: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
+          breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 },
+          statusKbm: 'Aktif',
+          keteranganLibur: '',
+          keterangan: '',
+          targetSiswa: 0,
+          targetGuru: 8,
+          targetBalita: 68,
+          targetBumilBusui: 51,
+          klasifikasiPorsi: 'Bumil & Busui'
+        }
       );
     }
 
     return list;
+  };
+
+  // Change handlers for dynamic breakdown inputs in "Buat Penerima Manfaat"
+  const handleBuatPenerimaClassChange = (lembagaIdx: number, classKey: string, rawVal: string) => {
+    const num = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...buatPenerimaLembagaList];
+    const item = { ...list[lembagaIdx] };
+    const itemCat = item.kategoriLembaga || inferKategoriFromText(item.namaInstansi, 'SD / MI');
+    const itemConf = getKategoriConfig(itemCat);
+
+    const is3B = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
+    if (is3B) {
+      handleBuatPenerima3BChange(lembagaIdx, classKey, rawVal);
+      return;
+    }
+
+    const bd = { ...(item.breakdownKelas || {}), [classKey]: num };
+    item.breakdownKelas = bd;
+
+    const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(bd[c.key]) || 0), 0);
+    const g = Number(item.targetGuru) || 0;
+
+    if (itemConf.targetCategory === 'Balita') {
+      item.targetBalita = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBumilBusui = 0;
+    } else if (itemConf.targetCategory === 'Ibu Hamil') {
+      item.targetBumilBusui = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBalita = 0;
+    } else {
+      item.targetSiswa = sumClasses;
+      item.targetBalita = 0;
+      item.targetBumilBusui = 0;
+    }
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: itemCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: sumClasses + g
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setBuatPenerimaLembagaList(list);
+  };
+
+  const handleBuatPenerima3BChange = (lembagaIdx: number, subKey: string, rawVal: string) => {
+    const num = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...buatPenerimaLembagaList];
+    const item = { ...list[lembagaIdx] };
+    const bd = { ...(item.breakdownKelas || {}), [subKey]: num };
+
+    if (subKey === 'busui_w') bd.busui = num;
+    if (subKey === 'bumil_w') bd.bumil = num;
+    if (subKey === 'balita511_l' || subKey === 'balita511_p') {
+      bd.baduta = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0);
+    }
+    if (subKey === 'balita1259_l' || subKey === 'balita1259_p') {
+      bd.balita = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0);
+    }
+    if (subKey === 'kader_l' || subKey === 'kader_p') {
+      bd.kader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0);
+    }
+
+    item.breakdownKelas = bd;
+
+    const tBalita511 = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) || Number(bd.baduta) || 0;
+    const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
+    const tBalita = tBalita511 + tBalita1259;
+    const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
+    const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
+    const tBumilBusui = tBusui + tBumil;
+    const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || (Number(item.targetGuru) || 0);
+
+    item.targetBalita = tBalita;
+    item.targetBumilBusui = tBumilBusui;
+    item.targetGuru = tKader;
+    item.targetSiswa = 0;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: item.kategoriLembaga || '3B (Balita, Ibu Hamil & Ibu Menyusui)',
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: 0,
+      targetBalita: tBalita,
+      targetBumilBusui: tBumilBusui,
+      targetGuru: tKader,
+      total: tBalita + tBumilBusui + tKader
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setBuatPenerimaLembagaList(list);
+  };
+
+  const handleBuatPenerimaGuruChange = (lembagaIdx: number, rawVal: string) => {
+    const g = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...buatPenerimaLembagaList];
+    const item = { ...list[lembagaIdx] };
+    item.targetGuru = g;
+
+    const mainTarget = Number(item.targetSiswa) || Number(item.targetBalita) || Number(item.targetBumilBusui) || 0;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: item.kategoriLembaga || inferKategoriFromText(item.namaInstansi, 'SD / MI'),
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: item.breakdownKelas,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: mainTarget + g
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setBuatPenerimaLembagaList(list);
+  };
+
+  const handleBuatPenerimaCategoryChange = (lembagaIdx: number, newCat: KategoriLembaga) => {
+    const list = [...buatPenerimaLembagaList];
+    const item = { ...list[lembagaIdx] };
+    const itemConf = getKategoriConfig(newCat);
+
+    const newBd: Record<string, number> = {};
+    itemConf.classes.forEach((c) => {
+      newBd[c.key] = (item.breakdownKelas && item.breakdownKelas[c.key]) || 0;
+    });
+
+    const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(newBd[c.key]) || 0), 0);
+    let g = Number(item.targetGuru) || 0;
+
+    item.kategoriLembaga = newCat;
+    item.klasifikasiPorsi = itemConf.defaultKlasifikasi;
+    item.breakdownKelas = newBd;
+
+    const is3B = itemConf.targetCategory === '3B' || itemConf.id.includes('3B');
+    if (is3B) {
+      const bW = newBd['busui_w'] !== undefined ? newBd['busui_w'] : (newBd['busui'] || (item.targetBumilBusui ? Math.floor(item.targetBumilBusui / 2) : 0));
+      const mW = newBd['bumil_w'] !== undefined ? newBd['bumil_w'] : (newBd['bumil'] || (item.targetBumilBusui ? Math.ceil(item.targetBumilBusui / 2) : 0));
+      const rawBaduta = newBd['baduta'] || (item.targetBalita ? Math.ceil(item.targetBalita / 2) : 0);
+      const rawBalita = newBd['balita'] || (item.targetBalita ? Math.floor(item.targetBalita / 2) : 0);
+      const b511L = newBd['balita511_l'] !== undefined ? newBd['balita511_l'] : Math.ceil(rawBaduta / 2);
+      const b511P = newBd['balita511_p'] !== undefined ? newBd['balita511_p'] : Math.floor(rawBaduta / 2);
+      const b1259L = newBd['balita1259_l'] !== undefined ? newBd['balita1259_l'] : Math.ceil(rawBalita / 2);
+      const b1259P = newBd['balita1259_p'] !== undefined ? newBd['balita1259_p'] : Math.floor(rawBalita / 2);
+      const kL = newBd['kader_l'] !== undefined ? newBd['kader_l'] : (g ? Math.ceil(g / 2) : 0);
+      const kP = newBd['kader_p'] !== undefined ? newBd['kader_p'] : (g ? Math.floor(g / 2) : 0);
+
+      newBd['busui_w'] = bW;
+      newBd['busui'] = bW;
+      newBd['bumil_w'] = mW;
+      newBd['bumil'] = mW;
+      newBd['balita511_l'] = b511L;
+      newBd['balita511_p'] = b511P;
+      newBd['baduta'] = b511L + b511P;
+      newBd['balita1259_l'] = b1259L;
+      newBd['balita1259_p'] = b1259P;
+      newBd['balita'] = b1259L + b1259P;
+      newBd['kader_l'] = kL;
+      newBd['kader_p'] = kP;
+      newBd['kader'] = kL + kP;
+
+      const totBalita = b511L + b511P + b1259L + b1259P;
+      const totBumilBusui = bW + mW;
+      const totKader = kL + kP;
+
+      item.targetBalita = totBalita;
+      item.targetBumilBusui = totBumilBusui;
+      item.targetGuru = totKader;
+      item.targetSiswa = 0;
+      if (!item.namaInstansi || item.namaInstansi.includes('SD') || item.namaInstansi.includes('Instansi')) {
+        item.namaInstansi = `Posyandu / Lembaga 3B #${lembagaIdx + 1}`;
+      }
+    } else if (itemConf.targetCategory === 'Balita') {
+      item.targetBalita = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBumilBusui = 0;
+    } else if (itemConf.targetCategory === 'Ibu Hamil') {
+      item.targetBumilBusui = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBalita = 0;
+    } else {
+      item.targetSiswa = sumClasses;
+      item.targetBalita = 0;
+      item.targetBumilBusui = 0;
+    }
+
+    const totalVal = (Number(item.targetSiswa) || Number(item.targetBalita) || Number(item.targetBumilBusui) || 0) + (Number(item.targetGuru) || 0);
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: newCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: newBd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: item.targetGuru,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: totalVal
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setBuatPenerimaLembagaList(list);
+  };
+
+  // Helper to retrieve master group target and breakdown for an institution
+  const getMasterLembagaData = (namaInstansi: string) => {
+    const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanName = norm(namaInstansi);
+
+    if (groups && groups.length > 0) {
+      for (const g of groups) {
+        if (g.lembagaList && g.lembagaList.length > 0) {
+          for (const l of g.lembagaList) {
+            const lName = norm(l.namaInstansi);
+            if (lName === cleanName || (cleanName.length > 3 && (lName.includes(cleanName) || cleanName.includes(lName)))) {
+              const targetSiswa = Number(l.targetSiswa) || 0;
+              const targetGuru = Number(l.targetGuru) || 0;
+              const targetBalita = Number(l.targetBalita) || 0;
+              const targetBumilBusui = Number(l.targetBumilBusui) || 0;
+              const totalMaster = targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || 0;
+              return {
+                targetMaster: totalMaster,
+                kategoriLembaga: l.kategoriLembaga || g.kategoriLembaga,
+                breakdownKelas: l.breakdownKelas || {},
+                targetSiswa,
+                targetGuru,
+                targetBalita,
+                targetBumilBusui,
+                klasifikasiPorsi: l.klasifikasiPorsi || g.klasifikasiPorsi,
+                namaKelompok: g.nama
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (locations && locations.length > 0) {
+      for (const loc of locations) {
+        const locName = norm(loc.namaInstansi);
+        if (locName === cleanName || (cleanName.length > 3 && (locName.includes(cleanName) || cleanName.includes(locName)))) {
+          const kb = loc.kategoriBreakdown || {};
+          const sumKb = (Number(kb.siswa) || 0) + (Number(kb.guru) || 0) + (Number(kb.balita) || 0) + (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0);
+          const totalMaster = sumKb > 0 ? sumKb : Number(loc.defaultJumlah) || 0;
+          return {
+            targetMaster: totalMaster,
+            kategoriLembaga: loc.kategoriLembaga,
+            breakdownKelas: loc.breakdownKelas || kb.breakdownKelas || {},
+            targetSiswa: Number(kb.siswa) || 0,
+            targetGuru: Number(kb.guru) || 0,
+            targetBalita: Number(kb.balita) || 0,
+            targetBumilBusui: (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0),
+            klasifikasiPorsi: loc.klasifikasiPorsi,
+            namaKelompok: loc.groupNama
+          };
+        }
+      }
+    }
+
+    // Fallback baseline for known regional SPPG Temenggungan institutions
+    if (cleanName.includes('temenggungan') || cleanName.includes('posyandu')) {
+      return {
+        targetMaster: 127,
+        kategoriLembaga: '3B (Balita, Ibu Hamil & Ibu Menyusui)' as KategoriLembaga,
+        breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 },
+        targetSiswa: 0,
+        targetGuru: 8,
+        targetBalita: 68,
+        targetBumilBusui: 51,
+        klasifikasiPorsi: 'Bumil & Busui' as any,
+        namaKelompok: '3B (Balita, Bumil & Busui)'
+      };
+    }
+    if (cleanName.includes('smp') && (cleanName.includes('zainul') || cleanName.includes('genggong') || cleanName.includes('zaha'))) {
+      return {
+        targetMaster: 370,
+        kategoriLembaga: 'SMP / MTs' as KategoriLembaga,
+        breakdownKelas: { kelas7: 120, kelas8: 115, kelas9: 115 },
+        targetSiswa: 350,
+        targetGuru: 20,
+        targetBalita: 0,
+        targetBumilBusui: 0,
+        klasifikasiPorsi: 'Porsi Besar' as any,
+        namaKelompok: 'SMP / MTs'
+      };
+    }
+    if (cleanName.includes('sd') && (cleanName.includes('zainul') || cleanName.includes('genggong'))) {
+      return {
+        targetMaster: 409,
+        kategoriLembaga: 'SD / MI' as KategoriLembaga,
+        breakdownKelas: { kelas1: 65, kelas2: 65, kelas3: 65, kelas4: 63, kelas5: 63, kelas6: 63 },
+        targetSiswa: 384,
+        targetGuru: 25,
+        targetBalita: 0,
+        targetBumilBusui: 0,
+        klasifikasiPorsi: 'Porsi Kecil' as any,
+        namaKelompok: 'SD / MI'
+      };
+    }
+    if (cleanName.includes('ma') && cleanName.includes('hafshawaty')) {
+      return {
+        targetMaster: 243,
+        kategoriLembaga: 'SMA / SMK / MA' as KategoriLembaga,
+        breakdownKelas: { kelas10: 75, kelas11: 72, kelas12: 71 },
+        targetSiswa: 218,
+        targetGuru: 25,
+        targetBalita: 0,
+        targetBumilBusui: 0,
+        klasifikasiPorsi: 'Porsi Besar' as any,
+        namaKelompok: 'SMA / MA'
+      };
+    }
+
+    return null;
   };
 
   // Calculate Selisih from Pengaturan Kelompok baseline master
@@ -412,49 +836,39 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       return null;
     }
 
-    const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanName = norm(namaInstansi);
+    const master = getMasterLembagaData(namaInstansi);
+    if (!master || master.targetMaster === 0) return null;
 
-    let targetMaster: number | null = null;
-    if (groups && groups.length > 0) {
-      for (const g of groups) {
-        if (g.lembagaList && g.lembagaList.length > 0) {
-          for (const l of g.lembagaList) {
-            const lName = norm(l.namaInstansi);
-            if (lName === cleanName || (cleanName.length > 3 && (lName.includes(cleanName) || cleanName.includes(lName)))) {
-              targetMaster = (Number(l.targetSiswa) || 0) + (Number(l.targetGuru) || 0) + (Number(l.targetBalita) || 0) + (Number(l.targetBumilBusui) || 0);
-              break;
-            }
-          }
-        }
-        if (targetMaster !== null) break;
-      }
-    }
+    const selisih = currentSubtotal - master.targetMaster;
+    return {
+      targetMaster: master.targetMaster,
+      selisihAbs: Math.abs(selisih),
+      selisih,
+      isSynced: selisih === 0,
+      label: selisih === 0 ? 'Selaras dengan Data Kelompok' : `Selisih ${Math.abs(selisih)} Porsi`,
+      masterData: master
+    };
+  };
 
-    if (targetMaster === null && locations && locations.length > 0) {
-      for (const loc of locations) {
-        const locName = norm(loc.namaInstansi);
-        if (locName === cleanName || (cleanName.length > 3 && (locName.includes(cleanName) || cleanName.includes(locName)))) {
-          const kb = loc.kategoriBreakdown || {};
-          const sumKb = (Number(kb.siswa) || 0) + (Number(kb.guru) || 0) + (Number(kb.balita) || 0) + (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0);
-          targetMaster = sumKb > 0 ? sumKb : Number(loc.defaultJumlah) || 0;
-          break;
-        }
-      }
-    }
+  // Re-sync institution data with master group data
+  const handleResetToMaster = (lembagaIdx: number) => {
+    const list = [...buatPenerimaLembagaList];
+    const item = list[lembagaIdx];
+    const master = getMasterLembagaData(item.namaInstansi);
+    if (!master) return;
 
-    if (targetMaster === null) return null;
-
-    const selisih = targetMaster - currentSubtotal;
-    if (selisih !== 0) {
-      return {
-        targetMaster,
-        selisihAbs: Math.abs(selisih),
-        selisih,
-        label: `Selisih ${Math.abs(selisih)} Porsi`
-      };
-    }
-    return null;
+    list[lembagaIdx] = {
+      ...item,
+      kategoriLembaga: master.kategoriLembaga || item.kategoriLembaga,
+      breakdownKelas: master.breakdownKelas ? { ...master.breakdownKelas } : {},
+      targetSiswa: master.targetSiswa,
+      targetGuru: master.targetGuru,
+      targetBalita: master.targetBalita,
+      targetBumilBusui: master.targetBumilBusui,
+      klasifikasiPorsi: master.klasifikasiPorsi || item.klasifikasiPorsi
+    };
+    setBuatPenerimaLembagaList(list);
+    showToast(`Data "${item.namaInstansi}" berhasil disinkronkan kembali ke target kelompok (${master.targetMaster} Porsi)`);
   };
 
   // Open "Buat Penerima Manfaat" Modal with Auto-Fill from Pengaturan Kelompok
@@ -3299,20 +3713,39 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const existingNames = new Set(buatPenerimaLembagaList.map((l) => (l.namaInstansi || '').trim().toLowerCase()));
+                    const candidates = [
+                      'Posyandu Desa Temenggungan',
+                      'SMP ZAINUL HASAN 1 GENGGONG',
+                      'SD Zainul Hasan Genggong',
+                      'MA Model Hafshawaty',
+                      'TK ZAINUL HASAN'
+                    ];
+                    const nextSuggested = candidates.find((c) => !existingNames.has(c.toLowerCase())) || '';
+                    const master = nextSuggested ? getMasterLembagaData(nextSuggested) : null;
+                    const defaultCat: KategoriLembaga = master?.kategoriLembaga || (nextSuggested ? inferKategoriFromText(nextSuggested, 'SD / MI') : 'SD / MI');
+                    const defaultBd = master?.breakdownKelas
+                      ? { ...master.breakdownKelas }
+                      : (defaultCat === 'SD / MI' ? { kelas1: 0, kelas2: 0, kelas3: 0, kelas4: 0, kelas5: 0, kelas6: 0 } : {});
                     setBuatPenerimaLembagaList([
                       ...buatPenerimaLembagaList,
                       {
                         id: `lbg-${Date.now()}`,
-                        namaInstansi: '',
+                        namaInstansi: nextSuggested,
+                        kategoriLembaga: defaultCat,
+                        breakdownKelas: defaultBd,
                         statusKbm: 'Aktif',
                         keteranganLibur: '',
-                        targetSiswa: 0,
-                        targetGuru: 0,
-                        klasifikasiPorsi: 'Porsi Besar'
+                        keterangan: '',
+                        targetSiswa: master?.targetSiswa || 0,
+                        targetGuru: master?.targetGuru || 0,
+                        targetBalita: master?.targetBalita || 0,
+                        targetBumilBusui: master?.targetBumilBusui || 0,
+                        klasifikasiPorsi: (master?.klasifikasiPorsi as any) || 'Porsi Kecil'
                       }
-                    ])
-                  }
+                    ]);
+                  }}
                   className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border border-emerald-300 rounded-full text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
                 >
                   <Plus className="w-4 h-4" />
@@ -3328,7 +3761,21 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
             </div>
 
             <form onSubmit={handleSaveBuatPenerima} className="space-y-4 flex-1 overflow-y-auto pr-1">
-              
+              {/* Global Datalist of Known Institutions */}
+              <datalist id="daftar-lembaga-saran">
+                <option value="Posyandu Desa Temenggungan" />
+                <option value="SMP ZAINUL HASAN 1 GENGGONG" />
+                <option value="SD Zainul Hasan Genggong" />
+                <option value="MA Model Hafshawaty" />
+                <option value="TK ZAINUL HASAN" />
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.namaInstansi} />
+                ))}
+                {groups.flatMap((g) => g.lembagaList || []).map((l, lIdx) => (
+                  <option key={`gl-${lIdx}`} value={l.namaInstansi} />
+                ))}
+              </datalist>
+
               {/* Date & Document Status */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
                 <div>
@@ -3358,64 +3805,165 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               {buatPenerimaLembagaList.length > 0 && (() => {
                 const totalAkumulasi = buatPenerimaLembagaList.reduce((acc, it) => {
                   if (it.statusKbm === 'Libur Full') return acc;
-                  const s = Number(it.targetSiswa) || 0;
+                  const itCat = it.kategoriLembaga || inferKategoriFromText(it.namaInstansi, 'SD / MI');
+                  const itConf = getKategoriConfig(itCat);
+                  const itBd = it.breakdownKelas || {};
+                  const is3B = itCat.includes('3B') || itConf.id.includes('3B') || itConf.targetCategory === '3B';
+                  if (is3B) {
+                    const tBalita = (Number(itBd.balita511_l) || 0) + (Number(itBd.balita511_p) || 0) + (Number(itBd.balita1259_l) || 0) + (Number(itBd.balita1259_p) || 0) || Number(it.targetBalita) || 0;
+                    const tBumilBusui = (Number(itBd.busui_w) || 0) + (Number(itBd.bumil_w) || 0) || Number(it.targetBumilBusui) || 0;
+                    const tKader = (Number(itBd.kader_l) || 0) + (Number(itBd.kader_p) || 0) || Number(it.targetGuru) || 0;
+                    return acc + tBalita + tBumilBusui + tKader;
+                  }
+                  const sumClasses = itConf.classes.reduce((sum, c) => sum + (Number(itBd[c.key]) || 0), 0);
+                  const s = sumClasses > 0 ? sumClasses : Number(it.targetSiswa) || 0;
                   const g = Number(it.targetGuru) || 0;
-                  const b = Number(it.targetBalita) || 0;
-                  const bb = Number(it.targetBumilBusui) || 0;
-                  const targetUtama = (it.klasifikasiPorsi || '').toLowerCase().includes('balita') ? (b || s)
-                    : (it.klasifikasiPorsi || '').toLowerCase().includes('hamil') || (it.klasifikasiPorsi || '').toLowerCase().includes('menyusui') ? (bb || s)
-                    : s;
-                  return acc + targetUtama + g;
+                  return acc + s + g;
                 }, 0);
 
+                const listWithSync = buatPenerimaLembagaList.map((it) => {
+                  if (it.statusKbm === 'Libur Full') return { isLibur: true, isSynced: true };
+                  const itCat = it.kategoriLembaga || inferKategoriFromText(it.namaInstansi, 'SD / MI');
+                  const itConf = getKategoriConfig(itCat);
+                  const itBd = it.breakdownKelas || {};
+                  const is3B = itCat.includes('3B') || itConf.id.includes('3B');
+                  let subtotal = 0;
+                  if (is3B) {
+                    const b = (Number(itBd.balita511_l) || 0) + (Number(itBd.balita511_p) || 0) + (Number(itBd.balita1259_l) || 0) + (Number(itBd.balita1259_p) || 0) || Number(it.targetBalita) || 0;
+                    const bb = (Number(itBd.busui_w) || 0) + (Number(itBd.bumil_w) || 0) || Number(it.targetBumilBusui) || 0;
+                    const k = (Number(itBd.kader_l) || 0) + (Number(itBd.kader_p) || 0) || Number(it.targetGuru) || 0;
+                    subtotal = b + bb + k;
+                  } else {
+                    const s = itConf.classes.reduce((sum, c) => sum + (Number(itBd[c.key]) || 0), 0) || Number(it.targetSiswa) || 0;
+                    subtotal = s + (Number(it.targetGuru) || 0);
+                  }
+                  const sInfo = getSelisihDataPorsi(it.namaInstansi, subtotal, it.statusKbm);
+                  return { isLibur: false, isSynced: sInfo ? sInfo.isSynced : true };
+                });
+
+                const outOfSyncCount = listWithSync.filter((x) => !x.isSynced).length;
+                const totalActive = listWithSync.filter((x) => !x.isLibur).length;
+
                 return (
-                  <RealtimeValidationAuditBar
-                    totalItems={buatPenerimaLembagaList.length}
-                    totalSubtotal={totalAkumulasi}
-                    isValid={true}
-                    unitLabel="Lembaga Sasaran"
-                  />
+                  <div className="space-y-2">
+                    <RealtimeValidationAuditBar
+                      totalItems={buatPenerimaLembagaList.length}
+                      totalSubtotal={totalAkumulasi}
+                      isValid={true}
+                      unitLabel="Lembaga Sasaran"
+                    />
+
+                    {/* Overall Group Master Synchronization Status Alert */}
+                    {outOfSyncCount > 0 && (
+                      <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+                        <div className="flex items-center gap-2.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <div>
+                            <span className="font-extrabold text-amber-900">
+                              Indikator Sinkronisasi: {outOfSyncCount} dari {totalActive} lembaga memiliki jumlah penerima yang berbeda dari data kelompok master.
+                            </span>
+                            <span className="block text-[11px] text-amber-700">
+                              Periksa kartu lembaga bergaris kuning di bawah untuk melihat rincian selisih atau klik tombol Sinkronkan Semua.
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updatedList = buatPenerimaLembagaList.map((item) => {
+                              const master = getMasterLembagaData(item.namaInstansi);
+                              if (!master) return item;
+                              return {
+                                ...item,
+                                kategoriLembaga: master.kategoriLembaga || item.kategoriLembaga,
+                                breakdownKelas: master.breakdownKelas ? { ...master.breakdownKelas } : {},
+                                targetSiswa: master.targetSiswa,
+                                targetGuru: master.targetGuru,
+                                targetBalita: master.targetBalita,
+                                targetBumilBusui: master.targetBumilBusui,
+                                klasifikasiPorsi: master.klasifikasiPorsi || item.klasifikasiPorsi
+                              };
+                            });
+                            setBuatPenerimaLembagaList(updatedList);
+                            showToast(`Seluruh lembaga (${buatPenerimaLembagaList.length}) berhasil disinkronkan ke data kelompok master`);
+                          }}
+                          className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Sinkronkan Semua ke Master
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
 
-              {/* Institution Rows List */}
-              <div className="space-y-3">
+              {/* Institution Rows List with Dynamic Category & Class Breakdown */}
+              <div className="space-y-4">
                 {buatPenerimaLembagaList.map((item, idx) => {
-                  const itemKlas = item.klasifikasiPorsi || 'Porsi Besar';
-                  const norm = (item.namaInstansi || '').trim().toLowerCase();
-                  let dynamicLabel = 'Siswa';
-                  let isBalita = false;
-                  let isBumil = false;
+                  const itemCat: KategoriLembaga = item.kategoriLembaga || inferKategoriFromText(item.namaInstansi, 'SD / MI');
+                  const itemConf = getKategoriConfig(itemCat);
+                  const itemBd = item.breakdownKelas || {};
+                  const is3BItem = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
 
-                  if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
-                    dynamicLabel = 'Balita';
-                    isBalita = true;
-                  } else if (itemKlas === 'Porsi Ibu Hamil' || norm.includes('ibu hamil') || (norm.includes('hamil') && !norm.includes('menyusui'))) {
-                    dynamicLabel = 'Ibu Hamil';
-                    isBumil = true;
-                  } else if (itemKlas === 'Porsi Ibu Menyusui' || norm.includes('ibu menyusui') || norm.includes('menyusui')) {
-                    dynamicLabel = 'Ibu Menyusui';
-                    isBumil = true;
-                  } else if (itemKlas === 'Bumil & Busui') {
-                    dynamicLabel = 'Bumil / Busui';
-                    isBumil = true;
-                  }
+                  // Class sum for this item
+                  const sumClassesThisItem = itemConf.classes.reduce(
+                    (sum, cls) => sum + (Number(itemBd[cls.key]) || 0),
+                    0
+                  );
+                  const numGuruThisItem = Number(item.targetGuru) || 0;
 
-                  let targetVal = Number(item.targetSiswa) || 0;
-                  if (isBalita && item.targetBalita !== undefined) targetVal = Number(item.targetBalita);
-                  if (isBumil && item.targetBumilBusui !== undefined) targetVal = Number(item.targetBumilBusui);
+                  // 3B Specific Demography Calculations
+                  const busuiW = itemBd.busui_w !== undefined ? itemBd.busui_w : (itemBd.busui || 0);
+                  const totBusui = Number(busuiW) || 0;
 
-                  const g = Number(item.targetGuru) || 0;
-                  const subtotalPorsi = item.statusKbm === 'Libur Full' ? 0 : (targetVal + g);
+                  const bumilW = itemBd.bumil_w !== undefined ? itemBd.bumil_w : (itemBd.bumil || 0);
+                  const totBumil = Number(bumilW) || 0;
+
+                  const balita511L = itemBd.balita511_l !== undefined ? itemBd.balita511_l : (itemBd.baduta ? Math.ceil(itemBd.baduta / 2) : 0);
+                  const balita511P = itemBd.balita511_p !== undefined ? itemBd.balita511_p : (itemBd.baduta ? Math.floor(itemBd.baduta / 2) : 0);
+                  const totBalita511 = (Number(balita511L) || 0) + (Number(balita511P) || 0);
+
+                  const balita1259L = itemBd.balita1259_l !== undefined ? itemBd.balita1259_l : (itemBd.balita ? Math.ceil(itemBd.balita / 2) : 0);
+                  const balita1259P = itemBd.balita1259_p !== undefined ? itemBd.balita1259_p : (itemBd.balita ? Math.floor(itemBd.balita / 2) : 0);
+                  const totBalita1259 = (Number(balita1259L) || 0) + (Number(balita1259P) || 0);
+
+                  const kaderL = itemBd.kader_l !== undefined ? itemBd.kader_l : (numGuruThisItem ? Math.ceil(numGuruThisItem / 2) : 0);
+                  const kaderP = itemBd.kader_p !== undefined ? itemBd.kader_p : (numGuruThisItem ? Math.floor(numGuruThisItem / 2) : 0);
+                  const totKader = (Number(kaderL) || 0) + (Number(kaderP) || 0);
+
+                  const totBalitaAll = totBalita511 + totBalita1259;
+                  const totBumilBusuiAll = totBusui + totBumil;
+
+                  const totalPorsiCalculated = is3BItem
+                    ? (totBalitaAll + totBumilBusuiAll + totKader)
+                    : (sumClassesThisItem + numGuruThisItem);
+
+                  const subtotalPorsi = item.statusKbm === 'Libur Full' ? 0 : totalPorsiCalculated;
+
+                  const autoPortionItem = calculateAutoPortion({
+                    kategoriLembaga: itemCat,
+                    namaInstansi: item.namaInstansi,
+                    breakdownKelas: itemBd,
+                    targetSiswa: is3BItem ? 0 : sumClassesThisItem,
+                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : 0),
+                    targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : 0),
+                    total: subtotalPorsi
+                  });
+
                   const selisihInfo = getSelisihDataPorsi(item.namaInstansi, subtotalPorsi, item.statusKbm);
+                  const isOutOfSync = Boolean(selisihInfo && !selisihInfo.isSynced && item.statusKbm !== 'Libur Full');
+                  const isSynced = Boolean(selisihInfo && selisihInfo.isSynced && item.statusKbm !== 'Libur Full');
 
                   const validation = calculatePortionValidation({
                     namaInstansi: item.namaInstansi,
-                    klasifikasiPorsi: itemKlas,
-                    targetMain: targetVal,
-                    targetGuru: g,
-                    targetBalita: isBalita ? targetVal : undefined,
-                    targetBumilBusui: isBumil ? targetVal : undefined,
+                    klasifikasiPorsi: autoPortionItem.klasifikasi,
+                    targetMain: is3BItem ? (totBalitaAll + totBumilBusuiAll) : sumClassesThisItem,
+                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : undefined),
+                    targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : undefined),
                     statusKbm: item.statusKbm,
                     targetMaster: selisihInfo?.targetMaster
                   });
@@ -3423,142 +3971,582 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   return (
                     <div
                       key={item.id || idx}
-                      className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-2xs transition-all hover:border-emerald-300"
+                      className={`rounded-2xl p-4 space-y-3.5 transition-all shadow-2xs border ${
+                        item.statusKbm === 'Libur Full'
+                          ? 'bg-slate-50/70 border-slate-200'
+                          : isOutOfSync
+                          ? 'bg-amber-50/30 border-2 border-amber-400 ring-2 ring-amber-100/70'
+                          : 'bg-white border-emerald-300/80 shadow-xs'
+                      }`}
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-700">
-                          Nama Lembaga / Instansi #{idx + 1}
-                        </span>
+                      {/* Top Header Row: Index, Name, Category Selector, Status KBM, Auto Portion Pill, and Delete */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
+                        <div className="flex items-center gap-2.5 flex-1">
+                          <span className="w-6 h-6 rounded-lg bg-slate-900 text-white font-extrabold text-[11px] flex items-center justify-center shrink-0">
+                            #{idx + 1}
+                          </span>
+                          <div className="flex-1 max-w-sm">
+                            <input
+                              type="text"
+                              list="daftar-lembaga-saran"
+                              value={item.namaInstansi || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const list = [...buatPenerimaLembagaList];
+                                list[idx].namaInstansi = val;
+                                const master = getMasterLembagaData(val);
+                                if (master) {
+                                  if (master.kategoriLembaga) list[idx].kategoriLembaga = master.kategoriLembaga;
+                                  if (master.breakdownKelas && Object.keys(master.breakdownKelas).length > 0) {
+                                    list[idx].breakdownKelas = { ...master.breakdownKelas };
+                                  }
+                                  if (master.targetSiswa !== undefined) list[idx].targetSiswa = master.targetSiswa;
+                                  if (master.targetGuru !== undefined) list[idx].targetGuru = master.targetGuru;
+                                  if (master.targetBalita !== undefined) list[idx].targetBalita = master.targetBalita;
+                                  if (master.targetBumilBusui !== undefined) list[idx].targetBumilBusui = master.targetBumilBusui;
+                                  if (master.klasifikasiPorsi) list[idx].klasifikasiPorsi = master.klasifikasiPorsi;
+                                } else {
+                                  const inferred = inferKategoriFromText(val, item.kategoriLembaga || 'SD / MI');
+                                  if (inferred !== item.kategoriLembaga && val.length > 2) {
+                                    list[idx].kategoriLembaga = inferred;
+                                  }
+                                }
+                                setBuatPenerimaLembagaList(list);
+                              }}
+                              placeholder="Pilih atau ketik lembaga (e.g. Posyandu Desa Temenggungan, SMP ZAINUL HASAN 1 GENGGONG)"
+                              className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                              required
+                            />
+                            {/* Pilihan Cepat Nama Lembaga Resmi */}
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Pilihan:</span>
+                              {[
+                                'Posyandu Desa Temenggungan',
+                                'SMP ZAINUL HASAN 1 GENGGONG',
+                                'SD Zainul Hasan Genggong',
+                                'MA Model Hafshawaty'
+                              ].map((suggested) => (
+                                <button
+                                  key={suggested}
+                                  type="button"
+                                  onClick={() => {
+                                    const list = [...buatPenerimaLembagaList];
+                                    list[idx].namaInstansi = suggested;
+                                    const master = getMasterLembagaData(suggested);
+                                    if (master) {
+                                      if (master.kategoriLembaga) list[idx].kategoriLembaga = master.kategoriLembaga;
+                                      if (master.breakdownKelas && Object.keys(master.breakdownKelas).length > 0) {
+                                        list[idx].breakdownKelas = { ...master.breakdownKelas };
+                                      }
+                                      if (master.targetSiswa !== undefined) list[idx].targetSiswa = master.targetSiswa;
+                                      if (master.targetGuru !== undefined) list[idx].targetGuru = master.targetGuru;
+                                      if (master.targetBalita !== undefined) list[idx].targetBalita = master.targetBalita;
+                                      if (master.targetBumilBusui !== undefined) list[idx].targetBumilBusui = master.targetBumilBusui;
+                                      if (master.klasifikasiPorsi) list[idx].klasifikasiPorsi = master.klasifikasiPorsi;
+                                    }
+                                    setBuatPenerimaLembagaList(list);
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer ${
+                                    item.namaInstansi === suggested
+                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                      : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200'
+                                  }`}
+                                >
+                                  {suggested.includes('Posyandu')
+                                    ? 'Posyandu Desa Temenggungan'
+                                    : suggested.includes('SMP')
+                                    ? 'SMP ZAINUL HASAN 1 GENGGONG'
+                                    : suggested.includes('SD')
+                                    ? 'SD Zainul Hasan Genggong'
+                                    : 'MA Model Hafshawaty'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
 
-                        {/* Status KBM Select */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-semibold text-slate-500">Status KBM:</span>
-                          <select
-                            value={item.statusKbm}
-                            onChange={(e) => {
-                              const list = [...buatPenerimaLembagaList];
-                              list[idx].statusKbm = e.target.value as any;
-                              setBuatPenerimaLembagaList(list);
-                            }}
-                            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
-                              item.statusKbm === 'Aktif'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                : item.statusKbm === 'Libur Full'
-                                ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                : 'bg-amber-50 text-amber-800 border-amber-300'
-                            }`}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Kategori Lembaga Selector */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-400">Jenis:</span>
+                            <select
+                              value={itemCat}
+                              onChange={(e) => handleBuatPenerimaCategoryChange(idx, e.target.value as KategoriLembaga)}
+                              className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                            >
+                              {KATEGORI_LEMBAGA_CONFIGS.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.shortName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Status KBM Select */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-400">Status KBM:</span>
+                            <select
+                              value={item.statusKbm}
+                              onChange={(e) => {
+                                const list = [...buatPenerimaLembagaList];
+                                list[idx].statusKbm = e.target.value as any;
+                                setBuatPenerimaLembagaList(list);
+                              }}
+                              className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                                item.statusKbm === 'Aktif'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : item.statusKbm === 'Libur Full'
+                                  ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                  : 'bg-amber-50 text-amber-800 border-amber-300'
+                              }`}
+                            >
+                              <option value="Aktif">🟢 Aktif</option>
+                              <option value="Libur Full">🔴 Libur Full</option>
+                              <option value="Libur Sebagian">🟡 Libur Sebagian</option>
+                            </select>
+                          </div>
+
+                          {/* Porsi Otomatis Badge */}
+                          <div
+                            className={`px-2.5 py-1 rounded-xl border text-[11px] font-extrabold flex items-center gap-1 shadow-2xs ${autoPortionItem.badgePill.color}`}
+                            title={`Pembagian porsi otomatis: ${autoPortionItem.summaryLabel}`}
                           >
-                            <option value="Aktif">🟢 Aktif (Normal)</option>
-                            <option value="Libur Full">🔴 Libur Full</option>
-                            <option value="Libur Sebagian">🟡 Libur Sebagian</option>
-                          </select>
-                        </div>
-                      </div>
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>{autoPortionItem.badgePill.text}</span>
+                          </div>
 
-                      {/* Control Form Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                        {/* Name */}
-                        <div className="md:col-span-4">
-                          <label className="text-[10px] font-semibold text-slate-400 block mb-1">Nama Lembaga</label>
-                          <input
-                            type="text"
-                            value={item.namaInstansi}
-                            onChange={(e) => {
-                              const list = [...buatPenerimaLembagaList];
-                              list[idx].namaInstansi = e.target.value;
-                              setBuatPenerimaLembagaList(list);
-                            }}
-                            placeholder="e.g. SD Zainul Hasan"
-                            className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900"
-                            required
-                          />
-                        </div>
-
-                        {/* Dynamic Target Input (Siswa / Balita / Ibu Hamil / Ibu Menyusui) */}
-                        <div className="md:col-span-2">
-                          <ValidatedPortionInput
-                            label={dynamicLabel}
-                            disabled={item.statusKbm === 'Libur Full'}
-                            value={targetVal}
-                            onChange={(val) => {
-                              const list = [...buatPenerimaLembagaList];
-                              const updated = { ...list[idx] };
-                              if (isBalita) {
-                                updated.targetBalita = val;
-                                updated.targetSiswa = val;
-                              } else if (isBumil) {
-                                updated.targetBumilBusui = val;
-                                updated.targetSiswa = val;
-                              } else {
-                                updated.targetSiswa = val;
-                              }
-                              list[idx] = updated;
-                              setBuatPenerimaLembagaList(list);
-                            }}
-                          />
-                        </div>
-
-                        {/* Guru / Staf */}
-                        <div className="md:col-span-2">
-                          <ValidatedPortionInput
-                            label="Guru / Staf"
-                            disabled={item.statusKbm === 'Libur Full'}
-                            value={g}
-                            onChange={(val) => {
-                              const list = [...buatPenerimaLembagaList];
-                              list[idx] = { ...list[idx], targetGuru: val };
-                              setBuatPenerimaLembagaList(list);
-                            }}
-                          />
-                        </div>
-
-                        {/* Subtotal Porsi with Real-Time Validation Badge */}
-                        <div className="md:col-span-2">
-                          <label className="text-[10px] font-semibold text-slate-400 block mb-1 text-center">Subtotal Porsi</label>
-                          <PortionValidationBadge
-                            subtotal={validation.subtotal}
-                            formula={validation.formula}
-                            compact={true}
-                          />
-                        </div>
-
-                        {/* Klasifikasi Porsi Badge & Delete */}
-                        <div className="md:col-span-2 flex items-center justify-between gap-1.5 pt-4 md:pt-0">
-                          {(() => {
-                            const itemAuto = calculateAutoPortion({
-                              kategoriLembaga: (item as any).kategoriLembaga,
-                              namaInstansi: item.namaInstansi,
-                              targetSiswa: targetVal,
-                              targetGuru: g,
-                              targetBalita: isBalita ? targetVal : 0,
-                              targetBumilBusui: isBumil ? targetVal : 0,
-                              total: targetVal + g
-                            });
-                            return (
-                              <span
-                                className={`px-2.5 py-1.5 border rounded-xl text-[11px] font-extrabold shrink-0 truncate max-w-[140px] shadow-2xs flex items-center gap-1 ${itemAuto.badgePill.color}`}
-                                title={itemAuto.summaryLabel}
+                          {/* Indikator Selisih & Tombol Sinkronisasi ke Master - HANYA MUNCUL JIKA ADA SELISIH */}
+                          {item.statusKbm !== 'Libur Full' && isOutOfSync && selisihInfo && (
+                            <div className="flex items-center gap-1.5">
+                              <div
+                                className="px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-400 text-amber-900 text-[11px] font-black flex items-center gap-1 shadow-2xs animate-pulse"
+                                title={`Selisih ${selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} porsi dari master kelompok (${selisihInfo.targetMaster} porsi)`}
                               >
-                                <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
-                                <span>{itemAuto.badgePill.text}</span>
-                              </span>
-                            );
-                          })()}
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span>Selisih {selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} (Master: {selisihInfo.targetMaster})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleResetToMaster(idx)}
+                                className="px-2 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black flex items-center gap-1 shadow-2xs cursor-pointer transition-all"
+                                title="Sinkronkan kembali ke data master kelompok"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Sinkronkan</span>
+                              </button>
+                            </div>
+                          )}
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const list = [...buatPenerimaLembagaList];
-                              list.splice(idx, 1);
-                              setBuatPenerimaLembagaList(list);
-                            }}
-                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
-                            title="Hapus Baris Ini"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Delete Institution Row Button */}
+                          {buatPenerimaLembagaList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const list = [...buatPenerimaLembagaList];
+                                list.splice(idx, 1);
+                                setBuatPenerimaLembagaList(list);
+                              }}
+                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                              title="Hapus Lembaga Ini"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
+
+                      {/* Content: If Libur Full, show status banner */}
+                      {item.statusKbm === 'Libur Full' ? (
+                        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-center space-y-1">
+                          <div className="text-xs font-bold text-rose-800 flex items-center justify-center gap-1.5">
+                            <AlertCircle className="w-4 h-4 text-rose-600" />
+                            Status Lembaga: Libur Full (0 Porsi Penyaluran)
+                          </div>
+                          <p className="text-[11px] text-rose-600">
+                            Lembaga ini libur penuh pada tanggal ini. Porsi otomatis bernilai 0.
+                          </p>
+                        </div>
+                      ) : is3BItem ? (
+                        /* 3B CUSTOM BREAKDOWN DEMOGRAFI PENERIMA - PERSIS SESUAI FORM PENAMBAHAN KELOMPOK */
+                        <div className="space-y-3">
+                          <div className="rounded-xl overflow-hidden border border-[#182353]/30 shadow-xs bg-white">
+                            {/* Dark Navy Header Bar */}
+                            <div className="bg-[#182353] text-white px-4 py-2.5 flex items-center justify-between gap-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <Users className="w-5 h-5 text-white shrink-0" />
+                                <span className="font-black tracking-wide text-xs sm:text-sm uppercase">
+                                  BREAKDOWN DEMOGRAFI PENERIMA (3B)
+                                </span>
+                              </div>
+                              {isOutOfSync && selisihInfo && (
+                                <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" />
+                                  Selisih {selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} Porsi
+                                </span>
+                              )}
+                            </div>
+
+                            {/* In-table validation banner for 3B */}
+                            {isOutOfSync && (
+                              <div className="bg-amber-50 px-4 py-2 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                <div className="flex items-center gap-2 text-amber-900 font-bold">
+                                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                  <span>
+                                    Total demografi 3B saat ini ({totalPorsiCalculated} porsi) berbeda dengan master kelompok ({selisihInfo?.targetMaster} porsi).
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetToMaster(idx)}
+                                  className="self-start sm:self-auto px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  Sinkronkan ke Master ({selisihInfo?.targetMaster} Porsi)
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Table */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-center border-collapse min-w-[680px]">
+                                <thead>
+                                  {/* Row 1: Group Headers */}
+                                  <tr className="bg-[#eef5fc] border-b border-[#bfd6f2] text-[#183962] font-black text-xs">
+                                    <th colSpan={2} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Busui
+                                    </th>
+                                    <th colSpan={2} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Bumil
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Balita 5-11 Bln
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3 border-r border-[#bfd6f2]">
+                                      Balita 12-59 Bln
+                                    </th>
+                                    <th colSpan={3} className="py-2.5 px-3">
+                                      Kader
+                                    </th>
+                                  </tr>
+
+                                  {/* Row 2: Sub-columns */}
+                                  <tr className="bg-[#f4f8fd] border-b border-[#bfd6f2] text-[#183962] font-extrabold text-xs">
+                                    {/* Busui */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">W</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Bumil */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">W</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Balita 5-11 Bln */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Balita 12-59 Bln */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+
+                                    {/* Kader */}
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">L</th>
+                                    <th className="py-1.5 px-2 border-r border-[#bfd6f2] w-20">P</th>
+                                    <th className="py-1.5 px-2 w-14 bg-blue-100/30 text-blue-950 font-black">Tot</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="bg-white">
+                                    {/* Busui */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.busui_w !== undefined ? (itemBd.busui_w === 0 ? '' : itemBd.busui_w) : (itemBd.busui === 0 ? '' : itemBd.busui || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'busui_w', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBusui}
+                                    </td>
+
+                                    {/* Bumil */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.bumil_w !== undefined ? (itemBd.bumil_w === 0 ? '' : itemBd.bumil_w) : (itemBd.bumil === 0 ? '' : itemBd.bumil || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'bumil_w', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBumil}
+                                    </td>
+
+                                    {/* Balita 5-11 Bln */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita511_l === 0 ? '' : (itemBd.balita511_l || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'balita511_l', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita511_p === 0 ? '' : (itemBd.balita511_p || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'balita511_p', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBalita511}
+                                    </td>
+
+                                    {/* Balita 12-59 Bln */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita1259_l === 0 ? '' : (itemBd.balita1259_l || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'balita1259_l', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.balita1259_p === 0 ? '' : (itemBd.balita1259_p || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'balita1259_p', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2] font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totBalita1259}
+                                    </td>
+
+                                    {/* Kader */}
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.kader_l === 0 ? '' : (itemBd.kader_l || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'kader_l', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 border-r border-[#bfd6f2]">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={itemBd.kader_p === 0 ? '' : (itemBd.kader_p || '')}
+                                        onChange={(e) => handleBuatPenerima3BChange(idx, 'kader_p', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full text-center py-1.5 px-1 bg-white border border-slate-300 rounded-[4px] text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs"
+                                      />
+                                    </td>
+                                    <td className="p-2 font-black text-xs text-slate-900 bg-slate-50/70">
+                                      {totKader}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          {/* Dynamic Formula Badges for 3B */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/80">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                                Subtotal 3B:
+                              </span>
+                              <span className="font-extrabold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                Balita: {totBalitaAll}
+                              </span>
+                              <span className="font-extrabold text-rose-900 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200 text-[11px]">
+                                Bumil: {totBumil} • Busui: {totBusui}
+                              </span>
+                              <span className="font-extrabold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 text-[11px]">
+                                Kader: {totKader}
+                              </span>
+                              <span className="font-black text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-200 text-[11px] ml-1">
+                                🥣 {autoPortionItem.porsiKecil} Porsi Kecil
+                              </span>
+                              <span className="font-black text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                🍱 {autoPortionItem.porsiBesar} Porsi Besar
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-700">
+                                Total: <strong className="text-blue-900 font-black">{subtotalPorsi} Porsi</strong>
+                              </span>
+                              <PortionValidationBadge
+                                subtotal={validation.subtotal}
+                                formula={validation.formula}
+                                compact={false}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* STANDARD BREAKDOWN DEMOGRAFI PENERIMA FOR SCHOOLS (SD / MI, SMP / MTs, SMA, PAUD, DLL) */
+                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                                BREAKDOWN KELAS ({itemConf.shortName})
+                              </span>
+                              <span className="text-xs font-bold text-slate-700">
+                                {itemConf.label}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-extrabold text-slate-500">
+                                Subtotal {itemConf.mainTargetLabel}:
+                              </span>
+                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-300">
+                                {sumClassesThisItem} {itemConf.mainTargetLabel}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* In-container validation banner for School classes */}
+                          {isOutOfSync && (
+                            <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                              <div className="flex items-center gap-2 text-amber-900 font-bold">
+                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                <span>
+                                  Peringatan: Total siswa + {itemConf.teacherLabel.toLowerCase()} ({totalPorsiCalculated} porsi) tidak selaras dengan target master kelompok ({selisihInfo?.targetMaster} porsi).
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleResetToMaster(idx)}
+                                className="self-start sm:self-auto px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                Sinkronkan ke Master ({selisihInfo?.targetMaster} Porsi)
+                              </button>
+                            </div>
+                          )}
+
+                          {/* GRID OF CLASS INPUTS */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
+                            {itemConf.classes.map((cls) => {
+                              const val = itemBd[cls.key] !== undefined ? itemBd[cls.key] : 0;
+
+                              return (
+                                <div
+                                  key={cls.key}
+                                  className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all flex flex-col justify-between"
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] font-extrabold text-slate-800">
+                                      {cls.label}
+                                    </label>
+                                    {cls.portionTier && (
+                                      <span
+                                        className={`text-[8px] font-extrabold px-1 rounded ${
+                                          cls.portionTier === 'Porsi Kecil'
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : cls.portionTier === 'Porsi Besar'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : cls.portionTier === 'Porsi Balita'
+                                            ? 'bg-rose-100 text-rose-800'
+                                            : 'bg-fuchsia-100 text-fuchsia-800'
+                                        }`}
+                                      >
+                                        {cls.portionTier.replace('Porsi ', '')}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={val === 0 ? '' : val}
+                                      onChange={(e) => handleBuatPenerimaClassChange(idx, cls.key, e.target.value)}
+                                      placeholder="0"
+                                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-extrabold text-slate-900 text-center focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                    />
+                                  </div>
+
+                                  {cls.ageRange && (
+                                    <span className="text-[9px] text-slate-400 mt-1 text-center block">
+                                      {cls.ageRange}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* ROW: GURU / STAF & FORMULA SUMMARY */}
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100">
+                            {/* Guru / Staf Input */}
+                            <div className="md:col-span-5 flex items-center gap-2">
+                              <div className="flex-1">
+                                <label className="text-[11px] font-extrabold text-slate-700 block mb-0.5">
+                                  {itemConf.teacherLabel}
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={numGuruThisItem === 0 ? '' : numGuruThisItem}
+                                    onChange={(e) => handleBuatPenerimaGuruChange(idx, e.target.value)}
+                                    placeholder="0"
+                                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Auto Portions badges & Total */}
+                            <div className="md:col-span-7 flex flex-wrap items-center justify-between md:justify-end gap-2.5">
+                              <div className="flex items-center gap-1.5">
+                                {autoPortionItem.porsiKecil > 0 && (
+                                  <span className="font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 text-[11px]">
+                                    🥣 {autoPortionItem.porsiKecil} Porsi Kecil
+                                  </span>
+                                )}
+                                {autoPortionItem.porsiBesar > 0 && (
+                                  <span className="font-extrabold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                    🍱 {autoPortionItem.porsiBesar} Porsi Besar
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-slate-700">
+                                  Total: <strong className="text-emerald-700 font-black">{subtotalPorsi} Porsi</strong>
+                                </span>
+                                <PortionValidationBadge
+                                  subtotal={validation.subtotal}
+                                  formula={validation.formula}
+                                  compact={false}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Kolom Keterangan Setiap Lembaga */}
                       <div className="pt-1">
@@ -3578,17 +4566,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         />
                       </div>
 
-                      {/* Warning Alert Badge if Data Has Selisih with Pengaturan Kelompok */}
-                      {selisihInfo && (
-                        <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                      {/* Warning Alert Badge HANYA MUNCUL JIKA ADA SELISIH (TERSEMBUNYI JIKA SUDAH SESUAI) */}
+                      {isOutOfSync && selisihInfo && selisihInfo.selisihAbs > 0 && (
+                        <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
                           <div className="flex items-center gap-2">
                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                             <span className="font-bold text-amber-900">
-                              Tulisan Selisih {selisihInfo.selisihAbs} Porsi
+                              Peringatan Selisih: {selisihInfo.selisihAbs} Porsi
                             </span>
                           </div>
-                          <div className="text-[11px] font-medium text-amber-800">
-                            (Pengaturan Kelompok: <strong className="font-bold">{selisihInfo.targetMaster} Porsi</strong> | Input: <strong className="font-bold">{subtotalPorsi} Porsi</strong>)
+                          <div className="text-[11px] font-medium text-amber-800 flex items-center gap-2">
+                            <span>(Pengaturan Kelompok: <strong className="font-bold">{selisihInfo.targetMaster} Porsi</strong> | Input: <strong className="font-bold">{subtotalPorsi} Porsi</strong>)</span>
+                            <button
+                              type="button"
+                              onClick={() => handleResetToMaster(idx)}
+                              className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold cursor-pointer transition-all"
+                            >
+                              Sesuaikan ke Master
+                            </button>
                           </div>
                         </div>
                       )}
@@ -3619,46 +4614,74 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               </div>
 
               {/* Summary Navy Box */}
-              {buatPenerimaLembagaList.length > 0 && (
-                <div className="bg-[#0B132B] text-white rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-md border border-slate-800">
-                  <div className="font-bold text-slate-300">
-                    Rangkuman Sasaran Kelompok ({buatPenerimaLembagaList.length} Lembaga):
+              {buatPenerimaLembagaList.length > 0 && (() => {
+                let totalSiswa = 0;
+                let totalGuru = 0;
+                let totalBalita = 0;
+                let totalBumilBusui = 0;
+                let totalPorsiAll = 0;
+
+                buatPenerimaLembagaList.forEach((it) => {
+                  if (it.statusKbm === 'Libur Full') return;
+                  const itCat = it.kategoriLembaga || inferKategoriFromText(it.namaInstansi, 'SD / MI');
+                  const itConf = getKategoriConfig(itCat);
+                  const itBd = it.breakdownKelas || {};
+                  const is3B = itCat.includes('3B') || itConf.id.includes('3B') || itConf.targetCategory === '3B';
+
+                  if (is3B) {
+                    const b = (Number(itBd.balita511_l) || 0) + (Number(itBd.balita511_p) || 0) + (Number(itBd.balita1259_l) || 0) + (Number(itBd.balita1259_p) || 0) || Number(it.targetBalita) || 0;
+                    const bb = (Number(itBd.busui_w) || 0) + (Number(itBd.bumil_w) || 0) || Number(it.targetBumilBusui) || 0;
+                    const k = (Number(itBd.kader_l) || 0) + (Number(itBd.kader_p) || 0) || Number(it.targetGuru) || 0;
+                    totalBalita += b;
+                    totalBumilBusui += bb;
+                    totalGuru += k;
+                    totalPorsiAll += b + bb + k;
+                  } else {
+                    const sumClasses = itConf.classes.reduce((sum, c) => sum + (Number(itBd[c.key]) || 0), 0);
+                    const s = sumClasses > 0 ? sumClasses : Number(it.targetSiswa) || 0;
+                    const g = Number(it.targetGuru) || 0;
+                    totalSiswa += s;
+                    totalGuru += g;
+                    totalPorsiAll += s + g;
+                  }
+                });
+
+                return (
+                  <div className="bg-[#0B132B] text-white rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-md border border-slate-800">
+                    <div className="font-bold text-slate-300">
+                      Rangkuman Sasaran ({buatPenerimaLembagaList.length} Lembaga):
+                    </div>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      {totalSiswa > 0 && (
+                        <span>
+                          🏫 Siswa: <strong className="text-emerald-400 font-extrabold">{totalSiswa.toLocaleString('id-ID')}</strong>
+                        </span>
+                      )}
+                      {totalBalita > 0 && (
+                        <span>
+                          👶 Balita: <strong className="text-blue-400 font-extrabold">{totalBalita.toLocaleString('id-ID')}</strong>
+                        </span>
+                      )}
+                      {totalBumilBusui > 0 && (
+                        <span>
+                          🤰 Bumil/Busui: <strong className="text-rose-400 font-extrabold">{totalBumilBusui.toLocaleString('id-ID')}</strong>
+                        </span>
+                      )}
+                      {totalGuru > 0 && (
+                        <span>
+                          👨‍🏫 Guru/Kader: <strong className="text-amber-400 font-extrabold">{totalGuru.toLocaleString('id-ID')}</strong>
+                        </span>
+                      )}
+                      <span className="bg-emerald-950/80 px-3 py-1 rounded-xl border border-emerald-500/40">
+                        🍱 Total Porsi:{' '}
+                        <strong className="text-emerald-300 font-extrabold font-mono text-sm">
+                          {totalPorsiAll.toLocaleString('id-ID')} Porsi
+                        </strong>
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-5">
-                    <span>
-                      🏫 Siswa:{' '}
-                      <strong className="text-emerald-400 font-extrabold">
-                        {buatPenerimaLembagaList.reduce(
-                          (acc, l) => acc + (l.statusKbm === 'Libur Full' ? 0 : Number(l.targetSiswa || 0)),
-                          0
-                        )}
-                      </strong>
-                    </span>
-                    <span>
-                      👨‍🏫 Guru:{' '}
-                      <strong className="text-emerald-400 font-extrabold">
-                        {buatPenerimaLembagaList.reduce(
-                          (acc, l) => acc + (l.statusKbm === 'Libur Full' ? 0 : Number(l.targetGuru || 0)),
-                          0
-                        )}
-                      </strong>
-                    </span>
-                    <span>
-                      🍱 Total Porsi:{' '}
-                      <strong className="text-emerald-400 font-extrabold font-mono">
-                        {buatPenerimaLembagaList.reduce(
-                          (acc, l) =>
-                            acc +
-                            (l.statusKbm === 'Libur Full'
-                              ? 0
-                              : Number(l.targetSiswa || 0) + Number(l.targetGuru || 0)),
-                          0
-                        )}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Form Actions */}
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">

@@ -321,7 +321,11 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     const currentList = editingGroup.lembagaList || [];
     const updatedList = (currentList.length > 0 ? currentList : [
       {
-        namaInstansi: is3B ? 'Posyandu / Lembaga 3B #1' : `${newConf.shortName} - Instansi 1`,
+        namaInstansi: is3B
+          ? 'Posyandu Desa Temenggungan'
+          : newConf.id.includes('SMP')
+          ? 'SMP ZAINUL HASAN 1 GENGGONG'
+          : `${newConf.shortName} - Instansi 1`,
         targetSiswa: 0,
         targetGuru: 0,
         targetBalita: 0,
@@ -336,11 +340,17 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
         prevInstName.includes('SD Negeri') || 
         prevInstName.includes('Instansi') || 
         prevInstName.includes('SD / MI') ||
-        prevInstName.includes('Posyandu') ||
+        prevInstName.includes('Posyandu / Lembaga') ||
         KATEGORI_LEMBAGA_CONFIGS.some(c => prevInstName.startsWith(c.shortName) || prevInstName.startsWith(c.label));
 
       const newInstName = isDefaultInstName
-        ? (is3B ? `Posyandu / Lembaga 3B #${lIdx + 1}` : `${newConf.shortName} - Instansi ${lIdx + 1}`)
+        ? (is3B
+            ? (lIdx === 0 ? 'Posyandu Desa Temenggungan' : `Posyandu Desa Temenggungan Pos ${lIdx + 1}`)
+            : newConf.id.includes('SMP')
+            ? (lIdx === 0 ? 'SMP ZAINUL HASAN 1 GENGGONG' : `SMP Zainul Hasan Genggong ${lIdx + 1}`)
+            : newConf.id.includes('SD')
+            ? (lIdx === 0 ? 'SD Zainul Hasan Genggong' : `SD Zainul Hasan ${lIdx + 1}`)
+            : `${newConf.shortName} - Instansi ${lIdx + 1}`)
         : prevInstName;
 
       const existingBd = l.breakdownKelas || {};
@@ -474,7 +484,15 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     }
 
     const is3B = activeConfig.id.includes('3B') || activeConfig.targetCategory === '3B';
-    const newInstName = is3B ? `Posyandu / Lembaga 3B #${nextIdx}` : `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`;
+    const isSmp = activeConfig.id.includes('SMP');
+    const isSd = activeConfig.id.includes('SD');
+    const newInstName = is3B
+      ? (nextIdx === 1 ? 'Posyandu Desa Temenggungan' : `Posyandu Desa Temenggungan Pos ${nextIdx}`)
+      : isSmp
+      ? (nextIdx === 1 ? 'SMP ZAINUL HASAN 1 GENGGONG' : `SMP Zainul Hasan Genggong ${nextIdx}`)
+      : isSd
+      ? (nextIdx === 1 ? 'SD Zainul Hasan Genggong' : `SD Zainul Hasan ${nextIdx}`)
+      : `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`;
     const autoP = calculateAutoPortion({
       kategoriLembaga: currentCategory,
       namaInstansi: newInstName,
@@ -706,8 +724,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       item.targetGuru = totKader;
       item.targetSiswa = 0;
       item.total = item.targetBalita + item.targetBumilBusui + totKader;
-      if (!item.namaInstansi || item.namaInstansi.includes('SD Negeri') || item.namaInstansi.includes('Instansi')) {
-        item.namaInstansi = `Posyandu / Lembaga 3B #${lembagaIdx + 1}`;
+      if (!item.namaInstansi || item.namaInstansi.includes('SD Negeri') || item.namaInstansi.includes('Instansi') || item.namaInstansi.includes('Posyandu / Lembaga')) {
+        item.namaInstansi = lembagaIdx === 0 ? 'Posyandu Desa Temenggungan' : `Posyandu Desa Temenggungan Pos ${lembagaIdx + 1}`;
       }
     } else if (itemConf.targetCategory === 'Balita') {
       item.targetBalita = sumClasses;

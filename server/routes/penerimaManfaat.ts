@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
-import { DailyBeneficiaryRecord, BeneficiaryGroup, BeneficiaryLocation, BeneficiaryAuditLog, BastDocument } from '../../src/types';
+import { DailyBeneficiaryRecord, BeneficiaryGroup, BeneficiaryLocation, BeneficiaryAuditLog, BastDocument, KategoriLembaga } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../db/firestore';
 import { createBastWordDocument } from '../../src/utils/bastDocxGenerator';
 import { Packer } from 'docx';
@@ -693,7 +693,7 @@ router.post('/plan', (req: Request, res: Response): void => {
         siswa = 0;
         kategori = 'Balita';
       } else {
-        const sumClasses = Object.values(bd).reduce((sum: number, val: any) => sum + (Number(val) || 0), 0);
+        const sumClasses: number = (Object.values(bd) as (number | string)[]).reduce<number>((sum, val) => sum + (Number(val) || 0), 0);
         if (sumClasses > 0) {
           if (itemCat === 'Balita / Posyandu' || itemKlas === 'Porsi Balita') {
             balita = sumClasses;
