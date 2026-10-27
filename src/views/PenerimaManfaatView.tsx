@@ -33,7 +33,9 @@ import {
   Sparkles,
   Eye,
   FileCheck,
-  X
+  X,
+  User,
+  Phone
 } from 'lucide-react';
 import {
   BeneficiaryGroup,
@@ -184,7 +186,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
     // If records already exist for this date, restore them accurately including breakdownKelas & kategoriLembaga
     if (existingForDate.length > 0) {
-      return existingForDate.map((rec, idx) => {
+      const mapped = existingForDate.map((rec, idx) => {
         const klas = (rec.klasifikasiPorsi || rec.groupNama || 'Porsi Besar') as KlasifikasiPorsi;
         const rs = rec.rincianSasaran;
         let targetSiswa = Number(rec.jumlahAwal) || 0;
@@ -199,11 +201,32 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           ? { ...rec.breakdownKelas }
           : (rs?.breakdownKelas ? { ...rs.breakdownKelas } : {});
 
+        // Match with group data
+        let matchedGroup = groups.find((g) =>
+          g.id === rec.groupId ||
+          (rec.groupNama && g.nama.trim().toLowerCase() === rec.groupNama.trim().toLowerCase()) ||
+          (g.lembagaList && g.lembagaList.some((l) => l.namaInstansi.trim().toLowerCase() === cleanName))
+        );
+
+        let officialInstName = rec.namaInstansi;
+        if (matchedGroup && matchedGroup.lembagaList) {
+          const foundL = matchedGroup.lembagaList.find((l) => l.namaInstansi.trim().toLowerCase() === cleanName);
+          if (foundL) {
+            officialInstName = foundL.namaInstansi;
+            if (!matchedCat) matchedCat = foundL.kategoriLembaga || matchedGroup.kategoriLembaga;
+            if (Object.keys(matchedBd).length === 0 && foundL.breakdownKelas) {
+              matchedBd = { ...foundL.breakdownKelas };
+            }
+          }
+        }
+
         if (!matchedCat || Object.keys(matchedBd).length === 0) {
           for (const g of groups) {
             if (g.lembagaList) {
               const foundL = g.lembagaList.find((l) => l.namaInstansi.trim().toLowerCase() === cleanName);
               if (foundL) {
+                if (!matchedGroup) matchedGroup = g;
+                officialInstName = foundL.namaInstansi;
                 if (!matchedCat) matchedCat = foundL.kategoriLembaga || g.kategoriLembaga;
                 if (Object.keys(matchedBd).length === 0 && foundL.breakdownKelas) {
                   matchedBd = { ...foundL.breakdownKelas };
@@ -227,6 +250,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         if (!matchedCat) {
           matchedCat = inferKategoriFromText(rec.namaInstansi, 'SD / MI');
         }
+
+        const resolvedGroupId = rec.groupId || matchedGroup?.id;
+        const resolvedGroupNama = rec.groupNama || matchedGroup?.nama || (rec as any).kelompokSasaran || inferKategoriFromText(rec.namaInstansi, 'SD / MI');
 
         if (rs) {
           targetGuru = Number(rs.guru) || 0;
@@ -260,9 +286,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
         return {
           id: rec.locationId || rec.id || `lbg-${idx + 1}`,
-          groupId: rec.groupId,
-          groupNama: rec.groupNama,
-          namaInstansi: rec.namaInstansi,
+          groupId: resolvedGroupId,
+          groupNama: resolvedGroupNama,
+          namaInstansi: officialInstName,
           kategoriLembaga: matchedCat,
           breakdownKelas: matchedBd,
           statusKbm,
@@ -277,6 +303,50 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           klasifikasiPorsi: klas
         };
       });
+
+      // Also ensure newly created groups in "Pengaturan Kelompok" appear in the list automatically
+      const existingNames = new Set(mapped.map((r) => r.namaInstansi.trim().toLowerCase()));
+      if (groups && groups.length > 0) {
+        groups.forEach((g) => {
+          if (g.lembagaList && g.lembagaList.length > 0) {
+            g.lembagaList.forEach((l) => {
+              const key = l.namaInstansi.trim().toLowerCase();
+              if (existingNames.has(key)) return;
+              existingNames.add(key);
+
+              const itemCat: KategoriLembaga = l.kategoriLembaga || g.kategoriLembaga || inferKategoriFromText(l.namaInstansi, 'SD / MI');
+              const itemBd: Record<string, number> = l.breakdownKelas ? { ...l.breakdownKelas } : {};
+              const itemKlas = (l.klasifikasiPorsi as any) || (g.klasifikasiPorsi as any) || 'Porsi Besar';
+
+              let targetMain = Number(l.targetSiswa) || 0;
+              if (itemKlas === 'Porsi Ibu Hamil' || itemKlas === 'Porsi Ibu Menyusui' || itemKlas === 'Bumil & Busui') {
+                targetMain = Number(l.targetBumilBusui) || Number(l.targetSiswa) || 0;
+              } else if (itemKlas === 'Porsi Balita' || itemKlas === 'Balita') {
+                targetMain = Number(l.targetBalita) || Number(l.targetSiswa) || 0;
+              }
+
+              mapped.push({
+                id: l.id || `lbg-${Math.random().toString(36).substr(2, 6)}`,
+                groupId: g.id,
+                groupNama: g.nama,
+                namaInstansi: l.namaInstansi,
+                kategoriLembaga: itemCat,
+                breakdownKelas: itemBd,
+                statusKbm: 'Aktif',
+                keteranganLibur: '',
+                keterangan: l.keterangan || '',
+                targetSiswa: targetMain,
+                targetGuru: Number(l.targetGuru) || 0,
+                targetBalita: l.targetBalita,
+                targetBumilBusui: l.targetBumilBusui,
+                klasifikasiPorsi: itemKlas
+              });
+            });
+          }
+        });
+      }
+
+      return mapped;
     }
 
     const addedInstansiNames = new Set<string>();
@@ -341,6 +411,25 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               klasifikasiPorsi: itemKlas
             });
           });
+        } else {
+          const key = g.nama.trim().toLowerCase();
+          if (!addedInstansiNames.has(key)) {
+            addedInstansiNames.add(key);
+            list.push({
+              id: `lbg-${g.id}`,
+              groupId: g.id,
+              groupNama: g.nama,
+              namaInstansi: g.nama,
+              kategoriLembaga: g.kategoriLembaga || 'SD / MI',
+              breakdownKelas: {},
+              statusKbm: 'Aktif',
+              keteranganLibur: '',
+              keterangan: '',
+              targetSiswa: 0,
+              targetGuru: 0,
+              klasifikasiPorsi: (g.klasifikasiPorsi as any) || 'Porsi Besar'
+            });
+          }
         }
 
         // Also check locations array for this group
@@ -1385,6 +1474,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         status: editingGroup.status || 'Aktif',
         alamat: editingGroup.alamat || editingGroup.deskripsi || '',
         deskripsi: editingGroup.deskripsi || editingGroup.alamat || '',
+        picNama: editingGroup.picNama || '',
+        nomorKontak: editingGroup.nomorKontak || editingGroup.picKontak || '',
+        picKontak: editingGroup.picKontak || editingGroup.nomorKontak || '',
         lembagaList: sanitizedLembagaList
       };
 
@@ -2815,6 +2907,40 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">{grp.deskripsi || 'Tidak ada deskripsi'}</p>
+
+                        {/* Nama PIC & Nomor Kontak Pengaturan Kelompok */}
+                        {(grp.picNama || grp.nomorKontak || grp.picKontak) ? (
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            {grp.picNama && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200/80 text-slate-800 text-xs font-bold shadow-2xs">
+                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>PIC: <strong className="text-indigo-950 font-black">{grp.picNama}</strong></span>
+                              </span>
+                            )}
+                            {(grp.nomorKontak || grp.picKontak) && (
+                              <a
+                                href={`https://wa.me/${(grp.nomorKontak || grp.picKontak || '').replace(/[^0-9]/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold hover:bg-emerald-100 hover:text-emerald-900 transition-colors shadow-2xs"
+                                title="Klik untuk hubungi via WhatsApp"
+                              >
+                                <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>Kontak: {grp.nomorKontak || grp.picKontak}</span>
+                              </a>
+                            )}
+                            {grp.alamat && grp.alamat !== grp.deskripsi && (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/60">
+                                📍 {grp.alamat}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mt-1.5 text-slate-400 text-xs">
+                            <User className="w-3.5 h-3.5 text-slate-300" />
+                            <span className="text-[11px] italic">PIC & Nomor Kontak belum diatur</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2991,13 +3117,18 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                     targetBalita: b,
                                     targetBumilBusui: bb,
                                     total: tot > 0 ? tot : (l.defaultJumlah || 0),
-                                    klasifikasiPorsi: itemKlas
+                                    klasifikasiPorsi: itemKlas,
+                                    picNama: (l as any).picNama || (l as any).kontakPerson || '',
+                                    nomorKontak: (l as any).nomorKontak || (l as any).picKontak || ''
                                   };
                                 });
 
                             setEditingGroup({
                               ...grp,
                               alamat: grp.alamat || grp.deskripsi || '',
+                              picNama: grp.picNama || '',
+                              nomorKontak: grp.nomorKontak || grp.picKontak || '',
+                              picKontak: grp.picKontak || grp.nomorKontak || '',
                               kategoriLembaga: groupCat,
                               klasifikasiPorsi: groupAuto.klasifikasi as any,
                               lembagaList: lembagaList.length > 0 ? lembagaList : [
@@ -3044,13 +3175,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           <th className="px-3 py-2.5 text-center">Balita</th>
                           <th className="px-3 py-2.5 text-center">Bumil / Busui</th>
                           <th className="px-3 py-2.5 text-center">Subtotal Porsi</th>
+                          <th className="px-3 py-2.5">PIC & Kontak</th>
                           <th className="px-4 py-2.5">Klasifikasi Porsi Menu</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {grpLocs.length === 0 && (!grp.lembagaList || grp.lembagaList.length === 0) ? (
                           <tr>
-                            <td colSpan={7} className="px-4 py-4 text-center text-slate-400 font-medium">
+                            <td colSpan={8} className="px-4 py-4 text-center text-slate-400 font-medium">
                               Belum ada spesifikasi sasaran lembaga. Klik <span className="font-bold text-slate-700">Edit Form Kelompok & Lembaga</span> untuk mengisi rincian sasaran per instansi.
                             </td>
                           </tr>
@@ -3117,6 +3249,31 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{b}</td>
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{bb}</td>
                                 <td className="px-3 py-2.5 text-center font-extrabold text-emerald-600">{tot} Porsi</td>
+                                <td className="px-3 py-2.5 text-slate-600">
+                                  {(loc.picNama || loc.kontakPerson || loc.nomorKontak || loc.picKontak) ? (
+                                    <div className="space-y-0.5">
+                                      {(loc.picNama || loc.kontakPerson) && (
+                                        <div className="font-bold text-slate-800 text-[11px] flex items-center gap-1">
+                                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                                          <span className="truncate max-w-[120px]">{loc.picNama || loc.kontakPerson}</span>
+                                        </div>
+                                      )}
+                                      {(loc.nomorKontak || loc.picKontak) && (
+                                        <a
+                                          href={`https://wa.me/${(loc.nomorKontak || loc.picKontak || '').replace(/[^0-9]/g, '')}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-[10px] text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 hover:underline"
+                                        >
+                                          <Phone className="w-3 h-3 text-emerald-500 shrink-0" />
+                                          <span>{loc.nomorKontak || loc.picKontak}</span>
+                                        </a>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-300 text-[11px]">-</span>
+                                  )}
+                                </td>
                                 <td className="px-4 py-2.5">
                                   <span
                                     className={`px-2.5 py-1 text-[10px] font-extrabold rounded-lg border flex items-center gap-1 w-fit shadow-2xs ${locAuto.badgePill.color}`}
@@ -3715,34 +3872,67 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   type="button"
                   onClick={() => {
                     const existingNames = new Set(buatPenerimaLembagaList.map((l) => (l.namaInstansi || '').trim().toLowerCase()));
-                    const candidates = [
-                      'Posyandu Desa Temenggungan',
-                      'SMP ZAINUL HASAN 1 GENGGONG',
-                      'SD Zainul Hasan Genggong',
-                      'MA Model Hafshawaty',
-                      'TK ZAINUL HASAN'
-                    ];
-                    const nextSuggested = candidates.find((c) => !existingNames.has(c.toLowerCase())) || '';
-                    const master = nextSuggested ? getMasterLembagaData(nextSuggested) : null;
-                    const defaultCat: KategoriLembaga = master?.kategoriLembaga || (nextSuggested ? inferKategoriFromText(nextSuggested, 'SD / MI') : 'SD / MI');
-                    const defaultBd = master?.breakdownKelas
-                      ? { ...master.breakdownKelas }
-                      : (defaultCat === 'SD / MI' ? { kelas1: 0, kelas2: 0, kelas3: 0, kelas4: 0, kelas5: 0, kelas6: 0 } : {});
+                    let targetGroup = groups[0];
+                    let targetInstName = '';
+                    let targetCat: KategoriLembaga = 'SD / MI';
+                    let targetBd: Record<string, number> = {};
+                    let targetSiswa = 0;
+                    let targetGuru = 0;
+                    let targetBalita = 0;
+                    let targetBumilBusui = 0;
+                    let targetKlas: KlasifikasiPorsi = 'Porsi Besar';
+
+                    if (groups && groups.length > 0) {
+                      for (const g of groups) {
+                        if (g.lembagaList && g.lembagaList.length > 0) {
+                          const unadded = g.lembagaList.find((l) => !existingNames.has(l.namaInstansi.trim().toLowerCase()));
+                          if (unadded) {
+                            targetGroup = g;
+                            targetInstName = unadded.namaInstansi;
+                            targetCat = unadded.kategoriLembaga || g.kategoriLembaga || 'SD / MI';
+                            targetBd = unadded.breakdownKelas ? { ...unadded.breakdownKelas } : {};
+                            targetSiswa = unadded.targetSiswa || 0;
+                            targetGuru = unadded.targetGuru || 0;
+                            targetBalita = unadded.targetBalita || 0;
+                            targetBumilBusui = unadded.targetBumilBusui || 0;
+                            targetKlas = unadded.klasifikasiPorsi || g.klasifikasiPorsi || 'Porsi Besar';
+                            break;
+                          }
+                        }
+                      }
+                    }
+
+                    if (!targetInstName) {
+                      const g = groups[groups.length - 1] || groups[0];
+                      if (g) {
+                        targetGroup = g;
+                        targetCat = g.kategoriLembaga || 'SD / MI';
+                        targetInstName = `${g.nama} - Satuan Pendidikan ${buatPenerimaLembagaList.length + 1}`;
+                        targetKlas = g.klasifikasiPorsi || 'Porsi Besar';
+                        const firstL = g.lembagaList?.[0];
+                        if (firstL?.breakdownKelas) targetBd = { ...firstL.breakdownKelas };
+                      } else {
+                        targetInstName = `Lembaga Penerima #${buatPenerimaLembagaList.length + 1}`;
+                      }
+                    }
+
                     setBuatPenerimaLembagaList([
                       ...buatPenerimaLembagaList,
                       {
                         id: `lbg-${Date.now()}`,
-                        namaInstansi: nextSuggested,
-                        kategoriLembaga: defaultCat,
-                        breakdownKelas: defaultBd,
+                        groupId: targetGroup?.id,
+                        groupNama: targetGroup?.nama,
+                        namaInstansi: targetInstName,
+                        kategoriLembaga: targetCat,
+                        breakdownKelas: targetBd,
                         statusKbm: 'Aktif',
                         keteranganLibur: '',
                         keterangan: '',
-                        targetSiswa: master?.targetSiswa || 0,
-                        targetGuru: master?.targetGuru || 0,
-                        targetBalita: master?.targetBalita || 0,
-                        targetBumilBusui: master?.targetBumilBusui || 0,
-                        klasifikasiPorsi: (master?.klasifikasiPorsi as any) || 'Porsi Kecil'
+                        targetSiswa,
+                        targetGuru,
+                        targetBalita,
+                        targetBumilBusui,
+                        klasifikasiPorsi: targetKlas
                       }
                     ]);
                   }}
@@ -3968,174 +4158,202 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                     targetMaster: selisihInfo?.targetMaster
                   });
 
+                  const matchedGroup = groups.find(
+                    (g) => g.id === item.groupId || (g.nama && g.nama.trim().toLowerCase() === (item.groupNama || '').trim().toLowerCase()) || (g.lembagaList && g.lembagaList.some((l) => l.namaInstansi.trim().toLowerCase() === (item.namaInstansi || '').trim().toLowerCase()))
+                  );
+                  const resolvedGroupNama = item.groupNama || matchedGroup?.nama || selisihInfo?.masterData?.namaKelompok || itemConf.label || 'Kelompok Sasaran';
+
                   return (
                     <div
                       key={item.id || idx}
-                      className={`rounded-2xl p-4 space-y-3.5 transition-all shadow-2xs border ${
+                      className={`rounded-3xl p-4 sm:p-5 space-y-4 transition-all shadow-xs border ${
                         item.statusKbm === 'Libur Full'
                           ? 'bg-slate-50/70 border-slate-200'
                           : isOutOfSync
                           ? 'bg-amber-50/30 border-2 border-amber-400 ring-2 ring-amber-100/70'
-                          : 'bg-white border-emerald-300/80 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      {/* Top Header Row: Index, Name, Category Selector, Status KBM, Auto Portion Pill, and Delete */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
-                        <div className="flex items-center gap-2.5 flex-1">
-                          <span className="w-6 h-6 rounded-lg bg-slate-900 text-white font-extrabold text-[11px] flex items-center justify-center shrink-0">
+                      {/* 1. TOP PROMINENT HEADER: NAMA KELOMPOK (BOLD, CLEAR, NEVER OBSCURED) */}
+                      <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xs border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-8 h-8 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0 shadow-xs">
                             #{idx + 1}
                           </span>
-                          <div className="flex-1 max-w-sm">
-                            <input
-                              type="text"
-                              list="daftar-lembaga-saran"
-                              value={item.namaInstansi || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                const list = [...buatPenerimaLembagaList];
-                                list[idx].namaInstansi = val;
-                                const master = getMasterLembagaData(val);
-                                if (master) {
-                                  if (master.kategoriLembaga) list[idx].kategoriLembaga = master.kategoriLembaga;
-                                  if (master.breakdownKelas && Object.keys(master.breakdownKelas).length > 0) {
-                                    list[idx].breakdownKelas = { ...master.breakdownKelas };
-                                  }
-                                  if (master.targetSiswa !== undefined) list[idx].targetSiswa = master.targetSiswa;
-                                  if (master.targetGuru !== undefined) list[idx].targetGuru = master.targetGuru;
-                                  if (master.targetBalita !== undefined) list[idx].targetBalita = master.targetBalita;
-                                  if (master.targetBumilBusui !== undefined) list[idx].targetBumilBusui = master.targetBumilBusui;
-                                  if (master.klasifikasiPorsi) list[idx].klasifikasiPorsi = master.klasifikasiPorsi;
-                                } else {
-                                  const inferred = inferKategoriFromText(val, item.kategoriLembaga || 'SD / MI');
-                                  if (inferred !== item.kategoriLembaga && val.length > 2) {
-                                    list[idx].kategoriLembaga = inferred;
-                                  }
-                                }
-                                setBuatPenerimaLembagaList(list);
-                              }}
-                              placeholder="Pilih atau ketik lembaga (e.g. Posyandu Desa Temenggungan, SMP ZAINUL HASAN 1 GENGGONG)"
-                              className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                              required
-                            />
-                            {/* Pilihan Cepat Nama Lembaga Resmi */}
-                            <div className="flex flex-wrap items-center gap-1 mt-1">
-                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Pilihan:</span>
-                              {[
-                                'Posyandu Desa Temenggungan',
-                                'SMP ZAINUL HASAN 1 GENGGONG',
-                                'SD Zainul Hasan Genggong',
-                                'MA Model Hafshawaty'
-                              ].map((suggested) => (
-                                <button
-                                  key={suggested}
-                                  type="button"
-                                  onClick={() => {
-                                    const list = [...buatPenerimaLembagaList];
-                                    list[idx].namaInstansi = suggested;
-                                    const master = getMasterLembagaData(suggested);
-                                    if (master) {
-                                      if (master.kategoriLembaga) list[idx].kategoriLembaga = master.kategoriLembaga;
-                                      if (master.breakdownKelas && Object.keys(master.breakdownKelas).length > 0) {
-                                        list[idx].breakdownKelas = { ...master.breakdownKelas };
-                                      }
-                                      if (master.targetSiswa !== undefined) list[idx].targetSiswa = master.targetSiswa;
-                                      if (master.targetGuru !== undefined) list[idx].targetGuru = master.targetGuru;
-                                      if (master.targetBalita !== undefined) list[idx].targetBalita = master.targetBalita;
-                                      if (master.targetBumilBusui !== undefined) list[idx].targetBumilBusui = master.targetBumilBusui;
-                                      if (master.klasifikasiPorsi) list[idx].klasifikasiPorsi = master.klasifikasiPorsi;
-                                    }
-                                    setBuatPenerimaLembagaList(list);
-                                  }}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer ${
-                                    item.namaInstansi === suggested
-                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200'
-                                  }`}
-                                >
-                                  {suggested.includes('Posyandu')
-                                    ? 'Posyandu Desa Temenggungan'
-                                    : suggested.includes('SMP')
-                                    ? 'SMP ZAINUL HASAN 1 GENGGONG'
-                                    : suggested.includes('SD')
-                                    ? 'SD Zainul Hasan Genggong'
-                                    : 'MA Model Hafshawaty'}
-                                </button>
-                              ))}
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">
+                                KELOMPOK SASARAN
+                              </span>
+                              <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md font-bold">
+                                {itemConf.shortName}
+                              </span>
                             </div>
+                            <span className="text-base sm:text-lg font-black text-white tracking-wide">
+                              {resolvedGroupNama}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* Kategori Lembaga Selector */}
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-400">Jenis:</span>
+                        {/* Hubungkan dengan Data Kelompok Dropdown */}
+                        {groups.length > 0 && (
+                          <div className="flex items-center gap-2 self-start sm:self-auto bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700/80">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                              Kelompok:
+                            </span>
                             <select
-                              value={itemCat}
-                              onChange={(e) => handleBuatPenerimaCategoryChange(idx, e.target.value as KategoriLembaga)}
-                              className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              value={item.groupId || matchedGroup?.id || ''}
+                              onChange={(e) => {
+                                const selectedG = groups.find((g) => g.id === e.target.value);
+                                if (selectedG) {
+                                  const list = [...buatPenerimaLembagaList];
+                                  list[idx].groupId = selectedG.id;
+                                  list[idx].groupNama = selectedG.nama;
+                                  const firstL = selectedG.lembagaList?.[0];
+                                  if (firstL) {
+                                    list[idx].namaInstansi = firstL.namaInstansi;
+                                    list[idx].kategoriLembaga = firstL.kategoriLembaga || selectedG.kategoriLembaga;
+                                    if (firstL.breakdownKelas) list[idx].breakdownKelas = { ...firstL.breakdownKelas };
+                                    list[idx].targetSiswa = firstL.targetSiswa || 0;
+                                    list[idx].targetGuru = firstL.targetGuru || 0;
+                                    list[idx].targetBalita = firstL.targetBalita || 0;
+                                    list[idx].targetBumilBusui = firstL.targetBumilBusui || 0;
+                                    list[idx].klasifikasiPorsi = firstL.klasifikasiPorsi || selectedG.klasifikasiPorsi;
+                                  } else {
+                                    list[idx].namaInstansi = selectedG.nama;
+                                    list[idx].kategoriLembaga = selectedG.kategoriLembaga;
+                                  }
+                                  setBuatPenerimaLembagaList(list);
+                                }
+                              }}
+                              className="bg-slate-900 text-emerald-400 font-extrabold text-xs px-2.5 py-1 rounded-lg border border-slate-700 outline-none cursor-pointer"
                             >
-                              {KATEGORI_LEMBAGA_CONFIGS.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.shortName}
+                              {groups.map((g) => (
+                                <option key={g.id} value={g.id}>
+                                  {g.nama}
                                 </option>
                               ))}
                             </select>
                           </div>
+                        )}
+                      </div>
 
-                          {/* Status KBM Select */}
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-400">Status KBM:</span>
-                            <select
-                              value={item.statusKbm}
-                              onChange={(e) => {
-                                const list = [...buatPenerimaLembagaList];
-                                list[idx].statusKbm = e.target.value as any;
-                                setBuatPenerimaLembagaList(list);
-                              }}
-                              className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
-                                item.statusKbm === 'Aktif'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                  : item.statusKbm === 'Libur Full'
-                                  ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                  : 'bg-amber-50 text-amber-800 border-amber-300'
-                              }`}
-                            >
-                              <option value="Aktif">🟢 Aktif</option>
-                              <option value="Libur Full">🔴 Libur Full</option>
-                              <option value="Libur Sebagian">🟡 Libur Sebagian</option>
-                            </select>
+                      {/* 2. INSTITUTION NAME & CONTROLS ROW (CLEAN, SPACIOUS, NO QUICK PILLS) */}
+                      <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3.5">
+                        {/* Nama Lembaga / Satuan Pendidikan */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                              <Building2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>NAMA LEMBAGA / SATUAN PENDIDIKAN:</span>
+                            </label>
+                            <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Otomatis Sesuai Data Kelompok
+                            </span>
                           </div>
+                          <input
+                            type="text"
+                            value={item.namaInstansi || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const list = [...buatPenerimaLembagaList];
+                              list[idx].namaInstansi = val;
+                              const master = getMasterLembagaData(val);
+                              if (master) {
+                                if (master.kategoriLembaga) list[idx].kategoriLembaga = master.kategoriLembaga;
+                                if (master.breakdownKelas && Object.keys(master.breakdownKelas).length > 0) {
+                                  list[idx].breakdownKelas = { ...master.breakdownKelas };
+                                }
+                                if (master.targetSiswa !== undefined) list[idx].targetSiswa = master.targetSiswa;
+                                if (master.targetGuru !== undefined) list[idx].targetGuru = master.targetGuru;
+                                if (master.targetBalita !== undefined) list[idx].targetBalita = master.targetBalita;
+                                if (master.targetBumilBusui !== undefined) list[idx].targetBumilBusui = master.targetBumilBusui;
+                                if (master.klasifikasiPorsi) list[idx].klasifikasiPorsi = master.klasifikasiPorsi;
+                                if (master.namaKelompok && !list[idx].groupNama) list[idx].groupNama = master.namaKelompok;
+                              }
+                              setBuatPenerimaLembagaList(list);
+                            }}
+                            placeholder="Nama lembaga otomatis terisi dari data kelompok"
+                            className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-extrabold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-2xs"
+                            required
+                          />
+                        </div>
 
-                          {/* Porsi Otomatis Badge */}
-                          <div
-                            className={`px-2.5 py-1 rounded-xl border text-[11px] font-extrabold flex items-center gap-1 shadow-2xs ${autoPortionItem.badgePill.color}`}
-                            title={`Pembagian porsi otomatis: ${autoPortionItem.summaryLabel}`}
-                          >
-                            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                            <span>{autoPortionItem.badgePill.text}</span>
-                          </div>
-
-                          {/* Indikator Selisih & Tombol Sinkronisasi ke Master - HANYA MUNCUL JIKA ADA SELISIH */}
-                          {item.statusKbm !== 'Libur Full' && isOutOfSync && selisihInfo && (
+                        {/* Controls Row: Jenis, Status KBM, Porsi, Selisih, Hapus */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/70">
+                          <div className="flex flex-wrap items-center gap-3">
+                            {/* Jenis Lembaga */}
                             <div className="flex items-center gap-1.5">
-                              <div
-                                className="px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-400 text-amber-900 text-[11px] font-black flex items-center gap-1 shadow-2xs animate-pulse"
-                                title={`Selisih ${selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} porsi dari master kelompok (${selisihInfo.targetMaster} porsi)`}
+                              <span className="text-[11px] font-bold text-slate-500">Jenis:</span>
+                              <select
+                                value={itemCat}
+                                onChange={(e) => handleBuatPenerimaCategoryChange(idx, e.target.value as KategoriLembaga)}
+                                className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-2xs"
                               >
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                <span>Selisih {selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} (Master: {selisihInfo.targetMaster})</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleResetToMaster(idx)}
-                                className="px-2 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black flex items-center gap-1 shadow-2xs cursor-pointer transition-all"
-                                title="Sinkronkan kembali ke data master kelompok"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                <span>Sinkronkan</span>
-                              </button>
+                                {KATEGORI_LEMBAGA_CONFIGS.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.shortName}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
-                          )}
+
+                            {/* Status KBM */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-bold text-slate-500">Status KBM:</span>
+                              <select
+                                value={item.statusKbm}
+                                onChange={(e) => {
+                                  const list = [...buatPenerimaLembagaList];
+                                  list[idx].statusKbm = e.target.value as any;
+                                  setBuatPenerimaLembagaList(list);
+                                }}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-2xs transition-all cursor-pointer ${
+                                  item.statusKbm === 'Aktif'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                    : item.statusKbm === 'Libur Full'
+                                    ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                    : 'bg-amber-50 text-amber-800 border-amber-300'
+                                }`}
+                              >
+                                <option value="Aktif">🟢 Aktif</option>
+                                <option value="Libur Full">🔴 Libur Full</option>
+                                <option value="Libur Sebagian">🟡 Libur Sebagian</option>
+                              </select>
+                            </div>
+
+                            {/* Porsi Otomatis Badge */}
+                            <div
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 shadow-2xs ${autoPortionItem.badgePill.color}`}
+                              title={`Pembagian porsi otomatis: ${autoPortionItem.summaryLabel}`}
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span>{autoPortionItem.badgePill.text}</span>
+                            </div>
+
+                            {/* Indikator Selisih HANYA jika out of sync & > 0 */}
+                            {item.statusKbm !== 'Libur Full' && isOutOfSync && selisihInfo && selisihInfo.selisihAbs > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                <div
+                                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 border border-amber-400 text-amber-900 text-xs font-black flex items-center gap-1 shadow-2xs animate-pulse"
+                                  title={`Selisih ${selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} porsi dari master kelompok (${selisihInfo.targetMaster} porsi)`}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>Selisih {selisihInfo.selisih > 0 ? `+${selisihInfo.selisih}` : selisihInfo.selisih} (Master: {selisihInfo.targetMaster})</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetToMaster(idx)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black flex items-center gap-1 shadow-2xs cursor-pointer transition-all"
+                                  title="Sinkronkan kembali ke data master kelompok"
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                  <span>Sinkronkan</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
 
                           {/* Delete Institution Row Button */}
                           {buatPenerimaLembagaList.length > 1 && (
@@ -4146,10 +4364,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                 list.splice(idx, 1);
                                 setBuatPenerimaLembagaList(list);
                               }}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                              className="px-2.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-all cursor-pointer border border-rose-200 text-xs font-bold flex items-center gap-1 shadow-2xs"
                               title="Hapus Lembaga Ini"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Hapus Lembaga</span>
                             </button>
                           )}
                         </div>

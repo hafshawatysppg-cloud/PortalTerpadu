@@ -129,7 +129,7 @@ router.get('/groups', (req: Request, res: Response): void => {
 
 // Helper for Updating Group & Lembaga List
 async function updateGroupHandler(id: string, body: any, res: Response): Promise<void> {
-  const { nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = body;
+  const { nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList, picNama, nomorKontak, picKontak } = body;
   const idx = dbStore.beneficiaryGroups.findIndex(g => g.id === id);
   if (idx === -1) {
     res.status(404).json({ success: false, message: 'Kelompok tidak ditemukan' });
@@ -147,6 +147,9 @@ async function updateGroupHandler(id: string, body: any, res: Response): Promise
     klasifikasiPorsi: klasifikasiPorsi || existingGroup.klasifikasiPorsi,
     alamat: alamat !== undefined ? alamat : (deskripsi !== undefined ? deskripsi : existingGroup.alamat),
     deskripsi: deskripsi !== undefined ? deskripsi : (alamat !== undefined ? alamat : existingGroup.deskripsi),
+    picNama: picNama !== undefined ? picNama : existingGroup.picNama,
+    nomorKontak: nomorKontak !== undefined ? nomorKontak : (picKontak !== undefined ? picKontak : existingGroup.nomorKontak),
+    picKontak: picKontak !== undefined ? picKontak : (nomorKontak !== undefined ? nomorKontak : existingGroup.picKontak),
     status: status || existingGroup.status,
     lembagaList: Array.isArray(lembagaList) ? lembagaList : existingGroup.lembagaList
   };
@@ -306,7 +309,7 @@ async function updateGroupHandler(id: string, body: any, res: Response): Promise
 
 // 2. POST GROUP (Create Group with optional Lembaga Sasaran list)
 router.post('/groups', async (req: Request, res: Response): Promise<void> => {
-  const { id, nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList } = req.body;
+  const { id, nama, kategoriUtama, kategoriLembaga, klasifikasiPorsi, deskripsi, alamat, status, lembagaList, picNama, nomorKontak, picKontak } = req.body;
   const groupNama = (nama && nama.trim()) || `Kelompok Sasaran #${dbStore.beneficiaryGroups.length + 1}`;
 
   // Only update if an explicit existing group ID was supplied
@@ -328,6 +331,9 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
     klasifikasiPorsi: klasifikasiPorsi || 'Porsi Besar',
     alamat: alamat || deskripsi || '',
     deskripsi: deskripsi || alamat || '',
+    picNama: picNama || '',
+    nomorKontak: nomorKontak || picKontak || '',
+    picKontak: picKontak || nomorKontak || '',
     urutan: nextUrutan,
     status: status || 'Aktif',
     lembagaList: Array.isArray(lembagaList) ? lembagaList : []

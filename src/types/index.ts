@@ -426,12 +426,18 @@ export interface BeneficiaryGroup {
   klasifikasiPorsi?: KlasifikasiPorsi;
   deskripsi?: string;
   alamat?: string;
+  picNama?: string;
+  nomorKontak?: string;
+  picKontak?: string;
   urutan: number;
   status: 'Aktif' | 'Nonaktif';
   lembagaList?: Array<{
     id?: string;
     namaInstansi: string;
     alamat?: string;
+    picNama?: string;
+    nomorKontak?: string;
+    picKontak?: string;
     kategoriLembaga?: KategoriLembaga;
     targetSiswa: number;
     targetGuru: number;

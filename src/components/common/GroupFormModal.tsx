@@ -18,7 +18,9 @@ import {
   Layers,
   Info,
   ChevronDown,
-  MapPin
+  MapPin,
+  Phone,
+  User
 } from 'lucide-react';
 import {
   BeneficiaryGroup,
@@ -893,11 +895,11 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
             </div>
           </div>
 
-          {/* STEP 2: IDENTITAS KELOMPOK & ALAMAT SEKOLAH */}
+          {/* STEP 2: IDENTITAS KELOMPOK, ALAMAT & KONTAK PIC */}
           <div className="space-y-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
               <Building2 className="w-4 h-4 text-emerald-600" />
-              2. Identitas Kelompok & Alamat Sekolah
+              2. Identitas Kelompok, Alamat & Kontak PIC
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -919,11 +921,11 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 </span>
               </div>
 
-              {/* Alamat Sekolah (menggantikan deskripsi, klasifikasi porsi dihapus) */}
+              {/* Alamat Sekolah / Wilayah */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                  Alamat Sekolah
+                  Alamat Sekolah / Wilayah
                 </label>
                 <input
                   type="text"
@@ -934,6 +936,42 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
                   Alamat lengkap lokasi sekolah / lembaga penerima manfaat.
+                </span>
+              </div>
+
+              {/* Nama PIC (Penanggung Jawab) */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  Nama PIC (Penanggung Jawab)
+                </label>
+                <input
+                  type="text"
+                  value={editingGroup.picNama || ''}
+                  onChange={(e) => setEditingGroup({ ...editingGroup, picNama: e.target.value })}
+                  placeholder="e.g. Bpk. Ahmad Fauzi, S.Pd / Bidan Siti"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Nama koordinator atau penanggung jawab kelompok.
+                </span>
+              </div>
+
+              {/* Nomor Kontak */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                  Nomor Kontak (WhatsApp / Telepon)
+                </label>
+                <input
+                  type="tel"
+                  value={editingGroup.nomorKontak || editingGroup.picKontak || ''}
+                  onChange={(e) => setEditingGroup({ ...editingGroup, nomorKontak: e.target.value, picKontak: e.target.value })}
+                  placeholder="e.g. 0812-3456-7890"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Nomor kontak aktif penanggung jawab untuk koordinasi distribusi.
                 </span>
               </div>
             </div>
@@ -1125,6 +1163,44 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
+                        </div>
+                      </div>
+
+                      {/* Baris Kontak & PIC Lembaga Sasaran (Opsional Spesifik Lembaga) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/70 p-2.5 rounded-xl border border-slate-200/70">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-500 shrink-0 flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            PIC Lembaga:
+                          </span>
+                          <input
+                            type="text"
+                            value={item.picNama || item.kontakPerson || ''}
+                            onChange={(e) => {
+                              const list = [...(editingGroup.lembagaList || [])];
+                              list[idx] = { ...list[idx], picNama: e.target.value, kontakPerson: e.target.value };
+                              setEditingGroup({ ...editingGroup, lembagaList: list });
+                            }}
+                            placeholder="Nama PIC lembaga (opsional)"
+                            className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-500 shrink-0 flex items-center gap-1">
+                            <Phone className="w-3.5 h-3.5 text-slate-400" />
+                            No. Kontak:
+                          </span>
+                          <input
+                            type="tel"
+                            value={item.nomorKontak || item.picKontak || ''}
+                            onChange={(e) => {
+                              const list = [...(editingGroup.lembagaList || [])];
+                              list[idx] = { ...list[idx], nomorKontak: e.target.value, picKontak: e.target.value };
+                              setEditingGroup({ ...editingGroup, lembagaList: list });
+                            }}
+                            placeholder="WhatsApp / Telepon PIC lembaga (opsional)"
+                            className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                          />
                         </div>
                       </div>
 
