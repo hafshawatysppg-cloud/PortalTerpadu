@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowUpRight, Search, CheckCircle, AlertTriangle, Layers, 
-  Sparkles, FileText, Calendar, Box, ShieldCheck, ArrowRight
+  Sparkles, FileText, Calendar, Box, ShieldCheck, ArrowRight, Trash2
 } from 'lucide-react';
 import { MasterBarang, StockMovement } from '../../types';
 
@@ -130,7 +130,7 @@ export const BarangKeluarView: React.FC = () => {
         setJumlahKeluarInput('1');
         setPenerimaTujuan('');
         setKeterangan('');
-        setSelectedBarang(null);
+        setSelectedBarangId('');
         setTimeout(() => setSuccessMsg(null), 6000);
         fetchData();
       } else {

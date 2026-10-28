@@ -581,12 +581,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           id: '4',
           namaInstansi: 'Posyandu Desa Temenggungan',
           kategoriLembaga: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
-          breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 },
+          breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 },
           statusKbm: 'Aktif',
           keteranganLibur: '',
           keterangan: '',
           targetSiswa: 0,
-          targetGuru: 8,
+          targetGuru: 0,
           targetBalita: 68,
           targetBumilBusui: 51,
           klasifikasiPorsi: 'Bumil & Busui'
@@ -825,21 +825,20 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               const lKader = (Number(lBd.kader_l) || 0) + (Number(lBd.kader_p) || 0) || Number(lBd.kader) || 0;
 
               let targetSiswa = Number(l.targetSiswa) || 0;
-              let targetGuru = Number(l.targetGuru) || lKader || 0;
+              let targetGuru = Number(l.targetGuru) || 0;
               let targetBalita = Number(l.targetBalita) || (lBaduta + lBalita) || 0;
               let targetBumilBusui = Number(l.targetBumilBusui) || (lBumil + lBusui) || 0;
 
               if (cleanName.includes('temenggungan') || cleanName.includes('posyandu')) {
                 if (targetBumilBusui === 0) targetBumilBusui = 51;
                 if (targetBalita === 0) targetBalita = 68;
-                if (targetGuru === 0) targetGuru = 8;
               }
 
-              const totalMaster = targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || (cleanName.includes('temenggungan') ? 127 : 0);
+              const totalMaster = targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || (cleanName.includes('temenggungan') ? 119 : 0);
               return {
                 targetMaster: totalMaster,
                 kategoriLembaga: l.kategoriLembaga || g.kategoriLembaga,
-                breakdownKelas: l.breakdownKelas || (cleanName.includes('temenggungan') ? { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 } : {}),
+                breakdownKelas: l.breakdownKelas || (cleanName.includes('temenggungan') ? { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 } : {}),
                 targetSiswa,
                 targetGuru,
                 targetBalita,
@@ -878,11 +877,11 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     // Fallback baseline for known regional SPPG Temenggungan institutions
     if (cleanName.includes('temenggungan') || cleanName.includes('posyandu')) {
       return {
-        targetMaster: 127,
+        targetMaster: 119,
         kategoriLembaga: '3B (Balita, Ibu Hamil & Ibu Menyusui)' as KategoriLembaga,
-        breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 },
+        breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 },
         targetSiswa: 0,
-        targetGuru: 8,
+        targetGuru: 0,
         targetBalita: 68,
         targetBumilBusui: 51,
         klasifikasiPorsi: 'Bumil & Busui' as any,
@@ -1414,16 +1413,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         let bb = Number(l.targetBumilBusui) || 0;
 
         const is3B = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
+        let tKader = 0;
         if (is3B) {
           const tBalita511 = (Number(bd['balita511_l']) || 0) + (Number(bd['balita511_p']) || 0) || Number(bd['baduta']) || 0;
           const tBalita1259 = (Number(bd['balita1259_l']) || 0) + (Number(bd['balita1259_p']) || 0) || Number(bd['balita']) || 0;
           const tBusui = Number(bd['busui_w']) || Number(bd['busui']) || 0;
           const tBumil = Number(bd['bumil_w']) || Number(bd['bumil']) || 0;
-          const tKader = (Number(bd['kader_l']) || 0) + (Number(bd['kader_p']) || 0) || g;
+          tKader = (Number(bd['kader_l']) || 0) + (Number(bd['kader_p']) || 0) || Number(bd['kader']) || Number(l.targetKader) || 0;
 
           b = (tBalita511 + tBalita1259) || b;
           bb = (tBusui + tBumil) || bb;
-          g = tKader;
+          g = 0; // Strictly 0 guru/staf for 3B!
           s = 0;
         } else if (itemConf.targetCategory === 'Balita' || itemKlas === 'Porsi Balita' || itemKlas === 'Balita' || norm.includes('balita')) {
           b = sumClasses > 0 ? sumClasses : (b || s || 0);
@@ -1439,13 +1439,13 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           bb = 0;
         }
 
-        const total = s + g + b + bb;
+        const total = is3B ? (b + bb + tKader) : (s + g + b + bb);
         const autoP = calculateAutoPortion({
           kategoriLembaga: itemCat,
           namaInstansi: instName,
           breakdownKelas: bd,
           targetSiswa: s,
-          targetGuru: g,
+          targetGuru: is3B ? 0 : g,
           targetBalita: b,
           targetBumilBusui: bb,
           total
@@ -1457,8 +1457,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           namaInstansi: instName,
           kategoriLembaga: itemCat,
           breakdownKelas: bd,
-          targetSiswa: s,
-          targetGuru: g,
+          targetSiswa: is3B ? 0 : s,
+          targetGuru: is3B ? 0 : g,
+          targetKader: is3B ? tKader : 0,
           targetBalita: b,
           targetBumilBusui: bb,
           total,
@@ -1501,25 +1502,30 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         return [...remaining, payload].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
       });
 
-      const newLocs: BeneficiaryLocation[] = sanitizedLembagaList.map((item: any, lIdx: number) => ({
-        id: item.id || `LOC-${groupId}-${lIdx + 1}`,
-        groupId: groupId,
-        groupNama: groupNama,
-        namaInstansi: item.namaInstansi,
-        kategoriLembaga: item.kategoriLembaga || groupCat,
-        klasifikasiPorsi: item.klasifikasiPorsi,
-        breakdownKelas: item.breakdownKelas || {},
-        kategoriBreakdown: {
-          siswa: item.targetSiswa || 0,
-          guru: item.targetGuru || 0,
-          balita: item.targetBalita || 0,
-          ibuHamil: item.targetBumilBusui ? Math.ceil(item.targetBumilBusui / 2) : 0,
-          ibuMenyusui: item.targetBumilBusui ? Math.floor(item.targetBumilBusui / 2) : 0,
-          breakdownKelas: item.breakdownKelas || {}
-        },
-        defaultJumlah: item.total || 0,
-        status: 'Aktif'
-      }));
+      const newLocs: BeneficiaryLocation[] = sanitizedLembagaList.map((item: any, lIdx: number) => {
+        const isLoc3B = (item.kategoriLembaga || groupCat).includes('3B');
+        const kCount = isLoc3B ? ((Number(item.breakdownKelas?.kader_l) || 0) + (Number(item.breakdownKelas?.kader_p) || 0) || Number(item.breakdownKelas?.kader) || Number(item.targetKader) || 0) : 0;
+        return {
+          id: item.id || `LOC-${groupId}-${lIdx + 1}`,
+          groupId: groupId,
+          groupNama: groupNama,
+          namaInstansi: item.namaInstansi,
+          kategoriLembaga: item.kategoriLembaga || groupCat,
+          klasifikasiPorsi: item.klasifikasiPorsi,
+          breakdownKelas: item.breakdownKelas || {},
+          defaultJumlah: item.total || 0,
+          status: 'Aktif',
+          kategoriBreakdown: {
+            siswa: isLoc3B ? 0 : (item.targetSiswa || 0),
+            guru: isLoc3B ? 0 : (item.targetGuru || 0),
+            kader: kCount,
+            balita: item.targetBalita || 0,
+            ibuHamil: item.targetBumilBusui ? Math.ceil(item.targetBumilBusui / 2) : 0,
+            ibuMenyusui: item.targetBumilBusui ? Math.floor(item.targetBumilBusui / 2) : 0,
+            breakdownKelas: item.breakdownKelas || {}
+          }
+        };
+      });
 
       setLocations((prev) => {
         const withoutThisGroup = prev.filter(l => l.groupId !== groupId && l.groupNama !== groupNama);
@@ -2120,7 +2126,6 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         if (bumilVal === 0) bumilVal = 30;
                         if (busuiVal === 0) busuiVal = 21;
                         if (balitaVal === 0) balitaVal = 68;
-                        if (guruVal === 0) guruVal = 8;
                       }
 
                       const totalBumilBusuiVal = bumilVal + busuiVal;
@@ -2922,50 +2927,43 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               groups.map((grp, groupIdx) => {
               const is3BGrp = grp.nama?.includes('3B') || grp.kategoriLembaga?.includes('3B') || grp.kategoriUtama === '3B';
               const grpLocs = locations.filter(l => l.groupId === grp.id || l.groupNama === grp.nama);
-              let totalSiswa = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.siswa || 0), 0);
-              let totalGuru = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0), 0);
+              let totalSiswa = grpLocs.reduce((acc, l) => acc + (is3BGrp ? 0 : (l.kategoriBreakdown?.siswa || 0)), 0);
+              let totalGuru = grpLocs.reduce((acc, l) => acc + (is3BGrp ? 0 : (l.kategoriBreakdown?.guru || l.kategoriBreakdown?.staf || 0)), 0);
+              let totalKader = grpLocs.reduce((acc, l) => acc + (is3BGrp ? (l.kategoriBreakdown?.kader || (Number(l.breakdownKelas?.kader_l) || 0) + (Number(l.breakdownKelas?.kader_p) || 0) || Number(l.breakdownKelas?.kader) || 0) : 0), 0);
               let totalBalita = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.balita || 0), 0);
               let totalBumil = grpLocs.reduce((acc, l) => acc + (l.kategoriBreakdown?.ibuHamil || 0) + (l.kategoriBreakdown?.ibuMenyusui || 0), 0);
 
               if (grp.lembagaList && grp.lembagaList.length > 0) {
-                let lSiswa = 0, lGuru = 0, lBalita = 0, lBumil = 0;
+                let lSiswa = 0, lGuru = 0, lKader = 0, lBalita = 0, lBumil = 0;
                 grp.lembagaList.forEach((l: any) => {
                   const bd = l.breakdownKelas || {};
                   const bW = Number(bd.busui_w ?? bd.busui) || 0;
                   const mW = Number(bd.bumil_w ?? bd.bumil) || 0;
                   const bBaduta = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) || Number(bd.baduta) || 0;
                   const bBalita = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
-                  const kKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
+                  const kKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || Number(l.targetKader) || 0;
 
-                  const s = Number(l.targetSiswa) || 0;
-                  let g = Number(l.targetGuru) || kKader || 0;
-                  let b = Number(l.targetBalita) || (bBaduta + bBalita) || 0;
-                  let bb = Number(l.targetBumilBusui) || (mW + bW) || 0;
-
-                  const normL = (l.namaInstansi || '').toLowerCase();
-                  if ((normL.includes('posyandu') || normL.includes('temenggungan')) && bb === 0) {
-                    bb = 51;
-                    b = b || 68;
-                    g = g || 8;
-                  }
+                  const s = is3BGrp ? 0 : (Number(l.targetSiswa) || 0);
+                  const g = is3BGrp ? 0 : (Number(l.targetGuru) || 0);
+                  const kd = is3BGrp ? kKader : 0;
+                  const b = Number(l.targetBalita) || (bBaduta + bBalita) || 0;
+                  const bb = Number(l.targetBumilBusui) || (mW + bW) || 0;
 
                   lSiswa += s;
                   lGuru += g;
+                  lKader += kd;
                   lBalita += b;
                   lBumil += bb;
                 });
                 totalSiswa = lSiswa;
                 totalGuru = lGuru;
+                totalKader = lKader;
                 totalBalita = lBalita;
                 totalBumil = lBumil;
-              } else if (is3BGrp && totalBumil === 0) {
-                totalBumil = 51;
-                totalBalita = totalBalita || 68;
-                totalGuru = totalGuru || 8;
               }
 
               const totalPorsi = is3BGrp
-                ? (totalBalita + totalBumil + totalGuru)
+                ? (totalBalita + totalBumil + totalKader)
                 : (totalSiswa + totalGuru + totalBalita + totalBumil);
 
               const groupAuto = calculateAutoPortion({
@@ -3057,9 +3055,19 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           🤰🤱 Bumil & Busui: <span className="font-extrabold text-rose-950">{totalBumil}</span>
                         </div>
                       )}
-                      <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-medium text-slate-600">
-                        👨‍🏫 {is3BGrp ? 'Kader' : 'Guru'}: <span className="font-extrabold text-slate-900">{totalGuru}</span>
-                      </div>
+                      {is3BGrp ? (
+                        totalKader > 0 && (
+                          <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200/70 rounded-xl text-xs font-medium text-emerald-800">
+                            👩‍⚕️ Kader: <span className="font-extrabold text-emerald-950">{totalKader}</span>
+                          </div>
+                        )
+                      ) : (
+                        totalGuru > 0 && (
+                          <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-medium text-slate-600">
+                            👨‍🏫 Guru: <span className="font-extrabold text-slate-900">{totalGuru}</span>
+                          </div>
+                        )
+                      )}
                       <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-medium text-emerald-700">
                         🍱 Total Porsi: <span className="font-extrabold text-emerald-900">{totalPorsi}</span>
                       </div>
@@ -3278,9 +3286,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       <thead className="bg-slate-100/80 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
                           <th className="px-4 py-2.5">Nama Lembaga / Instansi</th>
-                          <th className="px-3 py-2.5 text-center">Sasaran Siswa</th>
-                          <th className="px-3 py-2.5 text-center">Guru / Staf</th>
-                          <th className="px-3 py-2.5 text-center">Balita</th>
+                          <th className="px-3 py-2.5 text-center">{is3BGrp ? 'Balita 5-11 Bln' : 'Sasaran Siswa'}</th>
+                          <th className="px-3 py-2.5 text-center">{is3BGrp ? 'Kader' : 'Guru / Staf'}</th>
+                          <th className="px-3 py-2.5 text-center">{is3BGrp ? 'Balita 12-59 Bln' : 'Balita'}</th>
                           <th className="px-3 py-2.5 text-center">Bumil / Busui</th>
                           <th className="px-3 py-2.5 text-center">Subtotal Porsi</th>
                           <th className="px-3 py-2.5">PIC & Kontak</th>
@@ -3303,19 +3311,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             const locBd = loc.breakdownKelas || loc.kategoriBreakdown?.breakdownKelas || {};
                             let bdBumil = Number(locBd.bumil_w ?? locBd.bumil) || (loc.kategoriBreakdown?.ibuHamil || 0);
                             let bdBusui = Number(locBd.busui_w ?? locBd.busui) || (loc.kategoriBreakdown?.ibuMenyusui || 0);
-                            let bdBalita = (Number(locBd.balita511_l) || 0) + (Number(locBd.balita511_p) || 0) + (Number(locBd.balita1259_l) || 0) + (Number(locBd.balita1259_p) || 0) || (Number(locBd.baduta) || 0) + (Number(locBd.balita) || 0) || (loc.kategoriBreakdown?.balita || 0) || (loc.targetBalita || 0);
-                            let bdKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || (Number(locBd.kader) || 0) || (loc.kategoriBreakdown?.guru || 0) || (loc.targetGuru || 0);
-
-                            if (is3B && (norm.includes('posyandu') || norm.includes('temenggungan'))) {
-                              if (bdBumil === 0) bdBumil = 30;
-                              if (bdBusui === 0) bdBusui = 21;
-                              if (bdBalita === 0) bdBalita = 68;
-                              if (bdKader === 0) bdKader = 8;
-                            }
+                            let bdBalita511 = (Number(locBd.balita511_l) || 0) + (Number(locBd.balita511_p) || 0) || Number(locBd.baduta) || 0;
+                            let bdBalita1259 = (Number(locBd.balita1259_l) || 0) + (Number(locBd.balita1259_p) || 0) || Number(locBd.balita) || 0;
+                            let bdBalita = bdBalita511 + bdBalita1259 || (loc.kategoriBreakdown?.balita || 0) || (loc.targetBalita || 0);
+                            let bdKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || Number(locBd.kader) || Number(loc.targetKader) || 0;
 
                             let s = is3B ? 0 : (loc.kategoriBreakdown?.siswa !== undefined ? loc.kategoriBreakdown.siswa : (loc.targetSiswa || 0));
-                            let g = bdKader || (loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0));
-                            let b = bdBalita || (loc.kategoriBreakdown?.balita !== undefined ? loc.kategoriBreakdown.balita : (loc.targetBalita || 0));
+                            let g = is3B ? 0 : (loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0));
+                            let b = bdBalita;
                             let bb = (bdBumil + bdBusui) || (loc.kategoriBreakdown?.ibuHamil || 0) + (loc.kategoriBreakdown?.ibuMenyusui || 0) || (loc.targetBumilBusui || 0);
 
                             if (!is3B) {
@@ -3334,15 +3337,15 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                               }
                             }
 
-                            const calculatedSum = s + g + b + bb;
-                            const tot = calculatedSum > 0 ? calculatedSum : (loc.total || loc.defaultJumlah || (is3B && (norm.includes('posyandu') || norm.includes('temenggungan')) ? 127 : 0));
+                            const calculatedSum = is3B ? (b + bb + bdKader) : (s + g + b + bb);
+                            const tot = calculatedSum > 0 ? calculatedSum : (loc.total || loc.defaultJumlah || 0);
 
                             const locAuto = calculateAutoPortion({
                               kategoriLembaga: loc.kategoriLembaga || grp.kategoriLembaga,
                               namaInstansi: loc.namaInstansi || loc.nama,
                               breakdownKelas: loc.breakdownKelas || loc.kategoriBreakdown?.breakdownKelas || {},
                               targetSiswa: s,
-                              targetGuru: g,
+                              targetGuru: is3B ? 0 : g,
                               targetBalita: b,
                               targetBumilBusui: bb,
                               total: tot
@@ -3362,16 +3365,26 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-center">
-                                  <div className="font-semibold text-slate-700">{s}</div>
-                                  {loc.breakdownKelas && Object.keys(loc.breakdownKelas).length > 0 && (
-                                    <div className="text-[9px] text-slate-400 font-medium truncate max-w-[160px] mx-auto" title={Object.entries(loc.breakdownKelas).map(([k, v]) => `${k}: ${v}`).join(', ')}>
-                                      {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).slice(0, 3).map(([k, v]) => `${k.replace('kelas', 'K')}: ${v}`).join(' ')}
-                                      {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).length > 3 ? '...' : ''}
-                                    </div>
+                                  {is3BGrp ? (
+                                    <div className="font-semibold text-slate-700">{bdBalita511 > 0 ? bdBalita511 : '-'}</div>
+                                  ) : (
+                                    <>
+                                      <div className="font-semibold text-slate-700">{s}</div>
+                                      {loc.breakdownKelas && Object.keys(loc.breakdownKelas).length > 0 && (
+                                        <div className="text-[9px] text-slate-400 font-medium truncate max-w-[160px] mx-auto" title={Object.entries(loc.breakdownKelas).map(([k, v]) => `${k}: ${v}`).join(', ')}>
+                                          {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).slice(0, 3).map(([k, v]) => `${k.replace('kelas', 'K')}: ${v}`).join(' ')}
+                                          {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).length > 3 ? '...' : ''}
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </td>
-                                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{g}</td>
-                                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{b}</td>
+                                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">
+                                  {is3BGrp ? (bdKader > 0 ? bdKader : '-') : (g > 0 ? g : 0)}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-semibold text-slate-700">
+                                  {is3BGrp ? (bdBalita1259 > 0 ? bdBalita1259 : '-') : b}
+                                </td>
                                 <td className="px-3 py-2.5 text-center font-semibold text-slate-700">
                                   <div className="font-extrabold text-slate-900">{bb}</div>
                                   {(bdBumil > 0 || bdBusui > 0) && (
@@ -3928,7 +3941,6 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           if (bumilVal === 0) bumilVal = 30;
                           if (busuiVal === 0) busuiVal = 21;
                           if (balitaVal === 0) balitaVal = 68;
-                          if (guruVal === 0) guruVal = 8;
                         }
 
                         const totalBumilBusui = bumilVal + busuiVal;

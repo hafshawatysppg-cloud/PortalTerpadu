@@ -441,6 +441,7 @@ export interface BeneficiaryGroup {
     kategoriLembaga?: KategoriLembaga;
     targetSiswa: number;
     targetGuru: number;
+    targetKader?: number;
     targetBalita?: number;
     targetBumilBusui?: number;
     total: number;
@@ -464,6 +465,7 @@ export interface BeneficiaryLocation {
   kategoriBreakdown?: {
     siswa?: number;
     guru?: number;
+    kader?: number;
     balita?: number;
     ibuHamil?: number;
     ibuMenyusui?: number;

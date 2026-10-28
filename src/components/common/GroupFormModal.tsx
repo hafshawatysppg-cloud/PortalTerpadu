@@ -197,9 +197,9 @@ export const KATEGORI_LEMBAGA_CONFIGS: KategoriLembagaConfig[] = [
   {
     id: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
     label: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
-    shortName: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
-    badge: 'Busui, Bumil, Balita 5-11 Bln, Balita 12-59 Bln & Kader',
-    desc: 'Kategori terpadu 3B: Busui (W), Bumil (W), Balita 5-11 Bln (L/P), Balita 12-59 Bln (L/P), dan Kader (L/P).',
+    shortName: '3B',
+    badge: 'Bumil - Busui - Balita 5-11 Bln - Balita 12-59 Bln - kader',
+    desc: 'Kategori terpadu 3B: Bumil, Busui, Balita 5-11 Bln, Balita 12-59 Bln, dan Kader Posyandu.',
     defaultKlasifikasi: 'Bumil & Busui',
     targetCategory: '3B',
     mainTargetLabel: 'Sasaran 3B',
@@ -253,32 +253,76 @@ export const KATEGORI_LEMBAGA_CONFIGS: KategoriLembagaConfig[] = [
 export const getKategoriConfig = (kategori?: string): KategoriLembagaConfig => {
   if (!kategori) return KATEGORI_LEMBAGA_CONFIGS[0];
   const norm = (kategori || '').trim().toLowerCase();
-  const found = KATEGORI_LEMBAGA_CONFIGS.find(k => 
+
+  // 1. Prioritas utama: pencocokan persis pada id, label, atau shortName
+  const exact = KATEGORI_LEMBAGA_CONFIGS.find(k => 
     k.id.toLowerCase() === norm || 
     k.label.toLowerCase() === norm || 
-    k.shortName.toLowerCase() === norm ||
-    (norm.includes('paud') && k.id === 'PAUD / TK / RA') ||
-    (norm.includes('tk') && k.id === 'PAUD / TK / RA') ||
-    (norm.includes('sd') && k.id === 'SD / MI') ||
-    (norm.includes('mi') && k.id === 'SD / MI') ||
-    (norm.includes('smp') && k.id === 'SMP / MTs') ||
-    (norm.includes('mts') && k.id === 'SMP / MTs') ||
-    (norm.includes('sma') && k.id === 'SMA / SMK / MA') ||
-    (norm.includes('smk') && k.id === 'SMA / SMK / MA') ||
-    (norm.includes('pesantren') && k.id === 'Pondok Pesantren') ||
-    ((norm.includes('3b') || norm.includes('baliat') || norm.includes('balita') || norm.includes('bumil') || norm.includes('busui') || norm.includes('hamil') || norm.includes('menyusui') || norm.includes('posyandu')) && k.id.includes('3B'))
+    k.shortName.toLowerCase() === norm
   );
-  return found || KATEGORI_LEMBAGA_CONFIGS[0];
+  if (exact) return exact;
+
+  // 2. Pencocokan kata kunci terfokus (3B HARUS dicek pertama sebelum SD/MI untuk mencegah 'hamil' terdeteksi 'mi')
+  if (
+    norm.includes('3b') ||
+    norm.includes('baliat') ||
+    norm.includes('balita') ||
+    norm.includes('bumil') ||
+    norm.includes('busui') ||
+    norm.includes('hamil') ||
+    norm.includes('menyusui') ||
+    norm.includes('posyandu')
+  ) {
+    const found3B = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id.includes('3B'));
+    if (found3B) return found3B;
+  }
+
+  if (norm.includes('paud') || norm.includes(' tk') || norm.startsWith('tk') || norm.includes('/tk') || norm.includes(' ra ') || norm.includes('taman kanak') || norm.includes('kb ')) {
+    const foundPaud = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id === 'PAUD / TK / RA');
+    if (foundPaud) return foundPaud;
+  }
+
+  if (norm.includes('pesantren') || norm.includes('santri') || norm.includes('ponpes')) {
+    const foundPonpes = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id === 'Pondok Pesantren');
+    if (foundPonpes) return foundPonpes;
+  }
+
+  if (norm.includes('smp') || norm.includes('mts')) {
+    const foundSmp = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id === 'SMP / MTs');
+    if (foundSmp) return foundSmp;
+  }
+
+  if (norm.includes('sma') || norm.includes('smk') || norm.includes(' ma ') || norm.includes('/ma') || norm.includes('aliyah')) {
+    const foundSma = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id === 'SMA / SMK / MA');
+    if (foundSma) return foundSma;
+  }
+
+  // Khusus SD / MI menggunakan batas kata agar kata seperti 'hamil' atau 'ekonomi' tidak salah terdeteksi
+  if (
+    norm.includes('sd ') ||
+    norm.startsWith('sd') ||
+    norm.includes('/sd') ||
+    norm.includes(' mi') ||
+    norm.startsWith('mi') ||
+    norm.includes('/mi') ||
+    norm.includes('sekolah dasar') ||
+    norm.includes('madrasah ibtidaiyah')
+  ) {
+    const foundSd = KATEGORI_LEMBAGA_CONFIGS.find(k => k.id === 'SD / MI');
+    if (foundSd) return foundSd;
+  }
+
+  return KATEGORI_LEMBAGA_CONFIGS[0];
 };
 
 export const inferKategoriFromText = (nama: string = '', fallback: KategoriLembaga = 'SD / MI'): KategoriLembaga => {
   const n = (nama || '').toLowerCase();
+  if (n.includes('3b') || n.includes('baliat') || n.includes('balita') || n.includes('posyandu') || n.includes('bumil') || n.includes('busui') || n.includes('hamil') || n.includes('menyusui')) return '3B (Balita, Ibu Hamil & Ibu Menyusui)';
   if (n.includes('paud') || n.includes('tk ') || n.includes('tk-') || n.includes('taman kanak') || n.includes('kb ') || n.includes('ra ')) return 'PAUD / TK / RA';
   if (n.includes('smp') || n.includes('mts')) return 'SMP / MTs';
   if (n.includes('sma') || n.includes('smk') || n.includes('ma ') || n.includes('aliyah')) return 'SMA / SMK / MA';
-  if (n.includes('3b') || n.includes('baliat') || n.includes('balita') || n.includes('posyandu') || n.includes('bumil') || n.includes('busui') || n.includes('hamil') || n.includes('menyusui')) return '3B (Balita, Ibu Hamil & Ibu Menyusui)';
   if (n.includes('pesantren') || n.includes('santri') || n.includes('ponpes')) return 'Pondok Pesantren';
-  if (n.includes('sd') || n.includes('mi ') || n.includes('sekolah dasar')) return 'SD / MI';
+  if (n.includes('sd ') || n.startsWith('sd') || n.includes('mi ') || n.startsWith('mi') || n.includes('sekolah dasar')) return 'SD / MI';
   return fallback;
 };
 
@@ -312,8 +356,15 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     const isCustomName = Boolean(
       editingGroup.nama && 
       !editingGroup.nama.startsWith('Kelompok Sasaran #') &&
-      !KATEGORI_LEMBAGA_CONFIGS.some(c => editingGroup.nama === c.label || editingGroup.nama === c.shortName) &&
-      editingGroup.nama !== '3B (Balita, Ibu Hamil & Ibu Menyusui)'
+      !KATEGORI_LEMBAGA_CONFIGS.some(c => editingGroup.nama === c.label || editingGroup.nama === c.shortName || editingGroup.nama === c.id) &&
+      !editingGroup.nama.startsWith('SD') &&
+      !editingGroup.nama.startsWith('SMP') &&
+      !editingGroup.nama.startsWith('SMA') &&
+      !editingGroup.nama.startsWith('PAUD') &&
+      !editingGroup.nama.startsWith('TK') &&
+      !editingGroup.nama.startsWith('3B') &&
+      editingGroup.nama !== '3B (Balita, Ibu Hamil & Ibu Menyusui)' &&
+      editingGroup.nama !== '3B'
     );
 
     const newName = isCustomName 
@@ -382,8 +433,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
         const b511P = existingBd['balita511_p'] !== undefined ? existingBd['balita511_p'] : Math.floor(rawBaduta / 2);
         const b1259L = existingBd['balita1259_l'] !== undefined ? existingBd['balita1259_l'] : Math.ceil(rawBalita / 2);
         const b1259P = existingBd['balita1259_p'] !== undefined ? existingBd['balita1259_p'] : Math.floor(rawBalita / 2);
-        const kL = existingBd['kader_l'] !== undefined ? existingBd['kader_l'] : (g ? Math.ceil(g / 2) : 0);
-        const kP = existingBd['kader_p'] !== undefined ? existingBd['kader_p'] : (g ? Math.floor(g / 2) : 0);
+        const kL = existingBd['kader_l'] !== undefined ? existingBd['kader_l'] : 0;
+        const kP = existingBd['kader_p'] !== undefined ? existingBd['kader_p'] : 0;
 
         newBd['busui_w'] = bW;
         newBd['busui'] = bW;
@@ -405,9 +456,9 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
         bVal = totBalita511 + totBalita1259;
         bbVal = (Number(bW) || 0) + (Number(mW) || 0);
-        g = totKader;
+        g = 0; // Guru/staf is strictly 0 for 3B
         sVal = 0;
-        totalLembaga = bVal + bbVal + g;
+        totalLembaga = bVal + bbVal + totKader;
       } else if (isBalita) {
         bVal = sumCls;
       } else if (isBumil) {
@@ -421,7 +472,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
         namaInstansi: newInstName,
         breakdownKelas: newBd,
         targetSiswa: sVal,
-        targetGuru: g,
+        targetGuru: is3B ? 0 : g,
         targetBalita: bVal,
         targetBumilBusui: bbVal,
         total: totalLembaga
@@ -568,7 +619,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     item.breakdownKelas = bd;
     item.targetBalita = tBalita;
     item.targetBumilBusui = tBumilBusui;
-    item.targetGuru = tKader;
+    item.targetGuru = 0;
+    item.targetKader = tKader;
     item.targetSiswa = 0;
     item.total = tBalita + tBumilBusui + tKader;
 
@@ -579,7 +631,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       targetSiswa: 0,
       targetBalita: tBalita,
       targetBumilBusui: tBumilBusui,
-      targetGuru: tKader,
+      targetGuru: 0,
       total: item.total
     });
     item.klasifikasiPorsi = autoP.klasifikasi;
@@ -723,7 +775,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
       item.targetBalita = totBalita511 + totBalita1259;
       item.targetBumilBusui = (Number(bW) || 0) + (Number(mW) || 0);
-      item.targetGuru = totKader;
+      item.targetGuru = 0;
+      item.targetKader = totKader;
       item.targetSiswa = 0;
       item.total = item.targetBalita + item.targetBumilBusui + totKader;
       if (!item.namaInstansi || item.namaInstansi.includes('SD Negeri') || item.namaInstansi.includes('Instansi') || item.namaInstansi.includes('Posyandu / Lembaga')) {
@@ -843,7 +896,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 </p>
               </div>
               <span className="text-[11px] font-bold px-3 py-1 rounded-xl bg-white border border-slate-200 text-slate-700 w-fit">
-                Kategori Terpilih: <strong className="text-emerald-700 font-extrabold">{activeConfig.label}</strong>
+                Kategori Terpilih: <strong className="text-emerald-700 font-extrabold">{activeConfig.id.includes('3B') ? '3B' : activeConfig.label}</strong>
               </span>
             </div>
 
@@ -871,7 +924,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <div className="flex-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>
-                  Breakdown Sasaran: <strong className="font-extrabold">{activeConfig.badge}</strong>
+                  Breakdown: <strong className="font-extrabold">{activeConfig.id.includes('3B') ? 'Bumil - Busui - Balita 5-11 Bln - Balita 12-59 Bln - kader' : activeConfig.badge}</strong>
                 </span>
                 <span className="text-emerald-400">•</span>
                 <span>
@@ -882,13 +935,25 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                   Sasaran Utama: <strong className="font-extrabold">{activeConfig.mainTargetLabel}</strong>
                 </span>
                 <span className="text-emerald-400">•</span>
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  Standar Porsi Otomatis: <strong className="font-extrabold text-blue-900 bg-white/90 px-2 py-0.5 rounded-lg border border-emerald-300">
-                    {activeConfig.id === 'PAUD / TK / RA' ? '🥣 Porsi Kecil' :
-                     activeConfig.id === 'SD / MI' ? '🥣 Kls 1-3 Kecil · 🍱 Kls 4-6 & Guru Besar' :
-                     activeConfig.id.includes('3B') ? '🥣 Balita Kecil · 🍱 Bumil/Busui/Kader Besar' :
-                     '🍱 Porsi Besar'}
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>Standar Porsi Otomatis:</span>
+                  </span>
+                  <strong className="font-extrabold text-blue-900 bg-white/90 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                    {activeConfig.id.includes('3B') ? (
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <span className="text-emerald-800">bumil, busui, kader porsi besar</span>
+                        <span className="text-slate-400 font-normal">,</span>
+                        <span className="text-blue-800">Balita 5-11 Bln - Balita 12-59 Bln porsi kecil</span>
+                      </span>
+                    ) : activeConfig.id === 'PAUD / TK / RA' ? (
+                      '🥣 Porsi Kecil'
+                    ) : activeConfig.id === 'SD / MI' ? (
+                      '🥣 Kls 1-3 Kecil · 🍱 Kls 4-6 & Guru Besar'
+                    ) : (
+                      '🍱 Porsi Besar'
+                    )}
                   </strong>
                 </span>
               </div>
@@ -1041,8 +1106,8 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                   const balita1259P = itemBd.balita1259_p !== undefined ? itemBd.balita1259_p : (itemBd.balita ? Math.floor(itemBd.balita / 2) : 0);
                   const totBalita1259 = (Number(balita1259L) || 0) + (Number(balita1259P) || 0);
 
-                  const kaderL = itemBd.kader_l !== undefined ? itemBd.kader_l : (numGuruThisItem ? Math.ceil(numGuruThisItem / 2) : 0);
-                  const kaderP = itemBd.kader_p !== undefined ? itemBd.kader_p : (numGuruThisItem ? Math.floor(numGuruThisItem / 2) : 0);
+                  const kaderL = itemBd.kader_l !== undefined ? itemBd.kader_l : 0;
+                  const kaderP = itemBd.kader_p !== undefined ? itemBd.kader_p : 0;
                   const totKader = (Number(kaderL) || 0) + (Number(kaderP) || 0);
 
                   const totBalitaAll = totBalita511 + totBalita1259;
@@ -1057,7 +1122,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                     namaInstansi: item.namaInstansi,
                     breakdownKelas: itemBd,
                     targetSiswa: is3BItem ? 0 : sumClassesThisItem,
-                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetGuru: is3BItem ? 0 : numGuruThisItem,
                     targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : 0),
                     targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : 0),
                     total: totalPorsiThisItem
@@ -1067,7 +1132,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                     namaInstansi: item.namaInstansi,
                     klasifikasiPorsi: autoPortionItem.klasifikasi,
                     targetMain: is3BItem ? (totBalitaAll + totBumilBusuiAll) : sumClassesThisItem,
-                    targetGuru: is3BItem ? totKader : numGuruThisItem,
+                    targetGuru: is3BItem ? 0 : numGuruThisItem,
                     targetBalita: is3BItem ? totBalitaAll : (itemConf.targetCategory === 'Balita' ? sumClassesThisItem : undefined),
                     targetBumilBusui: is3BItem ? totBumilBusuiAll : (itemConf.targetCategory === 'Ibu Hamil' ? sumClassesThisItem : undefined)
                   });
