@@ -1406,9 +1406,9 @@ export const initialBeneficiaryLocations: BeneficiaryLocation[] = [
     picTelepon: '081234567808',
     kategoriLembaga: '3B (Balita, Ibu Hamil & Ibu Menyusui)',
     klasifikasiPorsi: 'Bumil & Busui',
-    breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 2, kader_p: 6 },
-    kategoriBreakdown: { siswa: 0, guru: 8, balita: 68, ibuHamil: 30, ibuMenyusui: 21 },
-    defaultJumlah: 127,
+    breakdownKelas: { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 },
+    kategoriBreakdown: { siswa: 0, guru: 0, balita: 68, ibuHamil: 30, ibuMenyusui: 21 },
+    defaultJumlah: 119,
     status: 'Aktif'
   }
 ];
@@ -3495,10 +3495,10 @@ class EnterpriseDataStore {
         // Libur full: 0 porsi
       } else if (is3B) {
         const bd = r.breakdownKelas || r.rincianSasaran?.breakdownKelas || loc?.breakdownKelas || {};
-        let bdBumil = Number(r.rincianSasaran?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || (normInst.includes('temenggungan') ? 30 : 0);
-        let bdBusui = Number(r.rincianSasaran?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || (normInst.includes('temenggungan') ? 21 : 0);
-        let bdBalita = Number(r.rincianSasaran?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || (normInst.includes('temenggungan') ? 68 : 0);
-        let bdKader = Number(r.rincianSasaran?.guru) || (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || (normInst.includes('temenggungan') ? 8 : 0);
+        let bdBumil = Number(r.rincianSasaran?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || 0;
+        let bdBusui = Number(r.rincianSasaran?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || 0;
+        let bdBalita = Number(r.rincianSasaran?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || 0;
+        let bdKader = Number(r.rincianSasaran?.guru) || (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
         const baseTot = bdBumil + bdBusui + bdBalita + bdKader;
         if (r.totalPenerima === baseTot || baseTot === 0) {

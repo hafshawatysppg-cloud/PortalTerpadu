@@ -673,7 +673,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
     const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
     const tBumilBusui = tBusui + tBumil;
-    const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || (Number(item.targetGuru) || 0);
+    const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
     item.targetBalita = tBalita;
     item.targetBumilBusui = tBumilBusui;
@@ -747,8 +747,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const b511P = newBd['balita511_p'] !== undefined ? newBd['balita511_p'] : Math.floor(rawBaduta / 2);
       const b1259L = newBd['balita1259_l'] !== undefined ? newBd['balita1259_l'] : Math.ceil(rawBalita / 2);
       const b1259P = newBd['balita1259_p'] !== undefined ? newBd['balita1259_p'] : Math.floor(rawBalita / 2);
-      const kL = newBd['kader_l'] !== undefined ? newBd['kader_l'] : (g ? Math.ceil(g / 2) : 0);
-      const kP = newBd['kader_p'] !== undefined ? newBd['kader_p'] : (g ? Math.floor(g / 2) : 0);
+      const kL = newBd['kader_l'] !== undefined ? Number(newBd['kader_l']) || 0 : 0;
+      const kP = newBd['kader_p'] !== undefined ? Number(newBd['kader_p']) || 0 : 0;
 
       newBd['busui_w'] = bW;
       newBd['busui'] = bW;
@@ -829,12 +829,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               let targetBalita = Number(l.targetBalita) || (lBaduta + lBalita) || 0;
               let targetBumilBusui = Number(l.targetBumilBusui) || (lBumil + lBusui) || 0;
 
-              if (cleanName.includes('temenggungan') || cleanName.includes('posyandu')) {
-                if (targetBumilBusui === 0) targetBumilBusui = 51;
-                if (targetBalita === 0) targetBalita = 68;
-              }
-
-              const totalMaster = targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || (cleanName.includes('temenggungan') ? 119 : 0);
+              const totalMaster = targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || 0;
               return {
                 targetMaster: totalMaster,
                 kategoriLembaga: l.kategoriLembaga || g.kategoriLembaga,
@@ -3115,8 +3110,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                       const b511P = bd['balita511_p'] !== undefined ? bd['balita511_p'] : Math.floor(rawBaduta / 2);
                                       const b1259L = bd['balita1259_l'] !== undefined ? bd['balita1259_l'] : Math.ceil(rawBalita / 2);
                                       const b1259P = bd['balita1259_p'] !== undefined ? bd['balita1259_p'] : Math.floor(rawBalita / 2);
-                                      const kL = bd['kader_l'] !== undefined ? bd['kader_l'] : Math.ceil(g / 2);
-                                      const kP = bd['kader_p'] !== undefined ? bd['kader_p'] : Math.floor(g / 2);
+                                      const kL = bd['kader_l'] !== undefined ? Number(bd['kader_l']) || 0 : 0;
+                                      const kP = bd['kader_p'] !== undefined ? Number(bd['kader_p']) || 0 : 0;
 
                                       bd['busui_w'] = bW;
                                       bd['busui'] = bW;
@@ -3314,7 +3309,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             let bdBalita511 = (Number(locBd.balita511_l) || 0) + (Number(locBd.balita511_p) || 0) || Number(locBd.baduta) || 0;
                             let bdBalita1259 = (Number(locBd.balita1259_l) || 0) + (Number(locBd.balita1259_p) || 0) || Number(locBd.balita) || 0;
                             let bdBalita = bdBalita511 + bdBalita1259 || (loc.kategoriBreakdown?.balita || 0) || (loc.targetBalita || 0);
-                            let bdKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || Number(locBd.kader) || Number(loc.targetKader) || 0;
+                            let bdKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || Number(locBd.kader) || 0;
 
                             let s = is3B ? 0 : (loc.kategoriBreakdown?.siswa !== undefined ? loc.kategoriBreakdown.siswa : (loc.targetSiswa || 0));
                             let g = is3B ? 0 : (loc.kategoriBreakdown?.guru !== undefined ? loc.kategoriBreakdown.guru : (loc.targetGuru || 0));
@@ -3934,14 +3929,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         let bumilVal = Number(rs?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || 0;
                         let busuiVal = Number(rs?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || 0;
                         let balitaVal = Number(rs?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || (Number(bd.baduta) || 0) + (Number(bd.balita) || 0);
-                        let guruVal = Number(rs?.guru) || (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
-                        let siswaVal = Number(rs?.siswa) || 0;
-
-                        if (is3B && (cleanInst.includes('temenggungan') || cleanInst.includes('posyandu'))) {
-                          if (bumilVal === 0) bumilVal = 30;
-                          if (busuiVal === 0) busuiVal = 21;
-                          if (balitaVal === 0) balitaVal = 68;
-                        }
+                        let guruVal = is3B
+                          ? ((Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0)
+                          : (Number(rs?.guru) || 0);
+                        let siswaVal = is3B ? 0 : (Number(rs?.siswa) || 0);
 
                         const totalBumilBusui = bumilVal + busuiVal;
 

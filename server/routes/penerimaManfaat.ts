@@ -62,8 +62,18 @@ function cleanDuplicateGroupsAndLocations() {
           item.targetBumilBusui = 0;
         }
 
-        const s = Number(item.targetSiswa) || 0;
-        const guru = Number(item.targetGuru) || 0;
+        const is3BItem = item.kategoriLembaga?.includes('3B') || normInstansi.includes('3b') || g.kategoriLembaga?.includes('3B') || (g.nama && g.nama.includes('3B'));
+        if (is3BItem) {
+          const bd = item.breakdownKelas || {};
+          const kL = Number(bd.kader_l) || 0;
+          const kP = Number(bd.kader_p) || 0;
+          const kTot = kL + kP || Number(bd.kader) || 0;
+          item.targetGuru = kTot;
+          item.targetSiswa = 0;
+        }
+
+        const s = is3BItem ? 0 : (Number(item.targetSiswa) || 0);
+        const guru = is3BItem ? (Number(item.targetGuru) || 0) : (Number(item.targetGuru) || 0);
         const balita = Number(item.targetBalita) || 0;
         const bumil = Number(item.targetBumilBusui) || 0;
         const accurateTotal = s + guru + balita + bumil;
@@ -80,8 +90,9 @@ function cleanDuplicateGroupsAndLocations() {
           loc.defaultJumlah = accurateTotal;
           loc.klasifikasiPorsi = itemKlas;
           loc.kategoriBreakdown = {
-            siswa: s,
-            guru: guru,
+            siswa: is3BItem ? 0 : s,
+            guru: is3BItem ? (Number(item.targetGuru) || 0) : guru,
+            kader: is3BItem ? (Number(item.targetGuru) || 0) : 0,
             balita: balita,
             ibuHamil: (itemKlas === 'Porsi Ibu Hamil' || normInstansi.includes('hamil')) ? bumil : (itemKlas === 'Bumil & Busui' ? Math.ceil(bumil / 2) : 0),
             ibuMenyusui: (itemKlas === 'Porsi Ibu Menyusui' || normInstansi.includes('menyusui')) ? bumil : (itemKlas === 'Bumil & Busui' ? Math.floor(bumil / 2) : 0)
@@ -90,6 +101,28 @@ function cleanDuplicateGroupsAndLocations() {
         }
       });
       syncSaveDoc('beneficiaryGroups', g.id, g);
+    }
+  });
+
+  // Also sanitize any existing dailyBeneficiaryRecords for 3B that might have had the artificial 8 guru
+  dbStore.dailyBeneficiaryRecords.forEach((rec) => {
+    const is3BRec = (rec.kategoriLembaga && rec.kategoriLembaga.includes('3B')) ||
+                    (rec.groupNama && rec.groupNama.includes('3B')) ||
+                    (rec.namaInstansi && (rec.namaInstansi.toLowerCase().includes('posyandu') || rec.namaInstansi.toLowerCase().includes('temenggungan')));
+    if (is3BRec && rec.rincianSasaran) {
+      const bd = rec.breakdownKelas || rec.rincianSasaran?.breakdownKelas || {};
+      const kL = Number(bd.kader_l) || 0;
+      const kP = Number(bd.kader_p) || 0;
+      const realKader = kL + kP || Number(bd.kader) || 0;
+      if (realKader === 0 && rec.rincianSasaran.guru === 8) {
+        rec.rincianSasaran.guru = 0;
+        const b = Number(rec.rincianSasaran.balita) || 0;
+        const ih = Number(rec.rincianSasaran.ibuHamil) || 0;
+        const im = Number(rec.rincianSasaran.ibuMenyusui) || 0;
+        rec.totalPenerima = b + ih + im;
+        rec.jumlahAwal = rec.totalPenerima;
+        syncSaveDoc('dailyBeneficiaryRecords', rec.id, rec);
+      }
     }
   });
 
@@ -188,7 +221,7 @@ async function updateGroupHandler(id: string, body: any, res: Response): Promise
         const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
         const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
         const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
-        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(targetGuru) || 0;
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
         balita = (tBalita511 + tBalita1259) || Number(targetBalita) || 0;
         ibuHamil = tBumil || Math.ceil((Number(targetBumilBusui) || 0) / 2);
@@ -367,7 +400,7 @@ router.post('/groups', async (req: Request, res: Response): Promise<void> => {
         const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
         const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
         const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
-        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(targetGuru) || 0;
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
         balita = (tBalita511 + tBalita1259) || Number(targetBalita) || 0;
         ibuHamil = tBumil || Math.ceil((Number(targetBumilBusui) || 0) / 2);
@@ -694,22 +727,13 @@ router.post('/plan', (req: Request, res: Response): void => {
         const tBalita1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || Number(bd.balita) || 0;
         const tBusui = Number(bd.busui_w) || Number(bd.busui) || 0;
         const tBumil = Number(bd.bumil_w) || Number(bd.bumil) || 0;
-        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || (Number(item.targetGuru) || 0);
+        const tKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
         balita = (tBalita511 + tBalita1259) || Number(item.targetBalita) || 0;
         ibuHamil = tBumil || Math.ceil((Number(item.targetBumilBusui) || 0) / 2);
         ibuMenyusui = tBusui || Math.floor((Number(item.targetBumilBusui) || 0) / 2);
 
-        if (normInstansi.includes('posyandu') || normInstansi.includes('temenggungan')) {
-          if (ibuHamil === 0 && ibuMenyusui === 0) {
-            ibuHamil = 30;
-            ibuMenyusui = 21;
-          }
-          if (balita === 0) balita = 68;
-          if (guru === 0) guru = 8;
-        }
-
-        guru = tKader || guru;
+        guru = tKader;
         siswa = 0;
         kategori = 'Balita';
       } else {
@@ -1197,12 +1221,6 @@ router.get('/rekap-bulanan', (req: Request, res: Response): void => {
           ih = Number(r.breakdownKelas.bumil_w || r.breakdownKelas.bumil || 0);
           im = Number(r.breakdownKelas.busui_w || r.breakdownKelas.busui || 0);
         }
-        if (ih === 0 && im === 0 && (r.namaInstansi?.toLowerCase().includes('temenggungan') || r.namaInstansi?.toLowerCase().includes('posyandu') || r.groupNama?.toUpperCase().includes('3B'))) {
-          ih = 30;
-          im = 21;
-          if (b === 0) b = 68;
-          if (g === 0) g = 8;
-        }
 
         if (delta !== 0) {
           if (b > 0 || r.kategori === 'Balita') b = Math.max(0, b + delta);
@@ -1218,10 +1236,15 @@ router.get('/rekap-bulanan', (req: Request, res: Response): void => {
         item.totalIbuMenyusui += im;
       }
     } else if (r.namaInstansi?.toLowerCase().includes('temenggungan') || r.namaInstansi?.toLowerCase().includes('posyandu') || r.groupNama?.toUpperCase().includes('3B')) {
-      item.totalBalita += 68;
-      item.totalIbuHamil += 30;
-      item.totalIbuMenyusui += 21;
-      item.totalGuru += 8;
+      const bd = r.breakdownKelas || {};
+      const b = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0);
+      const ih = Number(bd.bumil_w || bd.bumil || 0);
+      const im = Number(bd.busui_w || bd.busui || 0);
+      const k = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
+      item.totalBalita += b;
+      item.totalIbuHamil += ih;
+      item.totalIbuMenyusui += im;
+      item.totalGuru += k;
     } else if (r.kategori === 'Balita' || r.groupNama.toUpperCase().includes('BALITA')) {
       item.totalBalita += r.totalPenerima;
     } else if (r.kategori === 'Ibu Hamil' || r.groupNama.toUpperCase().includes('HAMIL')) {
