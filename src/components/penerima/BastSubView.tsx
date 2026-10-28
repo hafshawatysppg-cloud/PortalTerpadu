@@ -1164,7 +1164,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                         <div className="relative flex items-center justify-center min-h-[58px]">
                           <div className="absolute left-0 top-0">
                             <img
-                              src="/badan_gizi_logo_1785799692960.jpg"
+                              src="/badan-gizi-nasional-seeklogo.png"
                               alt="Logo Badan Gizi Nasional"
                               className="w-14 h-14 object-contain"
                               onError={(e) => {
@@ -1276,7 +1276,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                         <div className="relative flex items-center justify-center min-h-[58px]">
                           <div className="absolute left-0 top-0">
                             <img
-                              src="/badan_gizi_logo_1785799692960.jpg"
+                              src="/badan-gizi-nasional-seeklogo.png"
                               alt="Logo Badan Gizi Nasional"
                               className="w-14 h-14 object-contain"
                               onError={(e) => {
