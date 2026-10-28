@@ -101,6 +101,39 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const [isSavingGlobalTarif, setIsSavingGlobalTarif] = useState<boolean>(false);
+
+  // Save global Tarif & Pagu permanently across all menu plannings
+  const handleSaveGlobalTarif = async () => {
+    setIsSavingGlobalTarif(true);
+    try {
+      const res = await fetch('/api/v1/nutrition-plans/rab/global-tarif', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customTarif)
+      });
+      const json = await res.json();
+      if (json.success) {
+        showToast('Pengaturan Tarif & Pagu berhasil disimpan permanen untuk SELURUH perencanaan menu!', 'success');
+        recalculateCurrentRAB({
+          tarifConfig: customTarif,
+          komposisiConfig: {
+            bahanPanganPersen: 100,
+            operasionalPersen: 0,
+            kemasanDistribusiPersen: 0
+          }
+        });
+        setShowTarifModal(false);
+      } else {
+        showToast(json.message || 'Gagal menyimpan tarif global', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal terhubung ke server', 'error');
+    } finally {
+      setIsSavingGlobalTarif(false);
+    }
+  };
+
   // 1. Fetch RAB context for date
   const fetchRABContext = async (targetDate: string, isManual = false) => {
     if (!targetDate) return;
@@ -431,6 +464,7 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
 
   if (!rabData) return null;
 
+  const isFinal = rabData.status === 'Disetujui' || rabData.status === 'Final';
   const { targetCounts, tarifConfig, analisis, itemsBahanBaku: rawItemsBahanBaku, biayaOperasionalItems } = rabData;
 
   const itemsBahanBaku = (rawItemsBahanBaku || []).map(item => {
@@ -838,6 +872,24 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
       {/* TAB 1: BELANJA BAHAN BAKU (FOOD COST) */}
       {activeSubTab === 'bahan' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden space-y-4 p-5">
+          {/* Lock Banner if finalized */}
+          {isFinal && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-bold text-amber-900 dark:text-amber-200 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>RAB Belanja Bahan Baku telah DIFINALISASI & TERKUNCI. Estimasi harga satuan dan kebutuhan (QTY) tidak dapat diubah.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleUnlockRevision}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>Buka Kunci RAB & Biaya Operasional</span>
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight flex items-center gap-2">
@@ -845,6 +897,11 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                 <span className="text-xs px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 rounded-full font-bold">
                   Total: Rp {rabData.totalBiayaBahanBaku.toLocaleString('id-ID')}
                 </span>
+                {isFinal && (
+                  <span className="text-xs px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-full font-bold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Terkunci
+                  </span>
+                )}
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5">
                 <span>Rincian komoditas, estimasi harga satuan acuan pasar, dan subtotal belanja.</span>
@@ -853,14 +910,16 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                 </span>
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleAddCustomBahan}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Bahan</span>
-            </button>
+            {!isFinal && (
+              <button
+                type="button"
+                onClick={handleAddCustomBahan}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Tambah Bahan</span>
+              </button>
+            )}
           </div>
 
           {itemsBahanBaku.length === 0 ? (
@@ -921,9 +980,15 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                           type="number"
                           min="0"
                           step="500"
+                          disabled={isFinal}
                           value={item.hargaSatuan}
                           onChange={(e) => handleItemBahanChange(idx, 'hargaSatuan', Number(e.target.value) || 0)}
-                          className="w-28 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold text-xs"
+                          className={`w-28 px-2 py-1 rounded-lg text-right font-bold text-xs border ${
+                            isFinal
+                              ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-500 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                              : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                          }`}
+                          title={isFinal ? 'Harga terkunci karena RAB telah difinalisasi' : 'Ubah harga satuan'}
                         />
                       </div>
                     </td>
@@ -942,14 +1007,18 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                       </div>
                     </td>
                     <td className="py-2.5 px-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveBahan(idx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                        title="Hapus baris bahan"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isFinal ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBahan(idx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus baris bahan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <Lock className="w-3.5 h-3.5 text-slate-300 mx-auto" />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -976,6 +1045,24 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
       {/* TAB 2: BIAYA OPERASIONAL DAPUR */}
       {activeSubTab === 'operasional' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden space-y-4 p-5">
+          {/* Lock Banner if finalized */}
+          {isFinal && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-bold text-amber-900 dark:text-amber-200 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Biaya Operasional Dapur telah DISIMPAN & DIFINALISASI. Data terkunci dan tidak dapat diubah kecuali membuka kunci.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleUnlockRevision}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>Buka Kunci Biaya Operasional & RAB</span>
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight flex items-center gap-2">
@@ -983,30 +1070,39 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                 <span className="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-full font-bold">
                   Total: Rp {rabData.totalBiayaOperasional.toLocaleString('id-ID')}
                 </span>
+                {isFinal && (
+                  <span className="text-xs px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-full font-bold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Terkunci
+                  </span>
+                )}
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Komponen utilitas energi gas memasak, listrik, air bersih standar hygiene, dan upah tim juru masak/pemorsian.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={handleAddOperasionalItem}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Item Operasional</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOperasional}
-                disabled={isSaving}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
-                title="Simpan perubahan dan data yang telah ditambahkan pada Biaya Operasional Dapur"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSaving ? 'Menyimpan...' : 'Simpan'}</span>
-              </button>
+              {!isFinal && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleAddOperasionalItem}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Item Operasional</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveOperasional}
+                    disabled={isSaving}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                    title="Simpan perubahan dan data yang telah ditambahkan pada Biaya Operasional Dapur"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isSaving ? 'Menyimpan...' : 'Simpan'}</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -1065,29 +1161,42 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                     <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
                       <input
                         type="text"
+                        disabled={isFinal}
                         value={item.namaItem}
                         onChange={(e) => handleBiayaItemChange('operasional', idx, 'namaItem', e.target.value)}
-                        className="w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 font-bold"
+                        className={`w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 font-bold ${
+                          isFinal ? 'cursor-not-allowed text-slate-600 dark:text-slate-400' : ''
+                        }`}
                       />
                     </td>
                     <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800">
                       <input
                         type="number"
                         min="0"
+                        disabled={isFinal}
                         value={item.volume}
                         onChange={(e) => handleBiayaItemChange('operasional', idx, 'volume', Number(e.target.value) || 0)}
-                        className="w-16 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold text-xs"
+                        className={`w-16 px-2 py-1 rounded-lg text-center font-bold text-xs border ${
+                          isFinal
+                            ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-500 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                        }`}
                       />
                     </td>
                     <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800">
                       <input
                         type="text"
                         list="satuan-operasional-options"
+                        disabled={isFinal}
                         value={item.satuan}
                         onChange={(e) => handleBiayaItemChange('operasional', idx, 'satuan', e.target.value)}
                         placeholder="Satuan..."
-                        className="w-24 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-semibold uppercase text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        title="Klik untuk mengubah jenis satuan"
+                        className={`w-24 px-2 py-1 rounded-lg text-center font-semibold uppercase text-xs focus:outline-none border ${
+                          isFinal
+                            ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-500 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-1 focus:ring-amber-500'
+                        }`}
+                        title="Jenis satuan operasional"
                       />
                     </td>
                     <td className="py-3 px-4 text-right border-r border-slate-200 dark:border-slate-800">
@@ -1096,9 +1205,14 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                         <input
                           type="number"
                           min="0"
+                          disabled={isFinal}
                           value={item.hargaSatuan}
                           onChange={(e) => handleBiayaItemChange('operasional', idx, 'hargaSatuan', Number(e.target.value) || 0)}
-                          className="w-28 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold text-xs"
+                          className={`w-28 px-2 py-1 rounded-lg text-right font-bold text-xs border ${
+                            isFinal
+                              ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-500 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                              : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                          }`}
                         />
                       </div>
                     </td>
@@ -1108,31 +1222,38 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
                     <td className="py-3 px-4 text-slate-500 text-[11px] border-r border-slate-200 dark:border-slate-800">
                       <input
                         type="text"
+                        disabled={isFinal}
                         value={item.keterangan || ''}
                         onChange={(e) => handleBiayaItemChange('operasional', idx, 'keterangan', e.target.value)}
                         placeholder="Keterangan..."
-                        className="w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 text-[11px] text-slate-600 dark:text-slate-400"
+                        className={`w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 text-[11px] ${
+                          isFinal ? 'cursor-not-allowed text-slate-400' : 'text-slate-600 dark:text-slate-400'
+                        }`}
                       />
                     </td>
                     <td className="py-3 px-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditOperasional(idx)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60 rounded-lg transition-colors cursor-pointer"
-                          title="Edit rincian item operasional"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveOperasionalItem(idx)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
-                          title="Hapus baris item operasional"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {!isFinal ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOperasional(idx)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60 rounded-lg transition-colors cursor-pointer"
+                            title="Edit rincian item operasional"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOperasionalItem(idx)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
+                            title="Hapus baris item operasional"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Lock className="w-3.5 h-3.5 text-slate-300 mx-auto" />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1600,32 +1721,45 @@ export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProp
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={() => setShowTarifModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                onClick={handleSaveGlobalTarif}
+                disabled={isSavingGlobalTarif}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                title="Simpan tarif ini sebagai default global sehingga seluruh perencanaan menu otomatis mengikutinya"
               >
-                Batal
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingGlobalTarif ? 'Menyimpan...' : 'Simpan Permanen untuk Seluruh Menu'}</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  recalculateCurrentRAB({
-                    tarifConfig: customTarif,
-                    komposisiConfig: {
-                      bahanPanganPersen: 100,
-                      operasionalPersen: 0,
-                      kemasanDistribusiPersen: 0
-                    }
-                  });
-                  setShowTarifModal(false);
-                  showToast('Tarif standar pagu berhasil diperbarui', 'success');
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
-              >
-                Terapkan & Hitung Ulang
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTarifModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    recalculateCurrentRAB({
+                      tarifConfig: customTarif,
+                      komposisiConfig: {
+                        bahanPanganPersen: 100,
+                        operasionalPersen: 0,
+                        kemasanDistribusiPersen: 0
+                      }
+                    });
+                    setShowTarifModal(false);
+                    showToast('Tarif standar pagu berhasil diterapkan pada menu ini', 'success');
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                >
+                  Terapkan Sekarang
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1005,6 +1005,30 @@ router.post('/rab/calculate', (req: Request, res: Response): void => {
   });
 });
 
+// 8.25 Get Global Tarif & Pagu Configuration
+router.get('/rab/global-tarif', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    data: dbStore.globalTarifConfig
+  });
+});
+
+// 8.26 Save Global Tarif & Pagu Configuration (Permanent for all menus)
+router.post('/rab/global-tarif', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const updated = dbStore.saveGlobalTarifConfig(req.body);
+    await syncSaveDoc('configs', 'globalTarifConfig', updated);
+    dbStore.addLog('USR-SYSTEM', req.body.adminName || 'Admin SPPG', 'Perencanaan Anggaran', 'Update Tarif Global', `Mengubah tarif dasar pagu global: Porsi Kecil Rp ${updated.porsiKecil}, Porsi Besar Rp ${updated.porsiBesar}, Balita Rp ${updated.balita}, Bumil/Busui Rp ${updated.bumilBusui}`);
+    res.json({
+      success: true,
+      message: 'Pengaturan Tarif & Pagu berhasil disimpan permanen. Seluruh perencanaan menu otomatis mengikuti tarif ini!',
+      data: updated
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menyimpan pengaturan tarif global', error: error.message });
+  }
+});
+
 // 8.3 Save or Update RAB Plan
 router.post('/rab/save', (req: Request, res: Response): void => {
   const rabData = req.body;
@@ -1014,6 +1038,17 @@ router.post('/rab/save', (req: Request, res: Response): void => {
   }
 
   const existingIdx = dbStore.rabPlans.findIndex(r => r.tanggalPelaksanaan === rabData.tanggalPelaksanaan || r.id === rabData.id);
+  if (existingIdx >= 0) {
+    const existing = dbStore.rabPlans[existingIdx];
+    if ((existing.status === 'Final' || existing.status === 'Disetujui') && !req.body.allowRevision) {
+      res.status(403).json({
+        success: false,
+        message: 'RAB dan Biaya Operasional sudah berstatus FINAL & TERKUNCI. Buka kunci terlebih dahulu untuk melakukan perubahan.'
+      });
+      return;
+    }
+  }
+
   const calculated = dbStore.calculateRABPlan(rabData.tanggalPelaksanaan, rabData);
 
   if (existingIdx >= 0) {

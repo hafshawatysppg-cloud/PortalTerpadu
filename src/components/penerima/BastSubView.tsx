@@ -24,7 +24,9 @@ import {
   ChevronLeft,
   X,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Settings,
+  Sliders
 } from 'lucide-react';
 import { BastDocument, BastStatus } from '../../types';
 import { downloadBastDocx } from '../../utils/bastDocxGenerator';
@@ -92,9 +94,114 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
   const [previewDoc, setPreviewDoc] = useState<BastDocument | null>(null);
   const [editDoc, setEditDoc] = useState<BastDocument | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
+  const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
+
+  // Configuration for BAST numbering
+  const [bastConfig, setBastConfig] = useState<{
+    startNumber: number;
+    digitCount: number;
+    kodeJenisSurat: string;
+    kodeInstansi: string;
+    resetMonthly: boolean;
+  }>({
+    startNumber: 1,
+    digitCount: 4,
+    kodeJenisSurat: 'BAST',
+    kodeInstansi: 'SPPG-TMG',
+    resetMonthly: true
+  });
+  const [groupsMaster, setGroupsMaster] = useState<any[]>([]);
 
   // Form for manual creation or editing
   const [formData, setFormData] = useState<Partial<BastDocument>>({});
+
+  // Fetch BAST configuration
+  const fetchBastConfig = async () => {
+    try {
+      const res = await fetch('/api/v1/penerima-manfaat/bast/config');
+      const json = await res.json();
+      if (json.success && json.data) {
+        setBastConfig(json.data);
+      }
+    } catch (e) {
+      console.error('Error fetching BAST config:', e);
+    }
+  };
+
+  // Fetch Master Groups (for PIC & Contact auto-fill)
+  const fetchGroupsMaster = async () => {
+    try {
+      const res = await fetch('/api/v1/penerima-manfaat/groups');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setGroupsMaster(json.data);
+      }
+    } catch (e) {
+      console.error('Error fetching master groups:', e);
+    }
+  };
+
+  // Save BAST numbering configuration
+  const handleSaveBastConfig = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingConfig(true);
+    try {
+      const res = await fetch('/api/v1/penerima-manfaat/bast/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bastConfig)
+      });
+      const json = await res.json();
+      if (json.success) {
+        onShowToast('Konfigurasi nomor urut surat BAST berhasil disimpan!', 'success');
+        setIsConfigModalOpen(false);
+        fetchBastList();
+      } else {
+        onShowToast(json.message || 'Gagal menyimpan konfigurasi nomor BAST', 'error');
+      }
+    } catch (err) {
+      onShowToast('Gagal terhubung ke server', 'error');
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  // Auto-fill PIC and contact when institution is selected
+  const handleSelectLembaga = (namaLembaga: string) => {
+    let pic = '';
+    let telp = '';
+    let porsi = 0;
+    let alamat = '';
+
+    for (const grp of groupsMaster) {
+      if (grp.lembagaList) {
+        const found = grp.lembagaList.find((l: any) => (l.namaInstansi || '').trim().toLowerCase() === namaLembaga.trim().toLowerCase());
+        if (found) {
+          pic = found.picNama || grp.picNama || '';
+          telp = found.nomorKontak || found.picKontak || grp.nomorKontak || grp.picKontak || '';
+          porsi = found.total || 0;
+          alamat = found.alamat || grp.alamat || '';
+          break;
+        }
+      }
+      if ((grp.nama || '').trim().toLowerCase() === namaLembaga.trim().toLowerCase()) {
+        pic = grp.picNama || '';
+        telp = grp.nomorKontak || grp.picKontak || '';
+        alamat = grp.alamat || '';
+      }
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      namaSekolah: namaLembaga,
+      namaPic: pic || prev.namaPic || '',
+      telponPic: telp || prev.telponPic || '',
+      alamatSekolah: alamat || prev.alamatSekolah || '',
+      jumlahPaketMakanan: porsi > 0 ? porsi : prev.jumlahPaketMakanan,
+      jumlahAlatMakan: porsi > 0 ? porsi : prev.jumlahAlatMakan
+    }));
+  };
 
   // Fetch BAST list
   const fetchBastList = async () => {
@@ -125,6 +232,11 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchBastConfig();
+    fetchGroupsMaster();
+  }, []);
 
   useEffect(() => {
     fetchBastList();
@@ -393,12 +505,23 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           </button>
         </div>
 
-        {/* Action Buttons: Auto Generate & Manual Create */}
+        {/* Action Buttons: Auto Generate, Manual Create & Number Config */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
+            type="button"
+            onClick={() => setIsConfigModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs sm:text-sm font-bold rounded-2xl border border-slate-200 transition-all cursor-pointer"
+            title="Atur penomoran surat otomatis BAST sesuai etika administrasi persuratan"
+          >
+            <Settings className="w-4 h-4 text-slate-500" />
+            <span>⚙️ Atur Nomor Urut</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => handleGenerateBatch(false)}
             disabled={isGenerating}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-sm font-bold rounded-2xl shadow-sm shadow-emerald-600/20 transition-all duration-150 disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-sm font-bold rounded-2xl shadow-sm shadow-emerald-600/20 transition-all duration-150 disabled:opacity-60 cursor-pointer"
             title="Buat dokumen BAST otomatis untuk semua sekolah di tanggal terpilih"
           >
             <Sparkles className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
@@ -406,8 +529,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-sm font-semibold rounded-2xl shadow-sm transition-all duration-150"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-sm font-semibold rounded-2xl shadow-sm transition-all duration-150 cursor-pointer"
           >
             <Plus className="w-4 h-4 text-emerald-400" />
             <span>Buat BAST Baru</span>
@@ -537,6 +661,184 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
               </button>
             </div>
           )}
+
+      {/* ========================================================= */}
+      {/* 7. MODAL: PENGATURAN NOMOR URUT SURAT BAST (ETIKA PERSURATAN) */}
+      {/* ========================================================= */}
+      {isConfigModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-3xl border border-slate-200 shadow-2xl overflow-hidden p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Pengaturan Penomoran Surat BAST
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sesuai Standar Etika Administrasi Persuratan SPPG
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Live Preview Box */}
+            <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2 shadow-xs">
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                📄 Contoh Format Penomoran Surat
+              </div>
+              <div className="text-lg font-black text-amber-300 font-mono tracking-wide">
+                {String(bastConfig.startNumber || 1).padStart(bastConfig.digitCount || 4, '0')}/
+                {bastConfig.kodeJenisSurat || 'BAST'}/
+                {bastConfig.kodeInstansi || 'SPPG-TMG'}/
+                X/2026
+              </div>
+              <div className="text-[11px] text-slate-300 grid grid-cols-5 gap-1 pt-1 border-t border-slate-800 text-center">
+                <div>
+                  <span className="block text-[9px] text-slate-400">1. Urut</span>
+                  <span className="font-bold text-emerald-400">
+                    {String(bastConfig.startNumber || 1).padStart(bastConfig.digitCount || 4, '0')}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[9px] text-slate-400">2. Jenis</span>
+                  <span className="font-bold text-cyan-400">{bastConfig.kodeJenisSurat}</span>
+                </div>
+                <div>
+                  <span className="block text-[9px] text-slate-400">3. Instansi</span>
+                  <span className="font-bold text-purple-400">{bastConfig.kodeInstansi}</span>
+                </div>
+                <div>
+                  <span className="block text-[9px] text-slate-400">4. Bulan</span>
+                  <span className="font-bold text-amber-400">Romawi</span>
+                </div>
+                <div>
+                  <span className="block text-[9px] text-slate-400">5. Tahun</span>
+                  <span className="font-bold text-rose-400">Masehi</span>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveBastConfig} className="space-y-4 text-xs">
+              {/* Nomor Urut Pertama & Jumlah Digit */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Nomor Urut Pertama (Awal)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={bastConfig.startNumber}
+                    onChange={(e) =>
+                      setBastConfig({ ...bastConfig, startNumber: Math.max(1, Number(e.target.value) || 1) })
+                    }
+                    className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold text-slate-800 outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Surat berikutnya akan bertambah (+1) secara otomatis.
+                  </p>
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Format Digit Padding
+                  </label>
+                  <select
+                    value={bastConfig.digitCount}
+                    onChange={(e) =>
+                      setBastConfig({ ...bastConfig, digitCount: Number(e.target.value) || 4 })
+                    }
+                    className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold text-slate-800 outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value={3}>3 Digit (001, 002, ...)</option>
+                    <option value={4}>4 Digit (0001, 0002, ...)</option>
+                    <option value={5}>5 Digit (00001, 00002, ...)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Standar administrasi resmi: 4 digit.
+                  </p>
+                </div>
+              </div>
+
+              {/* Kode Jenis Surat & Kode Instansi */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Kode Jenis Surat
+                  </label>
+                  <input
+                    type="text"
+                    value={bastConfig.kodeJenisSurat}
+                    onChange={(e) =>
+                      setBastConfig({ ...bastConfig, kodeJenisSurat: e.target.value.toUpperCase() })
+                    }
+                    placeholder="BAST"
+                    className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold uppercase text-slate-800 outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Kode Instansi SPPG
+                  </label>
+                  <input
+                    type="text"
+                    value={bastConfig.kodeInstansi}
+                    onChange={(e) =>
+                      setBastConfig({ ...bastConfig, kodeInstansi: e.target.value.toUpperCase() })
+                    }
+                    placeholder="SPPG-TMG"
+                    className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold uppercase text-slate-800 outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Toggle Reset Bulanan */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-slate-800">Reset Nomor Urut Tiap Bulan</div>
+                  <div className="text-[10px] text-slate-500">
+                    Jika aktif, nomor urut akan kembali ke nomor awal saat berganti bulan/tahun baru.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={bastConfig.resetMonthly}
+                  onChange={(e) =>
+                    setBastConfig({ ...bastConfig, resetMonthly: e.target.checked })
+                  }
+                  className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingConfig}
+                  className="px-5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white cursor-pointer shadow-xs transition-all disabled:opacity-50"
+                >
+                  {isSavingConfig ? 'Menyimpan...' : 'Simpan Pengaturan Nomor'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
         </div>
 
         {isLoading ? (
@@ -1190,23 +1492,54 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
 
               {/* Nama Sekolah & Alamat */}
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Nama Sekolah / Lembaga
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Nama Sekolah / Lembaga
+                  </label>
+                  {formData.namaSekolah && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectLembaga(formData.namaSekolah!)}
+                      className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 cursor-pointer"
+                      title="Isi otomatis PIC dan kontak dari Pengaturan Kelompok"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>Sinkron PIC dari Kelompok</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
+                  list="sekolah-lembaga-datalist"
                   value={formData.namaSekolah || ''}
-                  placeholder="Contoh: TK ZAINUL HASAN"
-                  onChange={(e) => setFormData({ ...formData, namaSekolah: e.target.value })}
+                  placeholder="Contoh: TK ZAINUL HASAN, SMP ZAINUL HASAN 1 GENGGONG, dll."
+                  onChange={(e) => handleSelectLembaga(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:border-emerald-500"
                 />
+                <datalist id="sekolah-lembaga-datalist">
+                  {groupsMaster.flatMap(g => (g.lembagaList || []).map((l: any) => l.namaInstansi || l.nama)).filter(Boolean).map((name, i) => (
+                    <option key={i} value={name} />
+                  ))}
+                  {groupsMaster.map((g, i) => (
+                    <option key={`grp-${i}`} value={g.nama} />
+                  ))}
+                </datalist>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Pilih atau ketik nama lembaga sasaran. Nama PIC & Nomor Kontak akan terisi otomatis dari data kelompok.
+                </p>
               </div>
 
               {/* Data PIC Sekolah */}
-              <div className="p-3 bg-emerald-50/60 rounded-2xl border border-emerald-100 space-y-3">
-                <span className="text-xs font-bold text-emerald-900 block">
-                  Data PIC Sekolah / Lembaga Penerima
-                </span>
+              <div className="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Data PIC Sekolah / Lembaga Penerima</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-semibold">
+                    Tersinkron Kelompok
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-600 block mb-1">

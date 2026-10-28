@@ -121,12 +121,17 @@ export const BarangKeluarView: React.FC = () => {
 
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(`Berhasil mencatat pengeluaran ${selectedBarang.namaBarang} sebanyak ${calculatedJumlahKeluar} ${selectedBarang.satuan}. Sisa stok kini: ${data.data.barangUpdated.stokSekarang} ${selectedBarang.satuan}.`);
+        if (data.data?.isPurged) {
+          setSuccessMsg(`Barang "${selectedBarang.namaBarang}" telah HABIS (sisa 0) dan OTOMATIS DIHAPUS dari inventaris aktif! Catatan pengeluaran tersimpan di riwayat.`);
+        } else {
+          setSuccessMsg(`Berhasil mencatat pengeluaran ${selectedBarang.namaBarang} sebanyak ${calculatedJumlahKeluar} ${selectedBarang.satuan}. Sisa stok kini: ${data.data.barangUpdated.stokSekarang} ${selectedBarang.satuan}.`);
+        }
         setSisaStokInput('');
         setJumlahKeluarInput('1');
         setPenerimaTujuan('');
         setKeterangan('');
-        setTimeout(() => setSuccessMsg(null), 5000);
+        setSelectedBarang(null);
+        setTimeout(() => setSuccessMsg(null), 6000);
         fetchData();
       } else {
         setErrorMsg(data.message || 'Gagal menyimpan transaksi.');
@@ -140,9 +145,10 @@ export const BarangKeluarView: React.FC = () => {
   };
 
   const filteredBarang = barangList.filter(b => 
-    b.namaBarang.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (Number(b.stokSekarang) > 0) &&
+    (b.namaBarang.toLowerCase().includes(searchQuery.toLowerCase()) ||
     b.kodeBarang.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (b.kategoriNama || '').toLowerCase().includes(searchQuery.toLowerCase())
+    (b.kategoriNama || '').toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -371,9 +377,17 @@ export const BarangKeluarView: React.FC = () => {
                 </div>
 
                 {selectedBarang && sisaStokInput !== '' && (
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-300 pt-1 font-medium flex items-center justify-between">
-                    <span>Stok Awal: <b>{stokAwal} {selectedBarang.satuan}</b></span>
-                    <span>Barang Keluar = <b>{calculatedJumlahKeluar} {selectedBarang.satuan}</b></span>
+                  <div className="space-y-1 pt-1">
+                    <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium flex items-center justify-between">
+                      <span>Stok Awal: <b>{stokAwal} {selectedBarang.satuan}</b></span>
+                      <span>Barang Keluar = <b>{calculatedJumlahKeluar} {selectedBarang.satuan}</b></span>
+                    </div>
+                    {Number(sisaStokInput) <= 0 && (
+                      <div className="text-[11px] bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 p-2 rounded-xl font-bold flex items-center gap-1.5 mt-1">
+                        <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <span>Sisa 0 (Habis): Barang akan otomatis dihapus dari master inventaris aktif saat disimpan.</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

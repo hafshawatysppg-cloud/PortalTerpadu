@@ -2531,12 +2531,48 @@ class EnterpriseDataStore {
   public rekapAbsensiList: RekapAbsensiHarian[] = [...initialRekapAbsensiList];
   public bastDocuments: BastDocument[] = [...initialBastDocuments];
 
+  // Global Config for RAB Tarifs & Pagu (persistent across all menu plannings)
+  public globalTarifConfig: RABTarifConfig = {
+    porsiKecil: 10000,
+    porsiBesar: 15000,
+    balita: 8500,
+    bumilBusui: 12500
+  };
+
+  // Administration Etika Persuratan: Config for BAST numbering
+  public bastNumberConfig = {
+    startNumber: 1,
+    digitCount: 4,
+    kodeJenisSurat: 'BAST',
+    kodeInstansi: 'SPPG-TMG',
+    resetMonthly: true
+  };
+
+  public saveGlobalTarifConfig(newTarif: RABTarifConfig): RABTarifConfig {
+    this.globalTarifConfig = {
+      porsiKecil: Number(newTarif.porsiKecil) || 10000,
+      porsiBesar: Number(newTarif.porsiBesar) || 15000,
+      balita: Number(newTarif.balita) || 8500,
+      bumilBusui: Number(newTarif.bumilBusui) || 12500
+    };
+    // Automatically synchronize all active/unlocked RAB plans
+    this.rabPlans.forEach((plan, idx) => {
+      if (plan.status !== 'Final' && plan.status !== 'Disetujui') {
+        this.rabPlans[idx] = this.calculateRABPlan(plan.tanggalPelaksanaan, {
+          ...plan,
+          tarifConfig: this.globalTarifConfig
+        });
+      }
+    });
+    return this.globalTarifConfig;
+  }
+
   // Helper method to compute and construct a synchronized RAB Plan
   public calculateRABPlan(
     tanggal: string,
     customData?: Partial<RABPlan>
   ): RABPlan {
-    const defaultTarif: RABTarifConfig = {
+    const defaultTarif: RABTarifConfig = this.globalTarifConfig || {
       porsiKecil: 10000,
       porsiBesar: 15000,
       balita: 8500,
@@ -3443,143 +3479,118 @@ class EnterpriseDataStore {
       instansiSet.add(r.namaInstansi);
 
       const upperGroup = (r.groupNama || '').toUpperCase();
-      const loc = this.beneficiaryLocations.find(l => l.id === r.locationId || l.namaInstansi === r.namaInstansi);
+      const loc = this.beneficiaryLocations.find(l => l.id === r.locationId || l.namaInstansi.trim().toLowerCase() === r.namaInstansi.trim().toLowerCase());
       const grp = this.beneficiaryGroups.find(g => g.id === r.groupId || g.nama.toUpperCase() === upperGroup);
       const klas = r.klasifikasiPorsi || loc?.klasifikasiPorsi || grp?.klasifikasiPorsi || r.groupNama;
+      const normInst = r.namaInstansi.toLowerCase();
+      const is3B = upperGroup.includes('3B') || normInst.includes('posyandu') || normInst.includes('temenggungan') || (r.kategoriLembaga && r.kategoriLembaga.includes('3B'));
 
-      if (r.rincianSasaran) {
-        const delta = (Number(r.penambahan) || 0) - (Number(r.pengurangan) || 0);
-        let s = Number(r.rincianSasaran.siswa) || 0;
-        let g = Number(r.rincianSasaran.guru) || 0;
-        let b = Number(r.rincianSasaran.balita) || 0;
-        let ih = Number(r.rincianSasaran.ibuHamil) || 0;
-        let im = Number(r.rincianSasaran.ibuMenyusui) || 0;
+      let itemS = 0;
+      let itemG = 0;
+      let itemB = 0;
+      let itemIh = 0;
+      let itemIm = 0;
 
-        if (r.statusKbm === 'Libur Full' || r.totalPenerima === 0) {
-          s = 0;
-          g = 0;
-          b = 0;
-          ih = 0;
-          im = 0;
-        } else if (delta !== 0) {
-          if (b > 0 || r.kategori === 'Balita') b = Math.max(0, b + delta);
-          else if (ih > 0 || r.kategori === 'Ibu Hamil') ih = Math.max(0, ih + delta);
-          else if (im > 0 || r.kategori === 'Ibu Menyusui') im = Math.max(0, im + delta);
-          else if (s > 0 || r.kategori === 'Siswa') s = Math.max(0, s + delta);
-          else g = Math.max(0, g + delta);
-        }
+      if (r.statusKbm === 'Libur Full' || r.totalPenerima === 0) {
+        // Libur full: 0 porsi
+      } else if (is3B) {
+        const bd = r.breakdownKelas || r.rincianSasaran?.breakdownKelas || loc?.breakdownKelas || {};
+        let bdBumil = Number(r.rincianSasaran?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || (normInst.includes('temenggungan') ? 30 : 0);
+        let bdBusui = Number(r.rincianSasaran?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || (normInst.includes('temenggungan') ? 21 : 0);
+        let bdBalita = Number(r.rincianSasaran?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || (normInst.includes('temenggungan') ? 68 : 0);
+        let bdKader = Number(r.rincianSasaran?.guru) || (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || (normInst.includes('temenggungan') ? 8 : 0);
 
-        if (ih === 0 && im === 0 && (r.namaInstansi.toLowerCase().includes('temenggungan') || r.namaInstansi.toLowerCase().includes('posyandu'))) {
-          ih = 30;
-          im = 21;
-          b = b || 68;
-          g = g || 8;
-        }
-
-        totalSiswa += s;
-        totalGuru += g;
-        totalBalita += b;
-        totalIbuHamil += ih;
-        totalIbuMenyusui += im;
-
-        const is3B = upperGroup.includes('3B') || upperGroup.includes('BALIAT') || upperGroup.includes('BALITA') || upperGroup.includes('HAMIL') || upperGroup.includes('MENYUSUI') || r.namaInstansi.toLowerCase().includes('posyandu');
-        const isPaud = (upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('RA')) && !is3B;
-        const isSmp = (upperGroup.includes('SMP') || upperGroup.includes('MTS')) && !is3B;
-        const isSma = (upperGroup.includes('SMA') || upperGroup.includes('SMK') || upperGroup.includes('MA')) && !upperGroup.includes('SD') && !isSmp && !is3B;
-        const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
-
-        if (is3B) {
-          porsiKecil += b;
-          porsiBesar += ih + im + g;
-        } else if (isPaud) {
-          porsiKecil += s;
-          porsiBesar += g;
-        } else if (isSd) {
-          const bd = loc?.breakdownKelas || loc?.kategoriBreakdown?.breakdownKelas;
-          if (bd && (bd.kelas1 || bd.kelas2 || bd.kelas3 || bd.kelas4 || bd.kelas5 || bd.kelas6)) {
-            const k13 = (Number(bd.kelas1) || 0) + (Number(bd.kelas2) || 0) + (Number(bd.kelas3) || 0);
-            const k46 = (Number(bd.kelas4) || 0) + (Number(bd.kelas5) || 0) + (Number(bd.kelas6) || 0);
-            const totK = k13 + k46;
-            if (totK > 0 && s > 0) {
-              const ratio = s / totK;
-              porsiKecil += Math.round(k13 * ratio);
-              porsiBesar += Math.round(k46 * ratio) + g;
-            } else {
-              porsiKecil += Math.ceil(s / 2);
-              porsiBesar += Math.floor(s / 2) + g;
-            }
+        const baseTot = bdBumil + bdBusui + bdBalita + bdKader;
+        if (r.totalPenerima === baseTot || baseTot === 0) {
+          itemIh = bdBumil;
+          itemIm = bdBusui;
+          itemB = bdBalita;
+          itemG = bdKader;
+        } else {
+          itemG = Math.min(bdKader, r.totalPenerima);
+          const rem = Math.max(0, r.totalPenerima - itemG);
+          const nonKader = bdBumil + bdBusui + bdBalita;
+          if (nonKader > 0) {
+            const ratio = rem / nonKader;
+            itemB = Math.round(bdBalita * ratio);
+            itemIh = Math.round(bdBumil * ratio);
+            itemIm = Math.max(0, rem - itemB - itemIh);
           } else {
-            porsiKecil += Math.ceil(s / 2);
-            porsiBesar += Math.floor(s / 2) + g;
+            itemB = rem;
           }
-        } else if (isSmp || isSma) {
-          porsiBesar += s + g;
-        } else if (klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
-          porsiKecil += s;
-          porsiBesar += g;
-        } else {
-          porsiBesar += s + g;
         }
-      } else if (r.namaInstansi.toLowerCase().includes('temenggungan') || r.namaInstansi.toLowerCase().includes('posyandu')) {
-        totalBalita += 68;
-        totalIbuHamil += 30;
-        totalIbuMenyusui += 21;
-        totalGuru += 8;
-        porsiKecil += 68;
-        porsiBesar += 59;
-      } else if (klas === 'Balita' || klas === 'Porsi Balita' || r.kategori === 'Balita' || upperGroup.includes('BALITA')) {
-        totalBalita += r.totalPenerima;
-        porsiKecil += r.totalPenerima;
-      } else if (
-        klas === 'Bumil & Busui' ||
-        klas === 'Porsi Ibu Hamil' ||
-        klas === 'Porsi Ibu Menyusui' ||
-        r.kategori === 'Ibu Hamil' ||
-        r.kategori === 'Ibu Menyusui' ||
-        upperGroup.includes('HAMIL') ||
-        upperGroup.includes('MENYUSUI') ||
-        upperGroup.includes('BUSUI')
-      ) {
-        if (klas === 'Porsi Ibu Menyusui' || r.kategori === 'Ibu Menyusui' || upperGroup.includes('MENYUSUI')) {
-          totalIbuMenyusui += r.totalPenerima;
-        } else {
-          totalIbuHamil += r.totalPenerima;
-        }
-        porsiBesar += r.totalPenerima;
+      } else if (r.kategori === 'Balita' || upperGroup.includes('BALITA')) {
+        itemB = r.totalPenerima;
+      } else if (r.kategori === 'Ibu Hamil' || upperGroup.includes('HAMIL')) {
+        itemIh = r.totalPenerima;
+      } else if (r.kategori === 'Ibu Menyusui' || upperGroup.includes('MENYUSUI')) {
+        itemIm = r.totalPenerima;
       } else if (r.kategori === 'Guru / Staf' || upperGroup.includes('GURU')) {
-        totalGuru += r.totalPenerima;
-        porsiBesar += r.totalPenerima;
+        itemG = r.totalPenerima;
       } else {
-        // Check if location has guru breakdown
-        const locGuru = loc?.kategoriBreakdown?.guru || 0;
-        const locSiswa = loc?.kategoriBreakdown?.siswa || 0;
-        let effectiveGuru = 0;
-        let effectiveSiswa = r.totalPenerima;
-        if (locGuru > 0 && locSiswa > 0 && r.totalPenerima >= locGuru) {
-          effectiveGuru = locGuru;
-          effectiveSiswa = Math.max(0, r.totalPenerima - locGuru);
-          totalGuru += effectiveGuru;
-          totalSiswa += effectiveSiswa;
+        // Sekolah (SD, SMP, SMA, PAUD)
+        const targetGuru = Number(r.rincianSasaran?.guru) || loc?.kategoriBreakdown?.guru || 0;
+        if (r.totalPenerima > targetGuru) {
+          itemG = targetGuru;
+          itemS = r.totalPenerima - targetGuru;
         } else {
-          totalSiswa += r.totalPenerima;
-        }
-
-        const isPaud = (upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('RA'));
-        const isSmp = (upperGroup.includes('SMP') || upperGroup.includes('MTS'));
-        const isSma = (upperGroup.includes('SMA') || upperGroup.includes('SMK') || upperGroup.includes('MA')) && !upperGroup.includes('SD') && !isSmp;
-        const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud;
-
-        if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
-          porsiKecil += effectiveSiswa;
-          porsiBesar += effectiveGuru;
-        } else if (isSd) {
-          porsiKecil += Math.ceil(effectiveSiswa / 2);
-          porsiBesar += Math.floor(effectiveSiswa / 2) + effectiveGuru;
-        } else {
-          porsiBesar += r.totalPenerima;
+          itemS = r.totalPenerima;
+          itemG = 0;
         }
       }
+
+      totalSiswa += itemS;
+      totalGuru += itemG;
+      totalBalita += itemB;
+      totalIbuHamil += itemIh;
+      totalIbuMenyusui += itemIm;
+
+      // Portion calculation: Porsi Kecil vs Porsi Besar
+      const isPaud = (upperGroup.includes('PAUD') || upperGroup.includes('TK') || upperGroup.includes('RA')) && !is3B;
+      const isSmp = (upperGroup.includes('SMP') || upperGroup.includes('MTS')) && !is3B;
+      const isSma = (upperGroup.includes('SMA') || upperGroup.includes('SMK') || upperGroup.includes('MA')) && !upperGroup.includes('SD') && !isSmp && !is3B;
+      const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
+
+      if (is3B) {
+        porsiKecil += itemB;
+        porsiBesar += itemIh + itemIm + itemG;
+      } else if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
+        porsiKecil += itemS;
+        porsiBesar += itemG;
+      } else if (isSd) {
+        const bd = loc?.breakdownKelas || loc?.kategoriBreakdown?.breakdownKelas;
+        if (bd && (bd.kelas1 || bd.kelas2 || bd.kelas3 || bd.kelas4 || bd.kelas5 || bd.kelas6)) {
+          const k13 = (Number(bd.kelas1) || 0) + (Number(bd.kelas2) || 0) + (Number(bd.kelas3) || 0);
+          const k46 = (Number(bd.kelas4) || 0) + (Number(bd.kelas5) || 0) + (Number(bd.kelas6) || 0);
+          const totK = k13 + k46;
+          if (totK > 0 && itemS > 0) {
+            const ratio = itemS / totK;
+            porsiKecil += Math.round(k13 * ratio);
+            porsiBesar += Math.round(k46 * ratio) + itemG;
+          } else {
+            porsiKecil += Math.ceil(itemS / 2);
+            porsiBesar += Math.floor(itemS / 2) + itemG;
+          }
+        } else {
+          porsiKecil += Math.ceil(itemS / 2);
+          porsiBesar += Math.floor(itemS / 2) + itemG;
+        }
+      } else if (isSmp || isSma) {
+        porsiBesar += itemS + itemG;
+      } else {
+        porsiBesar += itemS + itemG;
+      }
     });
+
+    // Enforce 100% zero-discrepancy synchronization between Total Penerima Riil, Total Porsi, and Category Breakdown
+    const catSum = totalSiswa + totalGuru + totalBalita + totalIbuHamil + totalIbuMenyusui;
+    if (catSum !== totalPenerima && totalPenerima > 0) {
+      totalSiswa = Math.max(0, totalSiswa + (totalPenerima - catSum));
+    }
+    const portionSum = porsiBesar + porsiKecil;
+    if (portionSum !== totalPenerima && totalPenerima > 0) {
+      porsiBesar = Math.max(0, porsiBesar + (totalPenerima - portionSum));
+    }
 
     return {
       tanggal,
@@ -4294,13 +4305,46 @@ class EnterpriseDataStore {
     return this.bastDocuments.find(d => d.id === id || d.nomorBast === id);
   }
 
-  public generateBastNumber(tanggal: string, seqNum: number): string {
+  public getNextBastSequence(tanggal: string): number {
+    const parts = tanggal.split('-');
+    const yStr = parts[0] || '2026';
+    const mNum = parseInt(parts[1] || '10', 10);
+    const mStr = String(mNum).padStart(2, '0');
+    const prefix = `${yStr}-${mStr}`;
+
+    let maxSeq = 0;
+    this.bastDocuments.forEach(b => {
+      const isMatch = this.bastNumberConfig.resetMonthly ? b.tanggal.startsWith(prefix) : b.tanggal.startsWith(yStr);
+      if (isMatch && b.nomorBast) {
+        const match = b.nomorBast.match(/^(\d+)\//);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxSeq) maxSeq = num;
+        }
+      }
+    });
+
+    return maxSeq >= this.bastNumberConfig.startNumber ? maxSeq + 1 : this.bastNumberConfig.startNumber;
+  }
+
+  public generateBastNumber(tanggal: string, seqNum?: number): string {
     const parts = tanggal.split('-');
     const yStr = parts[0] || '2026';
     const mNum = parseInt(parts[1] || '10', 10);
     const roman = getBulanRomawi(mNum);
-    const seq = String(seqNum).padStart(4, '0');
-    return `${seq}/BAST/SPPG-TMG/${roman}/${yStr}`;
+    const num = seqNum !== undefined ? seqNum : this.getNextBastSequence(tanggal);
+    const seq = String(num).padStart(this.bastNumberConfig.digitCount || 4, '0');
+    const kodeJenis = this.bastNumberConfig.kodeJenisSurat || 'BAST';
+    const kodeInstansi = this.bastNumberConfig.kodeInstansi || 'SPPG-TMG';
+    return `${seq}/${kodeJenis}/${kodeInstansi}/${roman}/${yStr}`;
+  }
+
+  public saveBastNumberConfig(cfg: Partial<typeof dbStore.bastNumberConfig>) {
+    this.bastNumberConfig = {
+      ...this.bastNumberConfig,
+      ...cfg
+    };
+    return this.bastNumberConfig;
   }
 
   public saveBastDocument(doc: Partial<BastDocument>): BastDocument {
@@ -4427,14 +4471,7 @@ class EnterpriseDataStore {
     const existingForDate = this.bastDocuments.filter(b => b.tanggal === tanggal);
     const results: BastDocument[] = [];
 
-    let seqCounter = 101;
-    existingForDate.forEach(b => {
-      const match = b.nomorBast.match(/^(\d{4})\/BAST/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num >= seqCounter) seqCounter = num + 1;
-      }
-    });
+    let seqCounter = this.getNextBastSequence(tanggal);
 
     Array.from(schoolMap.values()).forEach((schoolData, idx) => {
       const loc = this.beneficiaryLocations.find(l =>
@@ -4451,8 +4488,43 @@ class EnterpriseDataStore {
       const isTemplateSample = schoolData.namaSekolah.toUpperCase().includes('TK ZAINUL HASAN') && tanggal === '2026-10-25';
       const nomorBast = isTemplateSample ? '0103/BAST/SPPG-TMG/X/2026' : (existingDoc?.nomorBast || this.generateBastNumber(tanggal, seqCounter++));
 
-      const namaPic = (loc?.picNama || loc?.kontak ? loc.picNama : '') || (existingDoc?.namaPic || (isTemplateSample ? 'Lulut Biyadillah' : ''));
-      const telponPic = (loc?.picTelepon || loc?.kontak) || (existingDoc?.telponPic || (isTemplateSample ? '085234834095' : ''));
+      // Resolve PIC from BeneficiaryGroups (Pengaturan Kelompok) first, then loc, then existingDoc
+      let foundPicNama = '';
+      let foundTelponPic = '';
+
+      // 1. Search in beneficiaryGroups lembagaList
+      for (const grp of this.beneficiaryGroups) {
+        if (grp.lembagaList && grp.lembagaList.length > 0) {
+          const matchedL = grp.lembagaList.find(l =>
+            l.namaInstansi.trim().toLowerCase() === schoolData.namaSekolah.trim().toLowerCase() ||
+            (loc && l.id === loc.id)
+          );
+          if (matchedL) {
+            if (matchedL.picNama) foundPicNama = matchedL.picNama;
+            if (matchedL.nomorKontak || matchedL.picKontak) foundTelponPic = matchedL.nomorKontak || matchedL.picKontak || '';
+            break;
+          }
+        }
+      }
+
+      // 2. Search in beneficiaryGroups group level
+      if (!foundPicNama || !foundTelponPic) {
+        const matchedGrp = this.beneficiaryGroups.find(g =>
+          (loc && g.id === loc.groupId) ||
+          g.nama.trim().toLowerCase() === schoolData.namaSekolah.trim().toLowerCase()
+        );
+        if (matchedGrp) {
+          if (!foundPicNama && matchedGrp.picNama) foundPicNama = matchedGrp.picNama;
+          if (!foundTelponPic && (matchedGrp.nomorKontak || matchedGrp.picKontak)) foundTelponPic = matchedGrp.nomorKontak || matchedGrp.picKontak || '';
+        }
+      }
+
+      // 3. Search in beneficiaryLocations
+      if (!foundPicNama && loc?.picNama) foundPicNama = loc.picNama;
+      if (!foundTelponPic && (loc?.picTelepon || loc?.kontak)) foundTelponPic = loc?.picTelepon || loc?.kontak || '';
+
+      const namaPic = foundPicNama || (existingDoc?.namaPic || (isTemplateSample ? 'Lulut Biyadillah' : ''));
+      const telponPic = foundTelponPic || (existingDoc?.telponPic || (isTemplateSample ? '085234834095' : ''));
       const isDataLengkap = Boolean(namaPic && namaPic.trim() && telponPic && telponPic.trim());
 
       const id = existingDoc ? existingDoc.id : `BAST-${tanggal.replace(/-/g, '')}-${String(idx + 1).padStart(3, '0')}`;

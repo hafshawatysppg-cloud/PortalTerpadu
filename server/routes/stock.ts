@@ -288,9 +288,34 @@ router.post('/movements', async (req: Request, res: Response): Promise<void> => 
       hargaSatuan: typeof hargaSatuan === 'number' ? hargaSatuan : undefined
     });
 
-    dbStore.addLog('USER', petugas || 'Staf Opname', 'Stock Opname', `Stok ${jenis}`, `Transaksi Stok ${jenis} ${jumlah} - ${result.updatedBarang.namaBarang}`, req.ip);
+    const isPurged = result.updatedBarang && result.updatedBarang.stokSekarang <= 0;
+    if (isPurged) {
+      dbStore.barang = dbStore.barang.filter(b => b.id !== barangId);
+      await syncDeleteDoc('barang', barangId);
+    }
 
-    res.status(201).json({ success: true, message: `Transaksi Stok ${jenis} Berhasil`, data: { movement: result.movement, barangUpdated: result.updatedBarang } });
+    dbStore.addLog(
+      'USER',
+      petugas || 'Staf Opname',
+      'Stock Opname',
+      `Stok ${jenis}`,
+      isPurged
+        ? `Transaksi Stok ${jenis} ${jumlah} - ${result.updatedBarang.namaBarang} (Stok 0/Habis: Barang Otomatis Dihapus dari Master Data)`
+        : `Transaksi Stok ${jenis} ${jumlah} - ${result.updatedBarang.namaBarang}`,
+      req.ip
+    );
+
+    res.status(201).json({
+      success: true,
+      message: isPurged
+        ? `Transaksi Pengeluaran Berhasil! Barang "${result.updatedBarang.namaBarang}" telah habis (0) dan otomatis dihapus dari inventaris aktif.`
+        : `Transaksi Stok ${jenis} Berhasil`,
+      data: {
+        movement: result.movement,
+        barangUpdated: result.updatedBarang,
+        isPurged
+      }
+    });
   } catch (err: any) {
     res.status(400).json({ success: false, message: err?.message || 'Gagal memproses transaksi stok.' });
   }

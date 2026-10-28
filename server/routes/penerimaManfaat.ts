@@ -248,6 +248,10 @@ async function updateGroupHandler(id: string, body: any, res: Response): Promise
         groupId: id,
         groupNama: updatedNama,
         namaInstansi: item.namaInstansi || `${updatedNama} - Instansi ${lIdx + 1}`,
+        alamat: item.alamat || updatedGroup.alamat || 'Kecamatan Pajarakan / Krejengan, Kabupaten Probolinggo',
+        kontak: item.nomorKontak || item.picKontak || updatedGroup.nomorKontak || updatedGroup.picKontak || '',
+        picNama: item.picNama || updatedGroup.picNama || '',
+        picTelepon: item.nomorKontak || item.picKontak || updatedGroup.nomorKontak || updatedGroup.picKontak || '',
         kategoriLembaga: item.kategoriLembaga || kategoriLembaga || updatedGroup.kategoriLembaga,
         klasifikasiPorsi: itemKlas,
         breakdownKelas: item.breakdownKelas || {},
@@ -1358,6 +1362,44 @@ router.post('/bast', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Gagal menyimpan BAST', error: error.message });
   }
+});
+
+// GET /api/v1/penerima-manfaat/bast/config
+router.get('/bast/config', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    data: dbStore.bastNumberConfig
+  });
+});
+
+// POST /api/v1/penerima-manfaat/bast/config
+router.post('/bast/config', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const updated = dbStore.saveBastNumberConfig(req.body);
+    await syncSaveDoc('configs', 'bastNumberConfig', updated);
+    dbStore.addLog('USR-ADMIN', req.body.adminName || 'Admin SPPG', 'BAST', 'Konfigurasi Nomor BAST', `Memperbarui konfigurasi nomor surat BAST: Mulai ${updated.startNumber}, Digit ${updated.digitCount}, Instansi ${updated.kodeInstansi}`);
+    res.json({
+      success: true,
+      message: 'Konfigurasi nomor urut surat BAST berhasil disimpan',
+      data: updated
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menyimpan konfigurasi nomor BAST', error: error.message });
+  }
+});
+
+// GET /api/v1/penerima-manfaat/bast/next-number
+router.get('/bast/next-number', (req: Request, res: Response): void => {
+  const tanggal = (req.query.tanggal as string) || new Date().toISOString().split('T')[0];
+  const nextNumber = dbStore.generateBastNumber(tanggal);
+  res.json({
+    success: true,
+    data: {
+      tanggal,
+      nextNumber,
+      config: dbStore.bastNumberConfig
+    }
+  });
 });
 
 // PUT /api/v1/penerima-manfaat/bast/:id
