@@ -61,7 +61,6 @@ import {
 import { MultiGroupWorksheetTable } from './MultiGroupWorksheetTable';
 import { RekapBufferTable } from './RekapBufferTable';
 import { OfficialPdfPrintModal } from './OfficialPdfPrintModal';
-import { RencanaAnggaranBelanjaView } from './RencanaAnggaranBelanjaView';
 
 interface PerencanaanBahanViewProps {
   currentPath?: string;
@@ -71,14 +70,13 @@ interface PerencanaanBahanViewProps {
 export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ currentPath = '/perencanaan-bahan', onNavigate }) => {
   // Determine active sub-tab based on route or state
   const getSubTabFromPath = (path: string) => {
-    if (path.includes('rab') || path.includes('anggaran')) return 'rab';
     if (path.includes('riwayat')) return 'riwayat';
     if (path.includes('rekap')) return 'rekap';
     if (path.includes('master-bahan')) return 'master-bahan';
     return 'kalkulator';
   };
 
-  const [activeTab, setActiveTab] = useState<'kalkulator' | 'rab' | 'riwayat' | 'rekap' | 'master-bahan'>(getSubTabFromPath(currentPath));
+  const [activeTab, setActiveTab] = useState<'kalkulator' | 'riwayat' | 'rekap' | 'master-bahan'>(getSubTabFromPath(currentPath));
 
 
   useEffect(() => {
@@ -93,35 +91,39 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Active Plan Form State (Calculator & Worksheet) - Empty by default until planning activity exists
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Active Plan Form State (Calculator & Worksheet) - Pre-configured with official SPPG standard
+  const defaultDateStr = '2026-09-27';
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [tanggalPerencanaan, setTanggalPerencanaan] = useState<string>(todayStr);
-  const [tanggalPelaksanaan, setTanggalPelaksanaan] = useState<string>(todayStr);
-  const [menuName, setMenuName] = useState<string>('');
+  const [tanggalPerencanaan, setTanggalPerencanaan] = useState<string>(defaultDateStr);
+  const [tanggalPelaksanaan, setTanggalPelaksanaan] = useState<string>(defaultDateStr);
+  const [menuName, setMenuName] = useState<string>('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
   const [periode, setPeriode] = useState<'Harian' | 'Mingguan' | 'Bulanan'>('Harian');
-  const [keterangan, setKeterangan] = useState<string>('');
-  const [nutritionistName, setNutritionistName] = useState<string>('');
-  const [kepalaSppgName, setKepalaSppgName] = useState<string>('');
+  const [keterangan, setKeterangan] = useState<string>('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
+  const [nutritionistName, setNutritionistName] = useState<string>('Fitria, S. ST');
+  const [kepalaSppgName, setKepalaSppgName] = useState<string>('Sri Rohayu, S. Pd');
   const [planStatus, setPlanStatus] = useState<'Draft' | 'Dalam Perhitungan' | 'Final' | 'Disetujui' | 'Selesai' | 'Revisi'>('Draft');
-  const [hasPlanningActivity, setHasPlanningActivity] = useState<boolean>(false);
+  const [hasPlanningActivity, setHasPlanningActivity] = useState<boolean>(true);
 
   // Real-time synchronization state (Tugas Divisi & Penerima Manfaat)
-  const [tugasDivisiMenuHarian, setTugasDivisiMenuHarian] = useState<string>('');
+  const [tugasDivisiMenuHarian, setTugasDivisiMenuHarian] = useState<string>('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
   const [isSyncingMenu, setIsSyncingMenu] = useState<boolean>(false);
   const [isSyncingBeneficiaries, setIsSyncingBeneficiaries] = useState<boolean>(false);
-  const [liveBeneficiarySummary, setLiveBeneficiarySummary] = useState<any>(null);
+  const [liveBeneficiarySummary, setLiveBeneficiarySummary] = useState<any>({
+    totalPenerima: 0,
+    totalInstansi: 0,
+    statusLock: 'DRAFT',
+    totalSiswa: 0,
+    totalGuru: 0,
+    totalBalita: 0,
+    totalIbuHamil: 0,
+    totalIbuMenyusui: 0
+  });
   const [hasAutoSyncedDate, setHasAutoSyncedDate] = useState<string>('');
   const [autoSyncToTugasDivisi, setAutoSyncToTugasDivisi] = useState<boolean>(true);
 
-  // Multi-Group State for Worksheet & Algorithms (Empty when no planning activity)
-  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>([]);
-  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>({
-    porsiKecil: 0,
-    porsiBesar: 0,
-    balita: 0,
-    bumilBusui: 0
-  });
+  // Multi-Group State for Worksheet & Algorithms (Default to exact standard 24 items and 4 groups matching screenshots)
+  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>(INITIAL_PDF_INGREDIENTS);
+  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>(DEFAULT_TARGET_COUNTS);
 
   // Modals
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
@@ -224,21 +226,21 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           });
           setHasPlanningActivity(true);
         } else if (!isManualTrigger) {
-          // No planning activity exists for this date -> keep data completely empty
-          setSelectedPlanId(null);
-          setMenuName('');
-          setKeterangan('');
-          setNutritionistName('');
-          setKepalaSppgName('');
-          setPlanStatus('Draft');
-          setIngredients([]);
-          setTargetCounts({
-            porsiKecil: 0,
-            porsiBesar: 0,
-            balita: 0,
-            bumilBusui: 0
-          });
-          setHasPlanningActivity(false);
+          // No custom saved plan in database for this date -> preserve standard template ingredients
+          if (json.beneficiarySummary) {
+            setLiveBeneficiarySummary(json.beneficiarySummary);
+          }
+          if (json.targetCounts && json.targetCounts.total > 0) {
+            setTargetCounts({
+              porsiKecil: json.targetCounts.porsiKecil || 0,
+              porsiBesar: json.targetCounts.porsiBesar || 0,
+              balita: json.targetCounts.balita || 0,
+              bumilBusui: json.targetCounts.bumilBusui || 0
+            });
+          }
+          if (menuHarian && menuHarian.trim()) {
+            setMenuName(menuHarian);
+          }
         } else {
           // Manual sync triggered by user while creating a plan
           if (menuHarian && menuHarian.trim()) {
@@ -348,6 +350,36 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [revisionReason, setRevisionReason] = useState<string>('');
   const [revisionUserName, setRevisionUserName] = useState<string>('Fitria, S. ST');
   const [submittingRevision, setSubmittingRevision] = useState<boolean>(false);
+
+  // Delete plan state & handler
+  const [deleteModalPlan, setDeleteModalPlan] = useState<NutritionPlan | null>(null);
+  const [isDeletingPlan, setIsDeletingPlan] = useState<boolean>(false);
+
+  const handleConfirmDeletePlan = async () => {
+    if (!deleteModalPlan) return;
+    setIsDeletingPlan(true);
+    try {
+      const res = await fetch(`/api/v1/nutrition-plans/${deleteModalPlan.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Menu perencanaan "${deleteModalPlan.menuName}" berhasil dihapus!`, 'success');
+        setPlans(prev => prev.filter(p => p.id !== deleteModalPlan.id));
+        if (selectedPlanId === deleteModalPlan.id) {
+          setSelectedPlanId(null);
+        }
+        setDeleteModalPlan(null);
+      } else {
+        showToast(data.message || 'Gagal menghapus menu perencanaan', 'error');
+      }
+    } catch (err) {
+      console.error('Error deleting plan:', err);
+      showToast('Terjadi kesalahan saat menghapus menu perencanaan', 'error');
+    } finally {
+      setIsDeletingPlan(false);
+    }
+  };
 
   // Check if a saved plan exists for currently selected tanggalPelaksanaan
   const existingPlanForSelectedDate = plans.find(p => p.tanggalPelaksanaan === tanggalPelaksanaan);
@@ -632,12 +664,17 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
       <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-start gap-3.5">
           <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-emerald-600 dark:text-emerald-400 shrink-0">
-            <UtensilsCrossed className="w-6 h-6" />
+            <Coins className="w-6 h-6" />
           </div>
           <div>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1">
+              <span>GIZI</span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-emerald-600 dark:text-emerald-400">FOOD COST</span>
+            </div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight">
-                PERENCANAAN KEBUTUHAN BAHAN PANGAN (SPPG)
+                FOOD COST & PERENCANAAN KEBUTUHAN BAHAN PANGAN (SPPG)
               </h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
                 !isPlanningActive
@@ -652,7 +689,7 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-2xl">
-              Sistem Kalkulator & Worksheet Terpadu 4 Kelompok Sasaran (Porsi Kecil, Porsi Besar, Balita, Bumil & Busui) Standar Resmi SPPG Badan Gizi Nasional.
+              Kalkulator HPP Porsi, Analisa Biaya Anggaran vs Plafon SPPG, dan Worksheet Kebutuhan Bahan Pangan Terpadu 4 Kelompok Sasaran (Formula: (Berat Bersih / (BDD/100) × Sasaran) / 1000).
             </p>
           </div>
         </div>
@@ -742,69 +779,77 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
       </div>
 
       {/* Top Executive Summary Widgets */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Estimasi Biaya (Buffer 5%)</div>
-            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              Rp {isPlanningActive ? totalBiayaOverall.toLocaleString('id-ID') : '0'}
-            </div>
-            <div className={`text-[10px] font-medium mt-1 flex items-center gap-1 ${
-              isPlanningActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
-            }`}>
-              <Sparkles className="w-3 h-3" /> {isPlanningActive ? 'Realtime Kalkulasi Anggaran' : 'Belum ada aktivitas perencanaan'}
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-            <DollarSign className="w-5 h-5" />
-          </div>
-        </div>
+      {(() => {
+        const foodCostPerPorsi = totalSasaranOverall > 0 ? Math.round(totalBiayaOverall / totalSasaranOverall) : 0;
+        const plafon = 15000;
+        const hematPerPorsi = plafon - foodCostPerPorsi;
 
-        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Kebutuhan Bahan (+Buffer)</div>
-            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {isPlanningActive ? totalKgOverall.toFixed(2) : '0.00'} <span className="text-xs font-normal text-slate-500">kg</span>
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Estimasi Biaya (Buffer 5%)</div>
+                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+                  Rp {isPlanningActive ? totalBiayaOverall.toLocaleString('id-ID') : '0'}
+                </div>
+                <div className={`text-[10px] font-medium mt-1 flex items-center gap-1 ${
+                  isPlanningActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                }`}>
+                  <Sparkles className="w-3 h-3" /> {isPlanningActive ? 'Realtime Kalkulasi Anggaran' : 'Belum ada aktivitas perencanaan'}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <DollarSign className="w-5 h-5" />
+              </div>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">
-              {isPlanningActive ? `${ingredients.length} jenis komoditas pangan` : 'Data bahan pangan kosong'}
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-            <Scale className="w-5 h-5" />
-          </div>
-        </div>
 
-        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Penerima Manfaat</div>
-            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {isPlanningActive ? totalSasaranOverall.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">jiwa</span>
+            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Food Cost / Porsi (HPP)</div>
+                <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 mt-1">
+                  Rp {isPlanningActive ? foodCostPerPorsi.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">/ porsi</span>
+                </div>
+                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+                  {isPlanningActive && hematPerPorsi >= 0 ? `Plafon Rp 15.000 (Hemat Rp ${hematPerPorsi.toLocaleString('id-ID')})` : 'Plafon Standar Rp 15.000 / Porsi'}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Coins className="w-5 h-5" />
+              </div>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[170px]">
-              {isPlanningActive ? '4 Kelompok Sasaran Terpadu' : 'Belum ada sasaran direncanakan'}
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-            <Users className="w-5 h-5" />
-          </div>
-        </div>
 
-        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Pengesahan Resmi SPPG</div>
-            <div className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-1">
-              PLOG: {isPlanningActive && nutritionistName ? nutritionistName : '-'}
+            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Kebutuhan Bahan (+Buffer)</div>
+                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+                  {isPlanningActive ? totalKgOverall.toFixed(2) : '0.00'} <span className="text-xs font-normal text-slate-500">kg</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  {isPlanningActive ? `${ingredients.length} jenis komoditas pangan` : 'Data bahan pangan kosong'}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <Scale className="w-5 h-5" />
+              </div>
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">
-              Kepala: {isPlanningActive && kepalaSppgName ? kepalaSppgName : '-'}
+
+            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Sasaran Penerima Manfaat</div>
+                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+                  {isPlanningActive ? totalSasaranOverall.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">jiwa</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[170px]">
+                  {isPlanningActive ? '4 Kelompok Sasaran Terpadu' : 'Belum ada sasaran direncanakan'}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5" />
+              </div>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-            <FileCheck className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Main Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
@@ -818,23 +863,6 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
         >
           <Calculator className="w-4 h-4" />
           <span>Form Kalkulator & Worksheet (4 Kelompok)</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('rab')}
-          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'rab'
-              ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          <WalletCards className="w-4 h-4 text-emerald-600" />
-          <span className="flex items-center gap-1.5">
-            <span>Rencana Anggaran Belanja (RAB)</span>
-            <span className="px-1.5 py-0.2 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-black rounded-full">
-              Live Sync
-            </span>
-          </span>
         </button>
 
         <button
@@ -873,15 +901,6 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           <span>Master Bahan Pangan ({masterBahan.length})</span>
         </button>
       </div>
-
-      {/* TAB CONTENT: 2. RENCANA ANGGARAN BELANJA (RAB) */}
-      {activeTab === 'rab' && (
-        <RencanaAnggaranBelanjaView
-          tanggalPelaksanaan={tanggalPelaksanaan}
-          onNavigateDate={(d) => setTanggalPelaksanaan(d)}
-          masterBahan={masterBahan}
-        />
-      )}
 
       {/* TAB CONTENT: 1. KALKULATOR & WORKSHEET */}
       {activeTab === 'kalkulator' && (
@@ -1312,6 +1331,15 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                       <Printer className="w-3.5 h-3.5" />
                       <span>Cetak PDF</span>
                     </button>
+
+                    <button
+                      onClick={() => setDeleteModalPlan(p)}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                      title={`Hapus arsip perencanaan menu "${p.menuName}"`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                      <span>Hapus Menu</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1571,6 +1599,62 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Perencanaan Menu */}
+      {deleteModalPlan && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-5 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Konfirmasi Hapus Menu Perencanaan
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Tindakan ini permanen dan akan menghapus data dari arsip sistem.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs space-y-1.5">
+              <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                {deleteModalPlan.menuName}
+              </div>
+              <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Pelaksanaan: {formatDateIndo(deleteModalPlan.tanggalPelaksanaan)} ({deleteModalPlan.tanggalPelaksanaan})</span>
+              </div>
+              <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                <span>Sasaran: {deleteModalPlan.targetCount?.toLocaleString('id-ID')} jiwa</span>
+                <span>•</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400">Rp {deleteModalPlan.totalCost?.toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteModalPlan(null)}
+                disabled={isDeletingPlan}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeletePlan}
+                disabled={isDeletingPlan}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeletingPlan ? 'Menghapus...' : 'Ya, Hapus Menu'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

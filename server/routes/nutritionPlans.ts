@@ -116,7 +116,7 @@ router.get('/sync-context', (req: Request, res: Response): void => {
   const tugasRecords = dbStore.getTugasDivisiForDate(tanggal);
   const foundMenuTugas = tugasRecords.find(r => r.menuHarian && r.menuHarian.trim() !== '')?.menuHarian || '';
 
-  // 2. Get beneficiary summary & target counts (0 if no beneficiary planning exists)
+  // 2. Get beneficiary summary & target counts from SINGLE SOURCE OF TRUTH
   const summary = dbStore.getBeneficiarySummaryForDate(tanggal);
   const pb = summary.portionBreakdown || {
     porsiBesar: 0,
@@ -125,16 +125,35 @@ router.get('/sync-context', (req: Request, res: Response): void => {
     bumilBusui: 0
   };
 
-  const targetCounts = {
+  const hasBeneficiary = Boolean(summary.hasPlanning && summary.totalPenerima > 0);
+
+  const targetCounts = hasBeneficiary ? {
     porsiKecil: pb.porsiKecil || 0,
     porsiBesar: pb.porsiBesar || 0,
     balita: pb.balita || 0,
     bumilBusui: pb.bumilBusui || 0,
-    total: summary.totalPenerima ?? ((pb.porsiKecil || 0) + (pb.porsiBesar || 0) + (pb.balita || 0) + (pb.bumilBusui || 0))
+    total: summary.totalPenerima
+  } : {
+    porsiKecil: 0,
+    porsiBesar: 0,
+    balita: 0,
+    bumilBusui: 0,
+    total: 0
   };
 
   // 3. Existing plan
   const existingPlan = dbStore.nutritionPlans.find(p => p.tanggalPelaksanaan === tanggal) || null;
+
+  // Synchronize target counts in existing plan so it never diverges from daily beneficiaries
+  if (existingPlan) {
+    existingPlan.targetCount = targetCounts.total;
+    existingPlan.targetCountsConfig = {
+      porsiKecil: targetCounts.porsiKecil,
+      porsiBesar: targetCounts.porsiBesar,
+      balita: targetCounts.balita,
+      bumilBusui: targetCounts.bumilBusui
+    };
+  }
 
   res.json({
     success: true,
@@ -236,11 +255,23 @@ router.get('/', (req: Request, res: Response): void => {
     );
   }
 
-  // Attach items to each plan
-  const plansWithItems = plans.map(p => ({
-    ...p,
-    items: dbStore.nutritionPlanItems.filter(i => i.planId === p.id)
-  }));
+  // Attach items to each plan and synchronize target counts with single source of truth
+  const plansWithItems = plans.map(p => {
+    const benSummary = dbStore.getBeneficiarySummaryForDate(p.tanggalPelaksanaan);
+    if (benSummary && benSummary.hasPlanning && benSummary.totalPenerima > 0) {
+      p.targetCount = benSummary.totalPenerima;
+      p.targetCountsConfig = {
+        porsiKecil: benSummary.portionBreakdown.porsiKecil || 0,
+        porsiBesar: benSummary.portionBreakdown.porsiBesar || 0,
+        balita: benSummary.portionBreakdown.balita || 0,
+        bumilBusui: benSummary.portionBreakdown.bumilBusui || 0
+      };
+    }
+    return {
+      ...p,
+      items: dbStore.nutritionPlanItems.filter(i => i.planId === p.id)
+    };
+  });
 
   res.json({
     success: true,

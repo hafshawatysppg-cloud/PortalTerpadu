@@ -468,13 +468,13 @@ export const initialMenus: MenuItem[] = [
     isActive: true
   },
   {
-    id: 'MNU-003-PLANNING',
-    title: 'Perencanaan Bahan Pangan',
-    path: '/perencanaan-bahan',
+    id: 'MNU-003-GIZI',
+    title: 'Gizi',
+    path: '/gizi',
     icon: 'UtensilsCrossed',
-    color: '#10B981',
+    color: '#059669',
     order: 3.8,
-    targetModule: 'portal',
+    targetModule: 'gizi',
     requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
     isActive: true
   },
@@ -3498,7 +3498,7 @@ class EnterpriseDataStore {
         let bdBumil = Number(r.rincianSasaran?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || 0;
         let bdBusui = Number(r.rincianSasaran?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || 0;
         let bdBalita = Number(r.rincianSasaran?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || 0;
-        let bdKader = Number(r.rincianSasaran?.guru) || (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
+        let bdKader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
 
         const baseTot = bdBumil + bdBusui + bdBalita + bdKader;
         if (r.totalPenerima === baseTot || baseTot === 0) {
@@ -3552,8 +3552,8 @@ class EnterpriseDataStore {
       const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
 
       if (is3B) {
-        porsiKecil += itemB;
-        porsiBesar += itemIh + itemIm + itemG;
+        // Balita has its own category (balita), Bumil/Busui has its own category (bumilBusui), Kader gets porsi besar
+        porsiBesar += itemG;
       } else if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
         porsiKecil += itemS;
         porsiBesar += itemG;
@@ -3587,9 +3587,11 @@ class EnterpriseDataStore {
     if (catSum !== totalPenerima && totalPenerima > 0) {
       totalSiswa = Math.max(0, totalSiswa + (totalPenerima - catSum));
     }
-    const portionSum = porsiBesar + porsiKecil;
-    if (portionSum !== totalPenerima && totalPenerima > 0) {
-      porsiBesar = Math.max(0, porsiBesar + (totalPenerima - portionSum));
+    
+    // Ensure the 4 groups (Porsi Kecil + Porsi Besar + Balita + Bumil/Busui) exactly equal totalPenerima
+    const fourGroupSum = porsiBesar + porsiKecil + totalBalita + (totalIbuHamil + totalIbuMenyusui);
+    if (fourGroupSum !== totalPenerima && totalPenerima > 0) {
+      porsiBesar = Math.max(0, porsiBesar + (totalPenerima - fourGroupSum));
     }
 
     return {

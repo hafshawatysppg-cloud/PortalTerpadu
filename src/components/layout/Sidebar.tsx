@@ -16,6 +16,7 @@ interface SubMenuItemDef {
   path: string;
   icon: any;
   isExternal?: boolean;
+  children?: SubMenuItemDef[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpen, onClose }) => {
@@ -26,9 +27,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     esurat: true,
     stock: true,
     barangDatang: true,
+    gizi: true,
     menuHarian: true,
     penerima: true,
-    perencanaanBahan: true,
     po: true,
     tugas: true,
     bbm: true,
@@ -36,9 +37,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     admin: true,
   });
 
+  // Track expanded state for nested sub-menu levels by path (supports 3+ levels)
+  const [expandedSubLevels, setExpandedSubLevels] = useState<Record<string, boolean>>({
+    '/gizi/suhu': true,
+    '/gizi/suhu/makanan': true,
+  });
+
   const toggleModuleExpand = (key: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setExpandedModules(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleSubLevelExpand = (pathKey: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedSubLevels(prev => ({ ...prev, [pathKey]: !prev[pathKey] }));
   };
 
   const handleNav = (path: string, isExternal?: boolean) => {
@@ -79,12 +91,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
       { title: 'Rekapitulasi Harian', path: '/penerima-manfaat/rekap-harian', icon: Icons.Calendar },
       { title: 'Rekapitulasi Bulanan', path: '/penerima-manfaat/rekap-bulanan', icon: Icons.FileText },
     ],
-    perencanaanBahan: [
-      { title: 'Kalkulator & Worksheet', path: '/perencanaan-bahan/kalkulator', icon: Icons.Calculator },
-      { title: 'Rencana Anggaran Belanja (RAB)', path: '/perencanaan-bahan/rab', icon: Icons.WalletCards },
-      { title: 'Rekap & Kebutuhan Pengadaan', path: '/perencanaan-bahan/rekap', icon: Icons.FileSpreadsheet },
-      { title: 'Riwayat Perencanaan', path: '/perencanaan-bahan/riwayat', icon: Icons.History },
-      { title: 'Master Data Bahan Pangan', path: '/perencanaan-bahan/master-bahan', icon: Icons.Apple },
+    gizi: [
+      { title: 'Master Menu', path: '/gizi/master-menu', icon: Icons.BookOpen },
+      { title: 'Siklus Menu (Kandungan Gizi)', path: '/gizi/siklus-menu', icon: Icons.RotateCw },
+      { title: 'Food Cost', path: '/gizi/food-cost', icon: Icons.Coins },
+      {
+        title: 'Suhu',
+        path: '/gizi/suhu',
+        icon: Icons.Thermometer,
+        children: [
+          { title: 'Kelembapan Gudang Kering', path: '/gizi/suhu/kelembapan-gudang-kering', icon: Icons.Droplets },
+          { title: 'Frezeer', path: '/gizi/suhu/freezer', icon: Icons.Snowflake },
+          { title: 'Chiller', path: '/gizi/suhu/chiller', icon: Icons.Refrigerator },
+          { title: 'Pemorsian', path: '/gizi/suhu/pemorsian', icon: Icons.Utensils },
+          {
+            title: 'Makanan',
+            path: '/gizi/suhu/makanan',
+            icon: Icons.Soup,
+            children: [
+              { title: 'Pengolahan', path: '/gizi/suhu/makanan/pengolahan', icon: Icons.Flame },
+              { title: 'Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng', icon: Icons.PackageCheck }
+            ]
+          }
+        ]
+      },
+      { title: 'Kebersihan Dapur', path: '/gizi/kebersihan-dapur', icon: Icons.Sparkles }
     ],
     menuHarian: [
       { title: 'Form Menu Harian', path: '/menu-harian/form', icon: Icons.ClipboardEdit },
@@ -169,6 +200,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         isActive: true
       });
     }
+    if (!list.some(m => m.path === '/gizi' || m.targetModule === 'gizi')) {
+      list.push({
+        id: 'MNU-003-GIZI',
+        title: 'Gizi',
+        path: '/gizi',
+        icon: 'UtensilsCrossed',
+        color: '#059669',
+        order: 3.8,
+        targetModule: 'gizi',
+        requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+        isActive: true
+      });
+    }
     if (!list.some(m => m.path === '/petugas' || m.targetModule === 'petugas')) {
       list.push({
         id: 'MNU-003-PETUGAS',
@@ -185,8 +229,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     return list.sort((a, b) => a.order - b.order);
   }, [menus]);
 
-  // Filter menus based on user role
+  // Filter menus based on user role and exclude removed menus
   const allowedMenus = effectiveMenus.filter(m => {
+    if (m.path.includes('perencanaan-bahan') || m.id === 'MNU-003-PLANNING') return false;
     if (!m.isActive) return false;
     if (!m.requiredRole || m.requiredRole.length === 0) return true;
     if (!user) return false;
@@ -197,6 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
   const getModuleKey = (menu: MenuItem): string => {
     if (menu.targetModule === 'esurat' || menu.path.includes('esurat')) return 'esurat';
     if (menu.targetModule === 'barangDatang' || menu.path.includes('barang-datang')) return 'barangDatang';
+    if (menu.targetModule === 'gizi' || menu.path.startsWith('/gizi')) return 'gizi';
     if (menu.targetModule === 'menuHarian' || menu.path.includes('menu-harian')) return 'menuHarian';
     if (menu.targetModule === 'foodWaste' || menu.path.includes('food-waste')) return 'foodWaste';
     if (menu.targetModule === 'petugas' || menu.path.includes('petugas')) return 'petugas';
@@ -204,12 +250,90 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     if (menu.path.includes('penerima-manfaat')) return 'penerima';
     if (menu.targetModule === 'po' || menu.path.includes('purchase-order') || menu.path === '/po') return 'po';
     if (menu.path.includes('portal-supplier')) return 'supplier';
-    if (menu.path.includes('perencanaan-bahan')) return 'perencanaanBahan';
     if (menu.path.includes('tugas-divisi')) return 'tugas';
     if (menu.path.includes('bbm')) return 'bbm';
     if (menu.path.includes('laporan-distribusi') || menu.path.includes('distribusi')) return 'distribusi';
     if (menu.path.includes('admin') || menu.path.includes('users') || menu.path.includes('menu')) return 'admin';
     return '';
+  };
+
+  // Recursive function for multi-level navigation (supports up to 3+ levels)
+  const renderSubMenuItem = (sub: SubMenuItemDef, level: number = 2) => {
+    const hasChildren = Boolean(sub.children && sub.children.length > 0);
+    const isSubExpanded = expandedSubLevels[sub.path] ?? (currentPath.startsWith(sub.path) || true);
+    const isDirectActive = currentPath === sub.path;
+    const isDescendantActive = currentPath.startsWith(`${sub.path}/`);
+    const SubIcon = sub.icon;
+
+    if (hasChildren) {
+      return (
+        <div key={sub.path} className="space-y-1">
+          {/* Multi-level Accordion Header Row */}
+          <div
+            className={`w-full px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center justify-between transition-all cursor-pointer select-none group ${
+              isDescendantActive || isDirectActive
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
+            }`}
+            onClick={(e) => toggleSubLevelExpand(sub.path, e)}
+          >
+            <div className="flex items-center gap-2 truncate">
+              <SubIcon className={`w-3.5 h-3.5 shrink-0 ${isDescendantActive || isDirectActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 group-hover:text-slate-600'}`} />
+              <span className="truncate uppercase tracking-wider text-[10px]">{sub.title}</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-md ${
+                isDescendantActive || isDirectActive
+                  ? 'bg-emerald-200/80 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100'
+                  : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+              }`}>
+                {sub.children!.length} Sub
+              </span>
+              <span className="p-0.5 rounded-md text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200">
+                {isSubExpanded ? (
+                  <Icons.ChevronDown className="w-3.5 h-3.5 transition-transform" />
+                ) : (
+                  <Icons.ChevronRight className="w-3.5 h-3.5 transition-transform" />
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Collapsible Children Container with indentation */}
+          {isSubExpanded && sub.children && (
+            <div className="ml-3 pl-2.5 border-l-2 border-emerald-300/80 dark:border-emerald-800/60 space-y-1 py-0.5">
+              {sub.children.map(child => renderSubMenuItem(child, level + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Leaf MenuItem
+    const isLeafActive = isDirectActive || (sub.path === '/esurat/masuk' && currentPath === '/esurat') || (sub.path === '/menu-harian/form' && currentPath === '/menu-harian') || (sub.path === '/gizi' && currentPath === '/gizi');
+
+    return (
+      <button
+        key={sub.path}
+        type="button"
+        onClick={() => handleNav(sub.path, sub.isExternal)}
+        className={`w-full px-2.5 py-1.5 rounded-xl text-[11px] font-medium flex items-center justify-between gap-2 transition-all cursor-pointer text-left group ${
+          isLeafActive
+            ? 'bg-emerald-600 text-white font-bold shadow-xs'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800/70'
+        }`}
+      >
+        <div className="flex items-center gap-2 truncate">
+          <SubIcon className={`w-3.5 h-3.5 shrink-0 ${isLeafActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`} />
+          <span className="truncate">{sub.title}</span>
+        </div>
+        {sub.isExternal ? (
+          <Icons.ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
+        ) : (
+          <Icons.ChevronRight className={`w-3 h-3 shrink-0 ${isLeafActive ? 'text-white' : 'text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity'}`} />
+        )}
+      </button>
+    );
   };
 
   return (
@@ -357,6 +481,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                             handleNav('/esurat/masuk');
                           } else if (moduleKey === 'barangDatang') {
                             handleNav('/barang-datang/form');
+                          } else if (moduleKey === 'gizi') {
+                            handleNav('/gizi');
                           } else if (moduleKey === 'menuHarian') {
                             handleNav('/menu-harian/form');
                           } else if (moduleKey === 'tugas') {
@@ -411,36 +537,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                       </div>
                     </div>
 
-                    {/* Render Collapsible Submenus */}
+                    {/* Render Collapsible Submenus (Supports Nested 3+ Levels) */}
                     {hasSubmenus && isExpanded && (
                       <div className="ml-4 pl-3 border-l-2 border-blue-200/80 dark:border-blue-900/60 space-y-1 py-1">
-                        {subitems.map((sub) => {
-                          const isSubActive = currentPath === sub.path || (sub.path === '/esurat/masuk' && currentPath === '/esurat') || (sub.path === '/menu-harian/form' && currentPath === '/menu-harian');
-                          const SubIcon = sub.icon;
-
-                          return (
-                            <button
-                              key={sub.path}
-                              onClick={() => handleNav(sub.path, sub.isExternal)}
-                              className={`w-full px-3 py-1.5 rounded-xl text-[11px] font-medium flex items-center justify-between gap-2.5 transition-all cursor-pointer ${
-                                isSubActive
-                                  ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-900 dark:text-blue-200 font-bold shadow-2xs'
-                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800/70'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <SubIcon className={`w-3.5 h-3.5 shrink-0 ${isSubActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`} />
-                                <span className="truncate">{sub.title}</span>
-                              </div>
-
-                              {sub.isExternal ? (
-                                <Icons.ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
-                              ) : (
-                                <Icons.ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              )}
-                            </button>
-                          );
-                        })}
+                        {subitems.map((sub) => renderSubMenuItem(sub, 2))}
                       </div>
                     )}
                   </div>

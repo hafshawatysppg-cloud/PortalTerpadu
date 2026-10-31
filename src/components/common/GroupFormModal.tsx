@@ -751,6 +751,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
       const b511L = newBd['balita511_l'] !== undefined ? newBd['balita511_l'] : Math.ceil(rawBaduta / 2);
       const b511P = newBd['balita511_p'] !== undefined ? newBd['balita511_p'] : Math.floor(rawBaduta / 2);
       const b1259L = newBd['balita1259_l'] !== undefined ? newBd['balita1259_l'] : Math.ceil(rawBalita / 2);
+      const b1259P = newBd['balita1259_p'] !== undefined ? newBd['balita1259_p'] : Math.floor(rawBalita / 2);
       const kL = newBd['kader_l'] !== undefined ? Number(newBd['kader_l']) || 0 : 0;
       const kP = newBd['kader_p'] !== undefined ? Number(newBd['kader_p']) || 0 : 0;
 

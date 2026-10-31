@@ -12,6 +12,8 @@ router.get('/', (req: Request, res: Response): void => {
       dbStore.menus.push({ ...defMenu });
     }
   }
+  // Exclude removed menus (Perencanaan Kebutuhan Bahan Pangan)
+  dbStore.menus = dbStore.menus.filter(m => m.id !== 'MNU-003-PLANNING' && !m.path.includes('perencanaan-bahan'));
   const sortedMenus = [...dbStore.menus].sort((a, b) => a.order - b.order);
   res.json({ success: true, data: sortedMenus });
 });

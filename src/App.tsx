@@ -36,6 +36,7 @@ import { MenuHarianView } from './views/menuHarian/MenuHarianView';
 import { LaporanDistribusiView } from './views/distribusi/LaporanDistribusiView';
 import { FoodWasteView } from './views/FoodWasteView';
 import { PetugasView } from './views/petugas/PetugasView';
+import { GiziView } from './views/gizi/GiziView';
 
 const PortalMain: React.FC = () => {
   const { user, isAuthenticated, isAuthLoading } = useAuth();
@@ -108,7 +109,7 @@ const PortalMain: React.FC = () => {
 
     // Staff Kantor
     if (role === 'Staff Kantor') {
-      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/perencanaan-bahan') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path === '/dashboard';
+      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path.startsWith('/gizi') || path === '/dashboard';
     }
 
     // Distribusi
@@ -265,14 +266,20 @@ const PortalMain: React.FC = () => {
       case '/penerima-manfaat/rekap-bulanan':
       case '/penerima-manfaat/kelompok':
         return <PenerimaManfaatView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
-      case '/perencanaan-bahan':
-      case '/perencanaan-bahan/kalkulator':
-      case '/perencanaan-bahan/rab':
-      case '/perencanaan-bahan/riwayat':
-      case '/perencanaan-bahan/rekap':
-      case '/perencanaan-bahan/master-bahan':
-      case '/rab':
-        return <PerencanaanBahanView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+      case '/gizi':
+      case '/gizi/master-menu':
+      case '/gizi/siklus-menu':
+      case '/gizi/food-cost':
+      case '/gizi/suhu':
+      case '/gizi/suhu/kelembapan-gudang-kering':
+      case '/gizi/suhu/freezer':
+      case '/gizi/suhu/chiller':
+      case '/gizi/suhu/pemorsian':
+      case '/gizi/suhu/makanan':
+      case '/gizi/suhu/makanan/pengolahan':
+      case '/gizi/suhu/makanan/masuk-ompreng':
+      case '/gizi/kebersihan-dapur':
+        return <GiziView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       case '/purchase-order':
       case '/purchase-order/riwayat':
       case '/purchase-order/pengaturan':
