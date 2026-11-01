@@ -37,6 +37,7 @@ import { LaporanDistribusiView } from './views/distribusi/LaporanDistribusiView'
 import { FoodWasteView } from './views/FoodWasteView';
 import { PetugasView } from './views/petugas/PetugasView';
 import { GiziView } from './views/gizi/GiziView';
+import { AkuntanView } from './views/akuntan/AkuntanView';
 
 const PortalMain: React.FC = () => {
   const { user, isAuthenticated, isAuthLoading } = useAuth();
@@ -107,9 +108,9 @@ const PortalMain: React.FC = () => {
     // Dashboard is accessible to all logged in users
     if (path === '/dashboard') return true;
 
-    // Staff Kantor
-    if (role === 'Staff Kantor') {
-      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path.startsWith('/gizi') || path === '/dashboard';
+    // Staff Kantor & Akuntan
+    if (role === 'Staff Kantor' || role === 'Akuntan') {
+      return path.startsWith('/esurat') || path.startsWith('/stock') || path.startsWith('/tugas-divisi') || path.startsWith('/menu-harian') || path.startsWith('/food-waste') || path.startsWith('/petugas') || path.startsWith('/gizi') || path.startsWith('/akuntan') || path === '/dashboard';
     }
 
     // Distribusi
@@ -132,6 +133,10 @@ const PortalMain: React.FC = () => {
   };
 
   const renderView = () => {
+    if (currentPath.startsWith('/akuntan')) {
+      return <AkuntanView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+    }
+
     if (!checkAccess(currentPath)) {
       if (!user) {
         return (

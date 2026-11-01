@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   UtensilsCrossed,
   BookOpen,
@@ -26,9 +26,18 @@ import {
   Printer,
   ShieldCheck,
   FileSpreadsheet,
-  X
+  X,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 import { PerencanaanBahanView } from '../../components/nutrition/PerencanaanBahanView';
+import { SiklusMenuView } from '../../components/nutrition/SiklusMenuView';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
+import { exportMasterMenuToExcel, exportMasterMenuToPdf } from '../../utils/giziExportHelper';
+
+export type { MasterMenuRecord };
+export { initialMasterMenuRecords };
 
 interface GiziViewProps {
   currentPath: string;
@@ -42,9 +51,166 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   }
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterPeriod, setFilterPeriod] = useState('Hari Ini');
+  const [filterPeriod, setFilterPeriod] = useState('Semua');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showToast, setShowToast] = useState<string | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
+  // Master Menu dedicated state & persistence
+  const [masterMenus, setMasterMenus] = useState<MasterMenuRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('sppg_master_menus');
+      if (saved) {
+        const parsed: MasterMenuRecord[] = JSON.parse(saved);
+        if (!parsed.some(m => m.tanggalPelaksanaan === '2026-10-26')) {
+          parsed.unshift(initialMasterMenuRecords[0]);
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Failed reading master menus from localStorage:', e);
+    }
+    return initialMasterMenuRecords;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sppg_master_menus', JSON.stringify(masterMenus));
+    } catch (e) {
+      console.error('Failed saving master menus to localStorage:', e);
+    }
+  }, [masterMenus]);
+
+  // Master Menu Form State (5 columns by default)
+  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [menuTanggalPelaksanaan, setMenuTanggalPelaksanaan] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [formMenuItems, setFormMenuItems] = useState<string[]>(['', '', '', '', '']);
+  const [deleteTargetMenu, setDeleteTargetMenu] = useState<MasterMenuRecord | null>(null);
+
+  const formatDateIndo = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const handleOpenAddMasterMenu = () => {
+    setEditingMenuId(null);
+    setMenuTanggalPelaksanaan(new Date().toISOString().split('T')[0]);
+    setFormMenuItems(['', '', '', '', '']); // exactly 5 columns
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditMasterMenu = (item: MasterMenuRecord) => {
+    setEditingMenuId(item.id);
+    setMenuTanggalPelaksanaan(item.tanggalPelaksanaan);
+    const items = [...item.menuItems];
+    while (items.length < 5) {
+      items.push('');
+    }
+    setFormMenuItems(items);
+    setIsModalOpen(true);
+  };
+
+  const handleAddMenuItemColumn = () => {
+    setFormMenuItems(prev => [...prev, '']);
+  };
+
+  const handleRemoveMenuItemColumn = (index: number) => {
+    if (formMenuItems.length <= 1) return;
+    setFormMenuItems(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleMenuItemChange = (index: number, val: string) => {
+    setFormMenuItems(prev => {
+      const next = [...prev];
+      next[index] = val;
+      return next;
+    });
+  };
+
+  const handleSaveMasterMenu = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!menuTanggalPelaksanaan) {
+      triggerToast('Tanggal pelaksanaan wajib diisi!');
+      return;
+    }
+    const cleanedItems = formMenuItems.map(s => s.trim()).filter(s => s.length > 0);
+    if (cleanedItems.length === 0) {
+      triggerToast('Mohon isi minimal satu nama menu!');
+      return;
+    }
+
+    if (editingMenuId) {
+      setMasterMenus(prev => prev.map(m => m.id === editingMenuId ? {
+        ...m,
+        tanggalPelaksanaan: menuTanggalPelaksanaan,
+        menuItems: cleanedItems
+      } : m));
+      triggerToast('Data Master Menu berhasil diperbarui!');
+    } else {
+      const newRecord: MasterMenuRecord = {
+        id: `MM-${menuTanggalPelaksanaan.replace(/-/g, '')}-${String(Date.now()).slice(-3)}`,
+        tanggalPelaksanaan: menuTanggalPelaksanaan,
+        menuItems: cleanedItems
+      };
+      setMasterMenus(prev => [newRecord, ...prev]);
+      triggerToast('Data Master Menu baru berhasil disimpan!');
+    }
+    setIsModalOpen(false);
+  };
+
+  const handleConfirmDeleteMasterMenu = () => {
+    if (!deleteTargetMenu) return;
+    setMasterMenus(prev => prev.filter(m => m.id !== deleteTargetMenu.id));
+    triggerToast(`Master Menu tanggal ${formatDateIndo(deleteTargetMenu.tanggalPelaksanaan)} berhasil dihapus!`);
+    setDeleteTargetMenu(null);
+  };
+
+  const handleExportMasterMenuExcel = () => {
+    if (filteredMasterMenus.length === 0) {
+      triggerToast('Tidak ada data Master Menu untuk diekspor.');
+      return;
+    }
+    exportMasterMenuToExcel(filteredMasterMenus, {
+      dateFilter: selectedDateFilter,
+      searchTerm
+    });
+    triggerToast(`Berhasil mengekspor ${filteredMasterMenus.length} data Master Menu ke Excel (.xlsx)!`);
+    setIsExportMenuOpen(false);
+  };
+
+  const handleExportMasterMenuPdf = () => {
+    if (filteredMasterMenus.length === 0) {
+      triggerToast('Tidak ada data Master Menu untuk diekspor.');
+      return;
+    }
+    exportMasterMenuToPdf(filteredMasterMenus, {
+      dateFilter: selectedDateFilter,
+      searchTerm
+    });
+    triggerToast(`Berhasil mengekspor ${filteredMasterMenus.length} data Master Menu ke PDF (.pdf)!`);
+    setIsExportMenuOpen(false);
+  };
+
+  const filteredMasterMenus = masterMenus.filter(m => {
+    const matchDate = !selectedDateFilter || m.tanggalPelaksanaan === selectedDateFilter;
+    const q = searchTerm.toLowerCase();
+    const matchSearch = !searchTerm || 
+      m.tanggalPelaksanaan.includes(q) ||
+      m.menuItems.some(item => item.toLowerCase().includes(q));
+    return matchDate && matchSearch;
+  });
 
   const triggerToast = (msg: string) => {
     setShowToast(msg);
@@ -63,18 +229,13 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
         breadcrumbs: ['GIZI', 'MASTER MENU'],
         description: 'Katalog master resep, komposisi bahan baku, takaran gramatur, dan standar penyajian SPPG Badan Gizi Nasional.',
         kpis: [
-          { label: 'Total Resep Aktif', value: '36 Menu', status: 'Standar SPPG', color: 'emerald' },
-          { label: 'Kategori Porsi', value: '4 Kelompok', status: 'Kecil, Besar, Balita, 3B', color: 'blue' },
-          { label: 'Pemberitahuan Uji Coba', value: '100% Terverifikasi', status: 'Lolos Ahli Gizi', color: 'indigo' },
-          { label: 'Update Terakhir', value: 'Hari Ini', status: 'Oleh Ahli Gizi', color: 'amber' },
+          { label: 'Total Master Menu', value: `${masterMenus.length} Menu`, status: 'Standar SPPG', color: 'emerald' },
+          { label: 'Total Isian Menu', value: `${masterMenus.reduce((acc, m) => acc + m.menuItems.length, 0)} Komponen`, status: 'Terstandarisasi', color: 'blue' },
+          { label: 'Jadwal Siklus', value: `${masterMenus.length} Hari`, status: 'Tanggal Pelaksanaan', color: 'indigo' },
+          { label: 'Status Uji Coba', value: '100% Terverifikasi', status: 'Lolos Ahli Gizi', color: 'amber' },
         ],
-        columns: ['Kode Menu', 'Nama Menu & Lauk', 'Kategori Sasaran', 'Gramatur / Porsi', 'Status', 'Aksi'],
-        rows: [
-          { c1: 'MNU-BGN-001', c2: 'Nasi Putih + Ayam Semur + Capcay + Buah Jeruk', c3: 'SD/MI (Porsi Kecil & Besar)', c4: '380 gram', c5: 'Aktif Standar', c6: 'Edit Resep' },
-          { c1: 'MNU-BGN-002', c2: 'Nasi + Ikan Goreng Fillet + Sayur Bening Bayam + Semangka', c3: 'SMP & SMA (Porsi Besar)', c4: '450 gram', c5: 'Aktif Standar', c6: 'Edit Resep' },
-          { c1: 'MNU-BGN-003', c2: 'Bubur Beras + Telur Puyuh Rebus + Pure Brokoli Wortel', c3: 'Balita 12-59 Bulan', c4: '200 gram', c5: 'Aktif Standar', c6: 'Edit Resep' },
-          { c1: 'MNU-BGN-004', c2: 'Nasi Pulen + Daging Rendang Daging Sapi + Sop Kacang Merah', c3: 'Ibu Hamil & Menyusui (3B)', c4: '420 gram', c5: 'Aktif Standar', c6: 'Edit Resep' },
-        ]
+        columns: ['No', 'Tanggal Pelaksanaan', 'Nama Menu', 'Aksi'],
+        rows: []
       };
     }
 
@@ -395,20 +556,60 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                if (config.key === 'master-menu') {
+                  handleOpenAddMasterMenu();
+                } else {
+                  setIsModalOpen(true);
+                }
+              }}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>+ Input Data Baru</span>
             </button>
-            <button
-              onClick={() => triggerToast(`Data laporan ${config.badge} berhasil diekspor ke PDF/Excel!`)}
-              className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-              title="Download Rekapitulasi Data"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
+            {config.key === 'master-menu' ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsExportMenuOpen(prev => !prev)}
+                  className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  title="Ekspor Data Master Menu"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Ekspor Menu</span>
+                </button>
+                {isExportMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95">
+                    <button
+                      type="button"
+                      onClick={handleExportMasterMenuExcel}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                      <span>Ekspor Excel (.xlsx)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportMasterMenuPdf}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Download className="w-4 h-4 text-rose-600" />
+                      <span>Ekspor PDF (.pdf)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => triggerToast(`Data laporan ${config.badge} berhasil diekspor!`)}
+                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                title="Download Rekapitulasi Data"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+            )}
             <button
               onClick={() => triggerToast('Mencetak lembar logbook resmi SPPG Badan Gizi Nasional...')}
               className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
@@ -527,6 +728,60 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
             </button>
           </div>
         </div>
+
+        {/* Quick Date Filter Toolbar on Modul Gizi */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Filter Tanggal:</span>
+              <input
+                type="date"
+                value={selectedDateFilter}
+                onChange={(e) => setSelectedDateFilter(e.target.value)}
+                className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+              />
+            </div>
+
+            {selectedDateFilter ? (
+              <div className="flex items-center gap-1.5">
+                <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs">
+                  <span>Aktif: {formatDateIndo(selectedDateFilter)}</span>
+                  <button
+                    onClick={() => setSelectedDateFilter('')}
+                    className="hover:bg-emerald-700 p-0.5 rounded-full cursor-pointer"
+                    title="Hapus filter tanggal"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDateFilter('')}
+                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Tampilkan Semua Tanggal
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDateFilter(new Date().toISOString().split('T')[0])}
+                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Hari Ini
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="text-[11px] text-slate-400 font-medium">
+            {selectedDateFilter
+              ? `Menyaring menu & logbook harian khusus ${selectedDateFilter}`
+              : 'Menampilkan seluruh jadwal & logbook SPPG'}
+          </div>
+        </div>
       </div>
 
       {/* KPI Statistic Cards */}
@@ -550,17 +805,27 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
         ))}
       </div>
 
-      {/* Main Table / Data Section */}
-      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
+      {/* Main Content Section */}
+      {config.key === 'siklus-menu' ? (
+        <SiklusMenuView
+          currentPath={currentPath}
+          onNavigate={onNavigate}
+          masterMenus={masterMenus}
+          activeDateFilter={selectedDateFilter || undefined}
+          onDateFilterChange={setSelectedDateFilter}
+        />
+      ) : (
+        /* Main Table / Data Section */
+        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
         {/* Table Filter & Search Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-800 dark:text-slate-200 flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Daftar Catatan & Verifikasi {config.badge}
+              {config.key === 'master-menu' ? 'Daftar Master Menu' : `Daftar Catatan & Verifikasi ${config.badge}`}
             </h2>
             <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              {filteredRows.length} Data
+              {config.key === 'master-menu' ? filteredMasterMenus.length : filteredRows.length} Data
             </span>
           </div>
 
@@ -572,7 +837,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Cari catatan..."
+                placeholder={config.key === 'master-menu' ? "Cari nama menu / tanggal..." : "Cari catatan..."}
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900 dark:text-slate-100"
               />
             </div>
@@ -583,72 +848,176 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               onChange={(e) => setFilterPeriod(e.target.value)}
               className="px-3 py-1.5 text-xs font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 cursor-pointer"
             >
+              <option value="Semua">Semua</option>
               <option value="Hari Ini">Hari Ini</option>
               <option value="7 Hari Terakhir">7 Hari Terakhir</option>
               <option value="Bulan Ini">Bulan Ini</option>
             </select>
+
+            {/* Quick Export Buttons for Master Menu */}
+            {config.key === 'master-menu' && (
+              <div className="flex items-center gap-1.5 border-l border-slate-200 dark:border-slate-700 pl-2">
+                <button
+                  type="button"
+                  onClick={handleExportMasterMenuExcel}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap"
+                  title="Ekspor daftar master menu ke format Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportMasterMenuPdf}
+                  className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 active:bg-rose-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap"
+                  title="Ekspor daftar master menu ke format dokumen PDF (.pdf)"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Table Responsive Box */}
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                {config.columns.map((col, idx) => (
-                  <th key={idx} className="py-3 px-4">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredRows.map((row, rIdx) => (
-                <tr
-                  key={rIdx}
-                  className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors text-slate-800 dark:text-slate-200 font-medium"
-                >
-                  <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">
-                    {row.c1}
-                  </td>
-                  <td className="py-3 px-4 font-semibold">
-                    {row.c2}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
-                    {row.c3}
-                  </td>
-                  <td className="py-3 px-4 font-bold text-emerald-700 dark:text-emerald-400">
-                    {row.c4}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                      {row.c5 || 'Normal'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    {config.key === 'gizi-overview' ? (
-                      <button
-                        onClick={() => onNavigate(row.c6 || '/gizi')}
-                        className="px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center gap-1 transition-all cursor-pointer border border-emerald-200 dark:border-emerald-800"
-                      >
-                        <span>Buka Modul</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => triggerToast(`Membuka rincian data: ${row.c1}`)}
-                        className="px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-emerald-600 font-semibold text-xs transition-colors cursor-pointer"
-                      >
-                        Detail & Audit
-                      </button>
-                    )}
-                  </td>
+        {config.key === 'master-menu' ? (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4 w-12 text-center">No</th>
+                  <th className="py-3 px-4 w-56">Tanggal Pelaksanaan</th>
+                  <th className="py-3 px-4">Nama Menu</th>
+                  <th className="py-3 px-4 w-36 text-center">Aksi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredMasterMenus.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400">
+                      Belum ada data Master Menu. Klik "+ Input Data Baru" untuk menambahkan menu pelaksanaan.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMasterMenus.map((item, idx) => (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors text-slate-800 dark:text-slate-200 font-medium"
+                    >
+                      <td className="py-3 px-4 text-center font-bold text-slate-500">
+                        {idx + 1}
+                      </td>
+                      <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{formatDateIndo(item.tanggalPelaksanaan)}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {item.tanggalPelaksanaan}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {item.menuItems.map((m, mIdx) => (
+                            <span
+                              key={mIdx}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70 shadow-2xs"
+                            >
+                              <span className="w-4 h-4 rounded-full bg-emerald-200 dark:bg-emerald-800 text-[10px] font-black flex items-center justify-center text-emerald-900 dark:text-emerald-100 shrink-0">
+                                {mIdx + 1}
+                              </span>
+                              <span>{m}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => handleOpenEditMasterMenu(item)}
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+                            title="Edit data Master Menu ini"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => setDeleteTargetMenu(item)}
+                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+                            title="Hapus data Master Menu ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Hapus</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                  {config.columns.map((col, idx) => (
+                    <th key={idx} className="py-3 px-4">
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredRows.map((row, rIdx) => (
+                  <tr
+                    key={rIdx}
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors text-slate-800 dark:text-slate-200 font-medium"
+                  >
+                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">
+                      {row.c1}
+                    </td>
+                    <td className="py-3 px-4 font-semibold">
+                      {row.c2}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
+                      {row.c3}
+                    </td>
+                    <td className="py-3 px-4 font-bold text-emerald-700 dark:text-emerald-400">
+                      {row.c4}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        {row.c5 || 'Normal'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {config.key === 'gizi-overview' ? (
+                        <button
+                          onClick={() => onNavigate(row.c6 || '/gizi')}
+                          className="px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center gap-1 transition-all cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                        >
+                          <span>Buka Modul</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => triggerToast(`Membuka rincian data: ${row.c1}`)}
+                          className="px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-emerald-600 font-semibold text-xs transition-colors cursor-pointer"
+                        >
+                          Detail & Audit
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Footer Note */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800/80">
@@ -656,14 +1025,17 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>Terintegrasi Standar Operasional Prosedur (SOP) Badan Gizi Nasional Republik Indonesia.</span>
           </div>
-          <div>Menampilkan {filteredRows.length} dari {config.rows.length} total rekaman</div>
+          <div>
+            Menampilkan {config.key === 'master-menu' ? filteredMasterMenus.length : filteredRows.length} total rekaman
+          </div>
         </div>
       </div>
+      )}
 
-      {/* Input Form Modal Placeholder */}
+      {/* Input Form Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-2xl border border-emerald-200 dark:border-emerald-800">
@@ -671,10 +1043,16 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
                 </div>
                 <div>
                   <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
-                    Form Pencatatan {config.badge}
+                    {config.key === 'master-menu' 
+                      ? (editingMenuId ? 'Edit Data Master Menu' : 'Form Pencatatan Master Menu')
+                      : `Form Pencatatan ${config.badge}`
+                    }
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Input log parameter harian ke dalam database SPPG
+                    {config.key === 'master-menu'
+                      ? 'Input komposisi nama menu harian SPPG Badan Gizi Nasional'
+                      : 'Input log parameter harian ke dalam database SPPG'
+                    }
                   </p>
                 </div>
               </div>
@@ -686,90 +1064,203 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               </button>
             </div>
 
-            {/* Form Fields */}
-            <div className="space-y-3.5 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Tanggal & Waktu Pemeriksaan
-                </label>
-                <input
-                  type="datetime-local"
-                  defaultValue={new Date().toISOString().slice(0, 16)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Nama Menu / Area / Titik Uji
-                </label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Ayam Semur Kloter 1 / Chiller Sayur 01"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+            {config.key === 'master-menu' ? (
+              /* Dedicated Master Menu Form: Tanggal Pelaksanaan + 5 Kolom Nama Menu + Tombol Tambah */
+              <form onSubmit={handleSaveMasterMenu} className="space-y-4 text-xs">
+                {/* 1. Tanggal Pelaksanaan */}
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Nilai Pengukuran (Suhu/RH/Biaya)
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tanggal Pelaksanaan</span>
                   </label>
                   <input
-                    type="text"
-                    placeholder="Contoh: 85.5 °C / 58% RH"
+                    type="date"
+                    value={menuTanggalPelaksanaan}
+                    onChange={(e) => setMenuTanggalPelaksanaan(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {formatDateIndo(menuTanggalPelaksanaan)}
+                  </p>
+                </div>
+
+                {/* 2. Form Nama Menu Sebanyak 5 Kolom + Tombol Tambah */}
+                <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                        Nama Menu ({formMenuItems.length} Kolom Isian)
+                      </label>
+                      <p className="text-[10px] text-slate-400">
+                        Isikan nama komponen menu makanan untuk tanggal pelaksanaan ini
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddMenuItemColumn}
+                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Isian Kolom</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {formMenuItems.map((itemVal, idx) => {
+                      const defaultHints = [
+                        'Makanan Pokok (misal: Nasi Putih Pulen)',
+                        'Lauk Hewani (misal: Ayam Fillet Krispy)',
+                        'Lauk Nabati (misal: Tempe Balado)',
+                        'Sayuran (misal: Sayur Sop Segar)',
+                        'Buah / Susu (misal: Buah Jeruk Madu)'
+                      ];
+                      const hint = defaultHints[idx] || `Komponen Menu ${idx + 1}`;
+
+                      return (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={itemVal}
+                            onChange={(e) => handleMenuItemChange(idx, e.target.value)}
+                            placeholder={`Kolom ${idx + 1}: ${hint}`}
+                            className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                          />
+                          {formMenuItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMenuItemColumn(idx)}
+                              className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-xl transition-colors cursor-pointer shrink-0"
+                              title="Hapus kolom ini"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>{editingMenuId ? 'Perbarui Master Menu' : 'Simpan Master Menu'}</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* Generic Form Fields for other submenus */
+              <div className="space-y-3.5 text-xs">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                    Tanggal & Waktu Pemeriksaan
+                  </label>
+                  <input
+                    type="datetime-local"
+                    defaultValue={new Date().toISOString().slice(0, 16)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   />
                 </div>
+
                 <div>
                   <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Status Evaluasi
+                    Nama Menu / Area / Titik Uji
                   </label>
-                  <select
+                  <input
+                    type="text"
+                    placeholder="Contoh: Ayam Semur Kloter 1 / Chiller Sayur 01"
                     className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Nilai Pengukuran (Suhu/RH/Biaya)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: 85.5 °C / 58% RH"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Status Evaluasi
+                    </label>
+                    <select
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    >
+                      <option value="Sesuai Standar">🟢 Sesuai Standar SOP</option>
+                      <option value="Perlu Tindakan">🟡 Perlu Penyesuaian</option>
+                      <option value="Deviasi">🔴 Kritis (Deviasi)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                    Catatan / Nama Petugas PIC
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Catatan hasil pengukuran lapangan atau tindakan korektif..."
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                </div>
+
+                {/* Modal Actions */}
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs cursor-pointer"
                   >
-                    <option value="Sesuai Standar">🟢 Sesuai Standar SOP</option>
-                    <option value="Perlu Tindakan">🟡 Perlu Penyesuaian</option>
-                    <option value="Deviasi">🔴 Kritis (Deviasi)</option>
-                  </select>
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      triggerToast(`Data catatan ${config.badge} berhasil disimpan ke sistem!`);
+                    }}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer"
+                  >
+                    Simpan Catatan
+                  </button>
                 </div>
               </div>
-
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Catatan / Nama Petugas PIC
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Catatan hasil pengukuran lapangan atau tindakan korektif..."
-                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  triggerToast(`Data catatan ${config.badge} berhasil disimpan ke sistem!`);
-                }}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer"
-              >
-                Simpan Catatan
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal for Master Menu */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetMenu)}
+        title="Hapus Data Master Menu"
+        message={`Apakah Anda yakin ingin menghapus data Master Menu untuk tanggal pelaksanaan ${deleteTargetMenu ? formatDateIndo(deleteTargetMenu.tanggalPelaksanaan) : ''}? Tindakan ini tidak dapat dibatalkan.`}
+        confirmText="Ya, Hapus Menu"
+        cancelText="Batal"
+        danger={true}
+        onClose={() => setDeleteTargetMenu(null)}
+        onConfirm={handleConfirmDeleteMasterMenu}
+      />
     </div>
   );
 };

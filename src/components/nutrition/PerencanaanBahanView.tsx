@@ -40,7 +40,9 @@ import {
   FileEdit,
   RotateCcw,
   WalletCards,
-  Coins
+  Coins,
+  AlertCircle,
+  Utensils
 } from 'lucide-react';
 
 import { 
@@ -61,6 +63,7 @@ import {
 import { MultiGroupWorksheetTable } from './MultiGroupWorksheetTable';
 import { RekapBufferTable } from './RekapBufferTable';
 import { OfficialPdfPrintModal } from './OfficialPdfPrintModal';
+import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
 
 interface PerencanaanBahanViewProps {
   currentPath?: string;
@@ -91,21 +94,36 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Active Plan Form State (Calculator & Worksheet) - Pre-configured with official SPPG standard
-  const defaultDateStr = '2026-09-27';
+  // Helper to fetch Master Menu by execution date from localStorage / seed
+  const getMasterMenuForDate = (dateStr: string): string => {
+    try {
+      const saved = localStorage.getItem('sppg_master_menus');
+      const list: MasterMenuRecord[] = saved ? JSON.parse(saved) : initialMasterMenuRecords;
+      const matched = list.find((m: MasterMenuRecord) => m.tanggalPelaksanaan === dateStr);
+      if (matched && Array.isArray(matched.menuItems) && matched.menuItems.length > 0) {
+        return matched.menuItems.map((item: string) => item.toUpperCase()).join(' + ');
+      }
+    } catch (e) {
+      console.error('Error reading master menus from localStorage:', e);
+    }
+    return '';
+  };
+
+  // Active Plan Form State (Calculator & Worksheet) - Synchronized with saved plans & daily beneficiaries
+  const defaultDateStr = '2026-11-01';
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [tanggalPerencanaan, setTanggalPerencanaan] = useState<string>(defaultDateStr);
   const [tanggalPelaksanaan, setTanggalPelaksanaan] = useState<string>(defaultDateStr);
-  const [menuName, setMenuName] = useState<string>('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
+  const [menuName, setMenuName] = useState<string>(() => getMasterMenuForDate(defaultDateStr));
   const [periode, setPeriode] = useState<'Harian' | 'Mingguan' | 'Bulanan'>('Harian');
   const [keterangan, setKeterangan] = useState<string>('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
   const [nutritionistName, setNutritionistName] = useState<string>('Fitria, S. ST');
   const [kepalaSppgName, setKepalaSppgName] = useState<string>('Sri Rohayu, S. Pd');
   const [planStatus, setPlanStatus] = useState<'Draft' | 'Dalam Perhitungan' | 'Final' | 'Disetujui' | 'Selesai' | 'Revisi'>('Draft');
-  const [hasPlanningActivity, setHasPlanningActivity] = useState<boolean>(true);
+  const [hasPlanningActivity, setHasPlanningActivity] = useState<boolean>(false);
 
   // Real-time synchronization state (Tugas Divisi & Penerima Manfaat)
-  const [tugasDivisiMenuHarian, setTugasDivisiMenuHarian] = useState<string>('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
+  const [tugasDivisiMenuHarian, setTugasDivisiMenuHarian] = useState<string>('');
   const [isSyncingMenu, setIsSyncingMenu] = useState<boolean>(false);
   const [isSyncingBeneficiaries, setIsSyncingBeneficiaries] = useState<boolean>(false);
   const [liveBeneficiarySummary, setLiveBeneficiarySummary] = useState<any>({
@@ -121,9 +139,14 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [hasAutoSyncedDate, setHasAutoSyncedDate] = useState<string>('');
   const [autoSyncToTugasDivisi, setAutoSyncToTugasDivisi] = useState<boolean>(true);
 
-  // Multi-Group State for Worksheet & Algorithms (Default to exact standard 24 items and 4 groups matching screenshots)
-  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>(INITIAL_PDF_INGREDIENTS);
-  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>(DEFAULT_TARGET_COUNTS);
+  // Multi-Group State for Worksheet & Algorithms (Initialized EMPTY so table strictly matches saved plans)
+  const [ingredients, setIngredients] = useState<MultiGroupIngredientItem[]>([]);
+  const [targetCounts, setTargetCounts] = useState<TargetCountConfig>({
+    porsiKecil: 0,
+    porsiBesar: 0,
+    balita: 0,
+    bumilBusui: 0
+  });
 
   // Modals
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
@@ -207,10 +230,30 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
 
         const existingPlanForDate = json.existingPlan || plans.find(p => p.tanggalPelaksanaan === targetDate);
 
+        // Derive target counts strictly from single source of truth (daily beneficiaries)
+        const hasLiveBeneficiary = Boolean(json.beneficiarySummary && json.beneficiarySummary.totalPenerima > 0);
+        const resolvedTargetCounts: TargetCountConfig = hasLiveBeneficiary ? {
+          porsiKecil: json.targetCounts?.porsiKecil || 0,
+          porsiBesar: json.targetCounts?.porsiBesar || 0,
+          balita: json.targetCounts?.balita || 0,
+          bumilBusui: json.targetCounts?.bumilBusui || 0
+        } : {
+          porsiKecil: 0,
+          porsiBesar: 0,
+          balita: 0,
+          bumilBusui: 0
+        };
+
+        setTargetCounts(resolvedTargetCounts);
+
+        // Retrieve Master Menu for this target date (empty if no master menu)
+        const masterMenuForDate = getMasterMenuForDate(targetDate);
+
         if (existingPlanForDate) {
           // Load existing saved planning activity for this date
           setSelectedPlanId(existingPlanForDate.id);
-          setMenuName(existingPlanForDate.menuName || '');
+          // Sync Menu Utama SPPG with Master Menu (empty if Master Menu has no data for this date)
+          setMenuName(masterMenuForDate);
           if (existingPlanForDate.tanggalPerencanaan) setTanggalPerencanaan(existingPlanForDate.tanggalPerencanaan);
           if (existingPlanForDate.periode) setPeriode(existingPlanForDate.periode);
           setKeterangan(existingPlanForDate.keterangan || '');
@@ -218,53 +261,22 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
           setKepalaSppgName(existingPlanForDate.kepalaSppgName || 'Sri Rohayu, S. Pd');
           setPlanStatus(existingPlanForDate.status || 'Draft');
           setIngredients(Array.isArray(existingPlanForDate.ingredientsData) ? existingPlanForDate.ingredientsData : []);
-          setTargetCounts(existingPlanForDate.targetCountsConfig || {
-            porsiKecil: json.targetCounts?.porsiKecil || 0,
-            porsiBesar: json.targetCounts?.porsiBesar || 0,
-            balita: json.targetCounts?.balita || 0,
-            bumilBusui: json.targetCounts?.bumilBusui || 0
-          });
           setHasPlanningActivity(true);
-        } else if (!isManualTrigger) {
-          // No custom saved plan in database for this date -> preserve standard template ingredients
-          if (json.beneficiarySummary) {
-            setLiveBeneficiarySummary(json.beneficiarySummary);
-          }
-          if (json.targetCounts && json.targetCounts.total > 0) {
-            setTargetCounts({
-              porsiKecil: json.targetCounts.porsiKecil || 0,
-              porsiBesar: json.targetCounts.porsiBesar || 0,
-              balita: json.targetCounts.balita || 0,
-              bumilBusui: json.targetCounts.bumilBusui || 0
-            });
-          }
-          if (menuHarian && menuHarian.trim()) {
-            setMenuName(menuHarian);
-          }
         } else {
-          // Manual sync triggered by user while creating a plan
-          if (menuHarian && menuHarian.trim()) {
-            setMenuName(menuHarian);
-          }
-          if (json.targetCounts) {
-            setTargetCounts({
-              porsiKecil: json.targetCounts.porsiKecil || 0,
-              porsiBesar: json.targetCounts.porsiBesar || 0,
-              balita: json.targetCounts.balita || 0,
-              bumilBusui: json.targetCounts.bumilBusui || 0
-            });
-          }
-          if ((menuHarian && menuHarian.trim()) || (json.targetCounts?.total > 0)) {
-            setHasPlanningActivity(true);
-            if (!nutritionistName) setNutritionistName('Fitria, S. ST');
-            if (!kepalaSppgName) setKepalaSppgName('Sri Rohayu, S. Pd');
-          }
+          // No saved plan for this date in Riwayat Dokumen -> Worksheet table must be empty!
+          setSelectedPlanId(null);
+          setIngredients([]);
+          setPlanStatus('Draft');
+          setHasPlanningActivity(false);
+          // Sync Menu Utama SPPG with Master Menu (empty if Master Menu has no data for this date)
+          setMenuName(masterMenuForDate);
         }
 
         if (isManualTrigger) {
+          const totalJiwa = resolvedTargetCounts.porsiKecil + resolvedTargetCounts.porsiBesar + resolvedTargetCounts.balita + resolvedTargetCounts.bumilBusui;
           showToast(
-            `Data realtime tersinkronisasi! Menu: ${menuHarian ? `"${menuHarian}"` : '(Belum ada di Tugas Divisi)'} | Total Sasaran: ${(json.targetCounts?.total || 0).toLocaleString('id-ID')} jiwa`,
-            'success'
+            `Data realtime tersinkronisasi! Menu Utama SPPG: ${masterMenuForDate ? `"${masterMenuForDate}"` : '(Kosong - Belum ada di Master Menu)'} | Total Sasaran: ${totalJiwa.toLocaleString('id-ID')} jiwa`,
+            masterMenuForDate ? 'success' : 'info'
           );
         }
       }
@@ -323,22 +335,21 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
     }
   };
 
-  // Sync menu only (Tugas Divisi)
-  const handleSyncMenuFromTugasDivisiOnly = async () => {
+  // Sync menu only (Master Menu)
+  const handleSyncMenuFromMasterMenuOnly = () => {
     setIsSyncingMenu(true);
     try {
-      const res = await fetch(`/api/v1/tugas-divisi/menu-harian?tanggal=${tanggalPelaksanaan}`);
-      const json = await res.json();
-      if (json.success && json.data?.menuHarian) {
-        setMenuName(json.data.menuHarian);
-        setTugasDivisiMenuHarian(json.data.menuHarian);
-        showToast(`Menu Utama SPPG berhasil disinkronkan dengan Menu Tugas Divisi: "${json.data.menuHarian}"`, 'success');
+      const masterMenu = getMasterMenuForDate(tanggalPelaksanaan);
+      if (masterMenu) {
+        setMenuName(masterMenu);
+        showToast(`Menu Utama SPPG berhasil disinkronkan dengan Master Menu: "${masterMenu}"`, 'success');
       } else {
-        showToast(`Tidak ditemukan data menu harian di Tugas Divisi untuk tanggal ${formatDateIndo(tanggalPelaksanaan)}`, 'info');
+        setMenuName('');
+        showToast(`Data Master Menu untuk tanggal ${formatDateIndo(tanggalPelaksanaan)} tidak ditemukan. Menu Utama SPPG dikosongkan.`, 'info');
       }
     } catch (err) {
-      console.error('Error syncing menu from tugas divisi:', err);
-      showToast('Gagal menyinkronkan menu harian', 'error');
+      console.error('Error syncing menu from master menu:', err);
+      showToast('Gagal menyinkronkan data Master Menu', 'error');
     } finally {
       setIsSyncingMenu(false);
     }
@@ -366,8 +377,12 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
       if (data.success) {
         showToast(`Menu perencanaan "${deleteModalPlan.menuName}" berhasil dihapus!`, 'success');
         setPlans(prev => prev.filter(p => p.id !== deleteModalPlan.id));
-        if (selectedPlanId === deleteModalPlan.id) {
+        if (selectedPlanId === deleteModalPlan.id || tanggalPelaksanaan === deleteModalPlan.tanggalPelaksanaan) {
           setSelectedPlanId(null);
+          setIngredients([]);
+          setMenuName('');
+          setHasPlanningActivity(false);
+          setPlanStatus('Draft');
         }
         setDeleteModalPlan(null);
       } else {
@@ -458,9 +473,10 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
     } else {
       setIngredients([]);
     }
-    if (plan.targetCountsConfig) {
-      setTargetCounts(plan.targetCountsConfig);
-    }
+
+    // Trigger sync context for this plan's date so target counts and beneficiaries are 100% synced with daily records
+    setHasAutoSyncedDate(plan.tanggalPelaksanaan);
+    fetchSyncContextForDate(plan.tanggalPelaksanaan, false);
 
     setActiveTab('kalkulator');
     if (plan.status === 'Final') {
@@ -472,16 +488,23 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
     }
   };
 
-  // Reset to the exact official PDF standard
+  // Reset to the exact official PDF standard (loads 24 ingredients while retaining date's real beneficiary counts)
   const handleResetToPdfOfficial = () => {
     setHasPlanningActivity(true);
     setIngredients(INITIAL_PDF_INGREDIENTS);
-    setTargetCounts(DEFAULT_TARGET_COUNTS);
+    if (liveBeneficiarySummary && liveBeneficiarySummary.totalPenerima > 0) {
+      setTargetCounts({
+        porsiKecil: liveBeneficiarySummary.portionBreakdown?.porsiKecil || 0,
+        porsiBesar: liveBeneficiarySummary.portionBreakdown?.porsiBesar || 0,
+        balita: liveBeneficiarySummary.portionBreakdown?.balita || 0,
+        bumilBusui: liveBeneficiarySummary.portionBreakdown?.bumilBusui || 0
+      });
+    }
     setMenuName('NASI + CHICKEN KATSU (DAUN PISANG) + TAHU GORENG + CURRY WORTEL & KENTANG + KELENGKENG');
     setKeterangan('Standar Menu SPPG Probolinggo Krejengan Temenggungan (Yayasan Hafshawaty)');
     setNutritionistName('Fitria, S. ST');
     setKepalaSppgName('Sri Rohayu, S. Pd');
-    showToast('Berhasil memuat konfigurasi standar resmi PDF Badan Gizi Nasional (24 Bahan Pangan, 4 Sasaran)', 'success');
+    showToast('Berhasil memuat konfigurasi standar resmi PDF Badan Gizi Nasional (24 Bahan Pangan)', 'success');
   };
 
   // Buat Form Perencanaan Menu Baru (Data Kosong Siap Diisi)
@@ -642,6 +665,13 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
     }
   };
 
+  const foodCostPerPorsi = totalSasaranOverall > 0 ? Math.round(totalBiayaOverall / totalSasaranOverall) : 0;
+  const plafonStandar = 15000;
+  const hematPerPorsi = plafonStandar - foodCostPerPorsi;
+
+  const currentMasterMenuForDate = getMasterMenuForDate(tanggalPelaksanaan);
+  const isMasterMenuSynced = Boolean(currentMasterMenuForDate && menuName.trim() === currentMasterMenuForDate.trim());
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       {/* Toast Notification */}
@@ -779,77 +809,69 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
       </div>
 
       {/* Top Executive Summary Widgets */}
-      {(() => {
-        const foodCostPerPorsi = totalSasaranOverall > 0 ? Math.round(totalBiayaOverall / totalSasaranOverall) : 0;
-        const plafon = 15000;
-        const hematPerPorsi = plafon - foodCostPerPorsi;
-
-        return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Estimasi Biaya (Buffer 5%)</div>
-                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-                  Rp {isPlanningActive ? totalBiayaOverall.toLocaleString('id-ID') : '0'}
-                </div>
-                <div className={`text-[10px] font-medium mt-1 flex items-center gap-1 ${
-                  isPlanningActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
-                }`}>
-                  <Sparkles className="w-3 h-3" /> {isPlanningActive ? 'Realtime Kalkulasi Anggaran' : 'Belum ada aktivitas perencanaan'}
-                </div>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                <DollarSign className="w-5 h-5" />
-              </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Estimasi Biaya (Buffer 5%)</div>
+            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              Rp {isPlanningActive ? totalBiayaOverall.toLocaleString('id-ID') : '0'}
             </div>
-
-            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Food Cost / Porsi (HPP)</div>
-                <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 mt-1">
-                  Rp {isPlanningActive ? foodCostPerPorsi.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">/ porsi</span>
-                </div>
-                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
-                  {isPlanningActive && hematPerPorsi >= 0 ? `Plafon Rp 15.000 (Hemat Rp ${hematPerPorsi.toLocaleString('id-ID')})` : 'Plafon Standar Rp 15.000 / Porsi'}
-                </div>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <Coins className="w-5 h-5" />
-              </div>
-            </div>
-
-            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Kebutuhan Bahan (+Buffer)</div>
-                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-                  {isPlanningActive ? totalKgOverall.toFixed(2) : '0.00'} <span className="text-xs font-normal text-slate-500">kg</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-1">
-                  {isPlanningActive ? `${ingredients.length} jenis komoditas pangan` : 'Data bahan pangan kosong'}
-                </div>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                <Scale className="w-5 h-5" />
-              </div>
-            </div>
-
-            <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Sasaran Penerima Manfaat</div>
-                <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
-                  {isPlanningActive ? totalSasaranOverall.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">jiwa</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[170px]">
-                  {isPlanningActive ? '4 Kelompok Sasaran Terpadu' : 'Belum ada sasaran direncanakan'}
-                </div>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                <Users className="w-5 h-5" />
-              </div>
+            <div className={`text-[10px] font-medium mt-1 flex items-center gap-1 ${
+              isPlanningActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+            }`}>
+              <Sparkles className="w-3 h-3" /> {isPlanningActive ? 'Realtime Kalkulasi Anggaran' : 'Belum ada aktivitas perencanaan'}
             </div>
           </div>
-        );
-      })()}
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <DollarSign className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Food Cost / Porsi (HPP)</div>
+            <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 mt-1">
+              Rp {isPlanningActive ? foodCostPerPorsi.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">/ porsi</span>
+            </div>
+            <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+              {isPlanningActive && hematPerPorsi >= 0 ? `Plafon Rp 15.000 (Hemat Rp ${hematPerPorsi.toLocaleString('id-ID')})` : 'Plafon Standar Rp 15.000 / Porsi'}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <Coins className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Kebutuhan Bahan (+Buffer)</div>
+            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {isPlanningActive ? totalKgOverall.toFixed(2) : '0.00'} <span className="text-xs font-normal text-slate-500">kg</span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              {isPlanningActive ? `${ingredients.length} jenis komoditas pangan` : 'Data bahan pangan kosong'}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <Scale className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Total Sasaran Penerima Manfaat</div>
+            <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {isPlanningActive ? totalSasaranOverall.toLocaleString('id-ID') : '0'} <span className="text-xs font-normal text-slate-500">jiwa</span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1 truncate max-w-[170px]">
+              {isPlanningActive ? '4 Kelompok Sasaran Terpadu' : 'Belum ada sasaran direncanakan'}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
 
       {/* Main Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
@@ -1050,8 +1072,12 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                 <input
                   type="date"
                   value={tanggalPelaksanaan}
-                  onChange={(e) => setTanggalPelaksanaan(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    setTanggalPelaksanaan(newDate);
+                    setMenuName(getMasterMenuForDate(newDate));
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   {formatDateIndo(tanggalPelaksanaan)}
@@ -1060,40 +1086,48 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
 
               <div className="lg:col-span-2">
                 <div className="flex items-center justify-between mb-1 gap-2">
-                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                    Menu Utama SPPG
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Utensils className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Menu Utama SPPG</span>
                   </label>
-                  {tugasDivisiMenuHarian ? (
-                    <div className="flex items-center gap-1">
-                      {menuName.trim() === tugasDivisiMenuHarian.trim() ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                          <span>Sinkron Menu Tugas Divisi</span>
-                        </span>
-                      ) : (
+                  
+                  {/* Master Menu Sync Status Indicator */}
+                  {currentMasterMenuForDate ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <span>Sinkron Master Menu</span>
+                      </span>
+                      {!isMasterMenuSynced && (
                         <button
                           type="button"
-                          onClick={handleSyncMenuFromTugasDivisiOnly}
+                          onClick={handleSyncMenuFromMasterMenuOnly}
                           disabled={isSyncingMenu}
-                          className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 dark:text-amber-200 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-700 transition-all cursor-pointer shadow-2xs"
-                          title={`Sinkronkan dengan menu Tugas Divisi: "${tugasDivisiMenuHarian}"`}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900 px-2 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-700 transition-all cursor-pointer shadow-2xs"
+                          title={`Tarik kembali dari Master Menu: "${currentMasterMenuForDate}"`}
                         >
-                          <RefreshCw className={`w-3 h-3 text-amber-600 ${isSyncingMenu ? 'animate-spin' : ''}`} />
-                          <span>Tarik dari Tugas Divisi: "{tugasDivisiMenuHarian.length > 20 ? `${tugasDivisiMenuHarian.slice(0, 20)}...` : tugasDivisiMenuHarian}"</span>
+                          <RefreshCw className={`w-2.5 h-2.5 ${isSyncingMenu ? 'animate-spin' : ''}`} />
+                          <span>Sinkronkan Ulang</span>
                         </button>
                       )}
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={handleSyncMenuFromTugasDivisiOnly}
-                      disabled={isSyncingMenu}
-                      className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-700 dark:text-slate-400 cursor-pointer"
-                      title="Periksa menu harian di Tugas Divisi"
-                    >
-                      <RefreshCw className={`w-2.5 h-2.5 ${isSyncingMenu ? 'animate-spin' : ''}`} />
-                      <span>Cek Menu Tugas Divisi</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/70 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-800">
+                        <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                        <span>Master Menu Kosong</span>
+                      </span>
+                      {onNavigate && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('/gizi/master-menu')}
+                          className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer ml-1"
+                          title="Buka form Master Menu untuk membuat menu pada tanggal ini"
+                        >
+                          <span>+ Buat Menu</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="relative">
@@ -1101,10 +1135,24 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
                     type="text"
                     value={menuName}
                     onChange={(e) => setMenuName(e.target.value)}
-                    placeholder="Masukkan nama menu utama SPPG..."
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    placeholder={
+                      getMasterMenuForDate(tanggalPelaksanaan)
+                        ? "Nama menu utama SPPG..."
+                        : "Data Master Menu belum dibuat untuk tanggal ini (Menu Utama SPPG Kosong)"
+                    }
+                    className={`w-full px-3 py-2 border rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 uppercase transition-colors ${
+                      menuName
+                        ? 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100'
+                        : 'bg-rose-50/30 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 text-slate-400 placeholder:text-rose-400 dark:placeholder:text-rose-500/70'
+                    }`}
                   />
                 </div>
+                {!menuName && (
+                  <p className="text-[10px] text-rose-500 dark:text-rose-400 mt-1 flex items-center gap-1">
+                    <Info className="w-3 h-3 shrink-0" />
+                    <span>Master Menu untuk tanggal {formatDateIndo(tanggalPelaksanaan)} belum ada. Menu Utama SPPG kosong.</span>
+                  </p>
+                )}
               </div>
 
               <div>

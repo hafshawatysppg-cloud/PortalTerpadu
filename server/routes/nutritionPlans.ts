@@ -290,6 +290,17 @@ router.get('/:id', (req: Request, res: Response): void => {
     return;
   }
 
+  const benSummary = dbStore.getBeneficiarySummaryForDate(plan.tanggalPelaksanaan);
+  if (benSummary && benSummary.hasPlanning && benSummary.totalPenerima > 0) {
+    plan.targetCount = benSummary.totalPenerima;
+    plan.targetCountsConfig = {
+      porsiKecil: benSummary.portionBreakdown.porsiKecil || 0,
+      porsiBesar: benSummary.portionBreakdown.porsiBesar || 0,
+      balita: benSummary.portionBreakdown.balita || 0,
+      bumilBusui: benSummary.portionBreakdown.bumilBusui || 0
+    };
+  }
+
   const items = dbStore.nutritionPlanItems.filter(i => i.planId === plan.id);
 
   res.json({
@@ -309,6 +320,17 @@ router.get('/by-date/:tanggal', (req: Request, res: Response): void => {
   if (!plan) {
     res.status(404).json({ success: false, message: `Belum ada perencanaan menu untuk tanggal ${tanggal}` });
     return;
+  }
+
+  const benSummary = dbStore.getBeneficiarySummaryForDate(plan.tanggalPelaksanaan);
+  if (benSummary && benSummary.hasPlanning && benSummary.totalPenerima > 0) {
+    plan.targetCount = benSummary.totalPenerima;
+    plan.targetCountsConfig = {
+      porsiKecil: benSummary.portionBreakdown.porsiKecil || 0,
+      porsiBesar: benSummary.portionBreakdown.porsiBesar || 0,
+      balita: benSummary.portionBreakdown.balita || 0,
+      bumilBusui: benSummary.portionBreakdown.bumilBusui || 0
+    };
   }
 
   const items = dbStore.nutritionPlanItems.filter(i => i.planId === plan.id);

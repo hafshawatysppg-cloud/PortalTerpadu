@@ -28,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     stock: true,
     barangDatang: true,
     gizi: true,
+    akuntan: true,
     menuHarian: true,
     penerima: true,
     po: true,
@@ -37,10 +38,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     admin: true,
   });
 
-  // Track expanded state for nested sub-menu levels by path (supports 3+ levels)
+  // Track expanded state for nested sub-menu levels by path (supports 4+ levels)
   const [expandedSubLevels, setExpandedSubLevels] = useState<Record<string, boolean>>({
     '/gizi/suhu': true,
     '/gizi/suhu/makanan': true,
+    '/akuntan/rab-operasional': true,
+    '/akuntan/rab-operasional/jasa': true,
+    '/akuntan/rab-operasional/jasa/gaji-karyawan': true,
+    '/akuntan/rab-operasional/jasa/insentif-pic-lembaga': true,
+    '/akuntan/rab-operasional/jasa/insentif-pic-posyandu': true,
+    '/akuntan/rab-operasional/jasa/gaji-staf': true,
+    '/akuntan/insentif-fasilitas': true,
   });
 
   const toggleModuleExpand = (key: string, e?: React.MouseEvent) => {
@@ -162,6 +170,80 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
       { title: 'Audit & Log Aktivitas', path: '/admin/logs', icon: Icons.FileText },
       { title: 'Master Template Dokumen', path: '/admin/document-template', icon: Icons.FileSignature },
       { title: 'Pengaturan Portal', path: '/admin/settings', icon: Icons.Settings },
+    ],
+    akuntan: [
+      { title: 'RAB Bahan Baku', path: '/akuntan/rab-bahan-baku', icon: Icons.Receipt },
+      {
+        title: 'RAB Operasional',
+        path: '/akuntan/rab-operasional',
+        icon: Icons.Calculator,
+        children: [
+          { title: 'Barang', path: '/akuntan/rab-operasional/barang', icon: Icons.Boxes },
+          {
+            title: 'Jasa',
+            path: '/akuntan/rab-operasional/jasa',
+            icon: Icons.Briefcase,
+            children: [
+              {
+                title: 'Gaji Karyawan',
+                path: '/akuntan/rab-operasional/jasa/gaji-karyawan',
+                icon: Icons.Users,
+                children: [
+                  { title: 'Rekap Gaji', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji', icon: Icons.TableProperties },
+                  { title: 'Slip Gaji', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji', icon: Icons.Receipt }
+                ]
+              },
+              {
+                title: 'Insentif PIC Lembaga',
+                path: '/akuntan/rab-operasional/jasa/insentif-pic-lembaga',
+                icon: Icons.GraduationCap,
+                children: [
+                  { title: 'Rekap', path: '/akuntan/rab-operasional/jasa/insentif-pic-lembaga/rekap', icon: Icons.TableProperties },
+                  { title: 'Kwitansi', path: '/akuntan/rab-operasional/jasa/insentif-pic-lembaga/kwitansi', icon: Icons.FileCheck2 }
+                ]
+              },
+              {
+                title: 'Insentif PIC Posyandu',
+                path: '/akuntan/rab-operasional/jasa/insentif-pic-posyandu',
+                icon: Icons.HeartPulse,
+                children: [
+                  { title: 'Rekap', path: '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/rekap', icon: Icons.TableProperties },
+                  { title: 'Kwitansi', path: '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/kwitansi', icon: Icons.FileCheck2 }
+                ]
+              },
+              {
+                title: 'Gaji Staf',
+                path: '/akuntan/rab-operasional/jasa/gaji-staf',
+                icon: Icons.UserCheck,
+                children: [
+                  { title: 'Rekap Gaji', path: '/akuntan/rab-operasional/jasa/gaji-staf/rekap-gaji', icon: Icons.TableProperties },
+                  { title: 'Slip Gaji', path: '/akuntan/rab-operasional/jasa/gaji-staf/slip-gaji', icon: Icons.Receipt }
+                ]
+              },
+              { title: 'Operasional Lainnya', path: '/akuntan/rab-operasional/jasa/operasional-lainnya', icon: Icons.Coins }
+            ]
+          }
+        ]
+      },
+      {
+        title: 'Insentif Fasilitas',
+        path: '/akuntan/insentif-fasilitas',
+        icon: Icons.Building2,
+        children: [
+          { title: 'Berita Acara', path: '/akuntan/insentif-fasilitas/berita-acara', icon: Icons.FileSignature },
+          { title: 'Rekap', path: '/akuntan/insentif-fasilitas/rekap', icon: Icons.TableProperties }
+        ]
+      },
+      {
+        title: 'Realisasi Bahan Baku (Tarik Data Kedatangan Barang)',
+        path: '/akuntan/realisasi-bahan-baku',
+        icon: Icons.PackageCheck
+      },
+      {
+        title: 'Realisasi Operasional (Tarik Data Kedatangan Barang)',
+        path: '/akuntan/realisasi-operasional',
+        icon: Icons.Truck
+      }
     ]
   };
 
@@ -213,6 +295,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         isActive: true
       });
     }
+    if (!list.some(m => m.path === '/akuntan' || m.targetModule === 'akuntan')) {
+      list.push({
+        id: 'MNU-003-AKUNTAN',
+        title: 'Akuntan',
+        path: '/akuntan',
+        icon: 'WalletCards',
+        color: '#0D9488',
+        order: 3.82,
+        targetModule: 'akuntan',
+        requiredRole: ['Admin Penuh', 'Staff Kantor', 'Distribusi', 'Super Admin', 'Admin', 'Operator', 'Supervisor', 'Manager', 'Staff', 'Viewer'],
+        isActive: true
+      });
+    }
     if (!list.some(m => m.path === '/petugas' || m.targetModule === 'petugas')) {
       list.push({
         id: 'MNU-003-PETUGAS',
@@ -243,6 +338,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     if (menu.targetModule === 'esurat' || menu.path.includes('esurat')) return 'esurat';
     if (menu.targetModule === 'barangDatang' || menu.path.includes('barang-datang')) return 'barangDatang';
     if (menu.targetModule === 'gizi' || menu.path.startsWith('/gizi')) return 'gizi';
+    if (menu.targetModule === 'akuntan' || menu.path.startsWith('/akuntan')) return 'akuntan';
     if (menu.targetModule === 'menuHarian' || menu.path.includes('menu-harian')) return 'menuHarian';
     if (menu.targetModule === 'foodWaste' || menu.path.includes('food-waste')) return 'foodWaste';
     if (menu.targetModule === 'petugas' || menu.path.includes('petugas')) return 'petugas';
@@ -483,6 +579,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                             handleNav('/barang-datang/form');
                           } else if (moduleKey === 'gizi') {
                             handleNav('/gizi');
+                          } else if (moduleKey === 'akuntan') {
+                            handleNav('/akuntan');
                           } else if (moduleKey === 'menuHarian') {
                             handleNav('/menu-harian/form');
                           } else if (moduleKey === 'tugas') {

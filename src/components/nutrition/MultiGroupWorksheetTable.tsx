@@ -304,25 +304,37 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
         </div>
 
         {/* Live Beneficiary Breakdown Info Bar */}
-        {beneficiaryLiveInfo && (
-          <div className="mb-3 px-3 py-2 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 rounded-xl text-[11px] flex flex-wrap items-center justify-between gap-2 text-emerald-900 dark:text-emerald-200">
-            <div className="flex items-center gap-2">
-              <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span className="font-semibold">Data Riil Penerima Manfaat:</span>
-              <span>{beneficiaryLiveInfo.totalPenerima?.toLocaleString('id-ID') || 0} Total Jiwa</span>
-              <span className="text-emerald-400">•</span>
-              <span>{beneficiaryLiveInfo.totalInstansi || 0} Lokasi/Instansi</span>
-              {beneficiaryLiveInfo.statusLock && (
-                <span className="px-1.5 py-0.2 bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-[9px] font-bold">
-                  Status: {beneficiaryLiveInfo.statusLock}
-                </span>
-              )}
-            </div>
-            <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">
-              Siswa: {beneficiaryLiveInfo.totalSiswa?.toLocaleString('id-ID') || 0} | Guru: {beneficiaryLiveInfo.totalGuru?.toLocaleString('id-ID') || 0} | Balita: {beneficiaryLiveInfo.totalBalita?.toLocaleString('id-ID') || 0} | Bumil: {beneficiaryLiveInfo.totalIbuHamil?.toLocaleString('id-ID') || 0} | Busui: {beneficiaryLiveInfo.totalIbuMenyusui?.toLocaleString('id-ID') || 0}
-            </div>
+        <div className={`mb-3 px-3.5 py-2.5 rounded-xl text-[11px] flex flex-wrap items-center justify-between gap-2 border ${
+          beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0
+            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
+            : 'bg-slate-100/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Users className={`w-3.5 h-3.5 ${beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'} shrink-0`} />
+            <span className="font-bold">Data Riil Penerima Manfaat:</span>
+            <span className="font-extrabold text-xs">
+              {(beneficiaryLiveInfo?.totalPenerima || 0).toLocaleString('id-ID')} Total Jiwa
+            </span>
+            <span className="opacity-40">•</span>
+            <span>{beneficiaryLiveInfo?.totalInstansi || 0} Lokasi/Instansi</span>
+            {beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? (
+              <span className="px-1.5 py-0.2 bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-[9px] font-bold">
+                Status: {beneficiaryLiveInfo.statusLock || 'DRAFT'}
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-[9px] font-semibold">
+                Tidak Ada Penerima Manfaat
+              </span>
+            )}
           </div>
-        )}
+          <div className="text-[10px] font-medium">
+            {beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? (
+              <span>Siswa: {beneficiaryLiveInfo.totalSiswa?.toLocaleString('id-ID') || 0} | Guru: {beneficiaryLiveInfo.totalGuru?.toLocaleString('id-ID') || 0} | Balita: {beneficiaryLiveInfo.totalBalita?.toLocaleString('id-ID') || 0} | Bumil: {beneficiaryLiveInfo.totalIbuHamil?.toLocaleString('id-ID') || 0} | Busui: {beneficiaryLiveInfo.totalIbuMenyusui?.toLocaleString('id-ID') || 0}</span>
+            ) : (
+              <span className="text-slate-400">Belum ada perencanaan penerima manfaat pada tanggal pelaksanaan ini</span>
+            )}
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {groupConfig.map(grp => (
@@ -340,13 +352,18 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                 <input
                   type="number"
                   min="0"
-                  disabled={isReadOnly}
+                  readOnly={isReadOnly || Boolean(beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0)}
                   value={targetCounts[grp.key]}
                   onChange={(e) => onChangeTargetCounts({
                     ...targetCounts,
                     [grp.key]: Number(e.target.value) || 0
                   })}
-                  className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  className={`w-full px-2 py-1 rounded-lg text-xs font-bold focus:ring-1 focus:ring-emerald-500 focus:outline-none ${
+                    beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0
+                      ? 'bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 cursor-default'
+                      : 'bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'
+                  }`}
+                  title={beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? "Tersinkronisasi otomatis dari Data Penerima Manfaat Harian" : "Jumlah sasaran"}
                 />
                 <span className="text-[10px] text-slate-500 font-medium">jiwa</span>
               </div>

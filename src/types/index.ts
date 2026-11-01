@@ -61,7 +61,7 @@ export interface MenuItem {
   icon: string; // Lucide icon identifier
   color?: string; // CSS color or Tailwind class
   order: number;
-  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'foodWaste' | 'petugas' | 'gizi' | 'external';
+  targetModule: 'portal' | 'esurat' | 'stock' | 'po' | 'barangDatang' | 'menuHarian' | 'foodWaste' | 'petugas' | 'gizi' | 'akuntan' | 'external';
   requiredRole?: UserRole[];
   parentId?: string;
   isActive: boolean;
