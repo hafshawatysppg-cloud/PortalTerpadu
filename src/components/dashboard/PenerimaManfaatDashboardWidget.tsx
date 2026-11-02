@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { 
   Users, 
   Calendar, 
@@ -30,6 +30,32 @@ interface BeneficiaryDateState {
   summary: DailyBeneficiarySummary | null;
 }
 
+// Resilient JSON fetch helper that safely handles rate limits (HTTP 429), non-JSON responses, and abort signals
+const safeFetchJson = async (url: string, signal?: AbortSignal) => {
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) {
+      if (res.status === 429) {
+        console.warn(`[Beneficiary Widget] Rate limited on ${url}, backing off.`);
+      }
+      return null;
+    }
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      return null;
+    }
+    const text = await res.text();
+    if (!text || !text.trim().startsWith('{')) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch (err: any) {
+    if (err.name === 'AbortError') return null;
+    console.warn(`[Beneficiary Widget] Safe fetch notice on ${url}:`, err?.message || err);
+    return null;
+  }
+};
+
 export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWidgetProps> = ({ onNavigate }) => {
   const [selectedTab, setSelectedTab] = useState<'today' | 'upcoming'>('today');
   const [selectedUpcomingOffset, setSelectedUpcomingOffset] = useState<number>(1); // 1 = Besok, 2 = H+2, 3 = H+3
@@ -53,11 +79,11 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
     summary: null
   });
 
-  const getFormattedDate = (offsetDays: number) => {
+  const getFormattedDate = useCallback((offsetDays: number) => {
     const d = new Date();
     d.setDate(d.getDate() + offsetDays);
     return d.toISOString().split('T')[0];
-  };
+  }, []);
 
   const getDisplayDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -65,18 +91,46 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
     return d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const todayStr = getFormattedDate(0);
-  const targetUpcomingStr = getFormattedDate(selectedUpcomingOffset);
+  const todayStr = useMemo(() => getFormattedDate(0), [getFormattedDate]);
+  const targetUpcomingStr = useMemo(() => getFormattedDate(selectedUpcomingOffset), [getFormattedDate, selectedUpcomingOffset]);
 
   const { data: realtimeRecords } = useFirestoreRealtime<DailyBeneficiaryRecord>('dailyBeneficiaryRecords');
 
+  // Short-term cache and active abort controller references
+  const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  const abortControllersRef = useRef<{ today?: AbortController; upcoming?: AbortController }>({});
+  const isFirstRender = useRef(true);
+
   // Fetch Today Data (finalOnly=true so DRAFT is never shown on Dashboard)
-  const fetchTodayData = async () => {
+  const fetchTodayData = useCallback(async (bypassCache = false) => {
+    if (abortControllersRef.current.today) {
+      abortControllersRef.current.today.abort();
+    }
+    const controller = new AbortController();
+    abortControllersRef.current.today = controller;
+
+    const cacheKey = `today_${todayStr}`;
+    const cached = cacheRef.current.get(cacheKey);
+    if (!bypassCache && cached && Date.now() - cached.timestamp < 15000) {
+      const json = cached.data;
+      const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
+      setTodayData({
+        dateStr: todayStr,
+        hasPlanning: Boolean(json.hasPlanning),
+        isDraft: Boolean(json.isDraft),
+        draftCount: Number(json.draftCount) || 0,
+        records: isFinal ? (json.records || []) : [],
+        summary: isFinal ? (json.summary || null) : null
+      });
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${todayStr}&finalOnly=true`);
-      const json = await res.json();
-      if (json.success) {
+      const json = await safeFetchJson(`/api/v1/penerima-manfaat/by-date?tanggal=${todayStr}&finalOnly=true`, controller.signal);
+      if (json && json.success) {
+        cacheRef.current.set(cacheKey, { data: json, timestamp: Date.now() });
         const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
         setTodayData({
           dateStr: todayStr,
@@ -87,41 +141,68 @@ export const PenerimaManfaatDashboardWidget: React.FC<PenerimaManfaatDashboardWi
           summary: isFinal ? (json.summary || null) : null
         });
       }
-    } catch (err) {
-      console.error('Error fetching today beneficiary data:', err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [todayStr]);
 
   // Fetch Upcoming Data (finalOnly=true so DRAFT is never shown on Dashboard)
-  const fetchUpcomingData = async (dateStr: string) => {
-    try {
-      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${dateStr}&finalOnly=true`);
-      const json = await res.json();
-      if (json.success) {
-        const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
-        setUpcomingData({
-          dateStr,
-          hasPlanning: Boolean(json.hasPlanning),
-          isDraft: Boolean(json.isDraft),
-          draftCount: Number(json.draftCount) || 0,
-          records: isFinal ? (json.records || []) : [],
-          summary: isFinal ? (json.summary || null) : null
-        });
-      }
-    } catch (err) {
-      console.error('Error fetching upcoming beneficiary data:', err);
+  const fetchUpcomingData = useCallback(async (dateStr: string, bypassCache = false) => {
+    if (abortControllersRef.current.upcoming) {
+      abortControllersRef.current.upcoming.abort();
     }
-  };
+    const controller = new AbortController();
+    abortControllersRef.current.upcoming = controller;
 
+    const cacheKey = `upcoming_${dateStr}`;
+    const cached = cacheRef.current.get(cacheKey);
+    if (!bypassCache && cached && Date.now() - cached.timestamp < 15000) {
+      const json = cached.data;
+      const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
+      setUpcomingData({
+        dateStr,
+        hasPlanning: Boolean(json.hasPlanning),
+        isDraft: Boolean(json.isDraft),
+        draftCount: Number(json.draftCount) || 0,
+        records: isFinal ? (json.records || []) : [],
+        summary: isFinal ? (json.summary || null) : null
+      });
+      return;
+    }
+
+    const json = await safeFetchJson(`/api/v1/penerima-manfaat/by-date?tanggal=${dateStr}&finalOnly=true`, controller.signal);
+    if (json && json.success) {
+      cacheRef.current.set(cacheKey, { data: json, timestamp: Date.now() });
+      const isFinal = json.summary?.statusLock === 'FINAL' && !json.isDraft && (json.records || []).length > 0;
+      setUpcomingData({
+        dateStr,
+        hasPlanning: Boolean(json.hasPlanning),
+        isDraft: Boolean(json.isDraft),
+        draftCount: Number(json.draftCount) || 0,
+        records: isFinal ? (json.records || []) : [],
+        summary: isFinal ? (json.summary || null) : null
+      });
+    }
+  }, []);
+
+  // Debounced effect for today's data so realtime Firestore events do not spam requests
+  const realtimeLength = realtimeRecords?.length ?? 0;
   useEffect(() => {
-    fetchTodayData();
-  }, [realtimeRecords]);
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      fetchTodayData();
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetchTodayData(true);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [realtimeLength, fetchTodayData]);
 
+  // Upcoming data only refetches when target date changes
   useEffect(() => {
     fetchUpcomingData(targetUpcomingStr);
-  }, [selectedUpcomingOffset, realtimeRecords]);
+  }, [targetUpcomingStr, fetchUpcomingData]);
 
   const activeState = selectedTab === 'today' ? todayData : upcomingData;
   const activeRecords = activeState.records;

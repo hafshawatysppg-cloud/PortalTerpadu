@@ -43,7 +43,7 @@ export interface RabOperasionalBarangItem {
   id: string;
   kode: string;
   namaBarang: string;
-  kategori: 'Bahan Bakar & Energi' | 'Kebersihan & Sanitasi' | 'Packaging & Wadah' | 'Perlengkapan Kerja (APD)';
+  kategori: 'Bahan Bakar & Energi' | 'Kebersihan & Sanitasi' | 'Packaging & Wadah' | 'Perlengkapan Kerja (APD)' | 'Logistik & Distribusi';
   jumlah: number;
   satuan: string;
   hargaSatuan: number;

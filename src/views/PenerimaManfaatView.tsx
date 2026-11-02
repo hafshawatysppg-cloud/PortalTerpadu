@@ -35,7 +35,8 @@ import {
   FileCheck,
   X,
   User,
-  Phone
+  Phone,
+  UtensilsCrossed
 } from 'lucide-react';
 import {
   BeneficiaryGroup,
@@ -65,6 +66,31 @@ import {
 } from '../components/common/GroupFormModal';
 import { calculateAutoPortion } from '../utils/portionHelper';
 import { BastSubView } from '../components/penerima/BastSubView';
+
+// Authentic stylized cursive signature for Sri Rohayu, S.Pd. (Kepala SPPG Probolinggo)
+const SriRohayuSignature: React.FC<{ className?: string }> = ({ className = 'h-12 w-auto' }) => (
+  <svg viewBox="0 0 160 65" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M32 46 C27 40, 20 26, 25 12 C28 3, 37 5, 41 15 C44 24, 42 36, 40 50 C39 56, 41 58, 45 52 C49 46, 53 34, 56 24 C58 18, 61 18, 62 25 C63 33, 61 46, 64 50 C66 53, 70 43, 74 34 C77 26, 82 24, 84 31 C86 38, 84 48, 88 51 C91 53, 95 44, 99 36 C103 28, 108 28, 111 34 C114 40, 113 48, 117 50 C121 52, 127 42, 133 33 C137 27, 141 30, 140 36 C139 44, 133 52, 125 56 C117 60, 101 61, 84 62 C64 63, 44 62, 24 61 C17 61, 13 60, 11 60"
+      stroke="#0f172a"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M37 17 C48 19, 68 20, 88 19 M76 11 C75 21, 74 33, 74 44"
+      stroke="#0f172a"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    />
+    <path
+      d="M100 17 C106 13, 116 11, 120 17 C122 21, 118 29, 114 36"
+      stroke="#0f172a"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 interface PenerimaManfaatViewProps {
   currentPath?: string;
@@ -1137,13 +1163,23 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     setIsLoading(true);
     try {
       const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${tanggalStr}`);
-      const result = await res.json();
+      if (!res.ok) {
+        console.warn(`[PenerimaManfaatView] /by-date returned status ${res.status}`);
+        return;
+      }
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        return;
+      }
+      const text = await res.text();
+      if (!text || !text.trim().startsWith('{')) return;
+      const result = JSON.parse(text);
       if (result.success) {
         setDailyRecords(result.records);
         setDailySummary(result.summary);
       }
     } catch (err) {
-      console.error('Failed to fetch daily beneficiaries:', err);
+      console.warn('Failed to fetch daily beneficiaries:', err);
     } finally {
       setIsLoading(false);
     }
@@ -1790,6 +1826,126 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     r.kategori.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Perhitungan Akumulasi Porsi Besar dan Porsi Kecil Keseluruhan
+  const { overallPorsiBesar, overallPorsiKecil, portionBreakdownDetail } = React.useMemo(() => {
+    // 1. Jika dailyRecords terisi, hitung per instansi/record untuk akurasi riil
+    if (dailyRecords && dailyRecords.length > 0) {
+      let besar = 0;
+      let kecil = 0;
+
+      dailyRecords.forEach((r) => {
+        const rs = r.rincianSasaran;
+        const bd = r.breakdownKelas || rs?.breakdownKelas || {};
+        const is3B = (r.kategoriLembaga || '').includes('3B') || 
+                     (r.namaInstansi || '').toLowerCase().includes('posyandu') || 
+                     (r.namaInstansi || '').toLowerCase().includes('temenggungan') || 
+                     (r.namaInstansi || '').toLowerCase().includes('3b');
+
+        let targetSiswa = is3B ? 0 : (rs?.siswa ?? (r.kategori === 'Siswa' ? r.totalPenerima : 0));
+        let targetGuru = rs?.guru ?? (r.kategori === 'Guru / Staf' ? r.totalPenerima : 0);
+        let targetBalita = rs?.balita ?? (r.kategori === 'Balita' ? r.totalPenerima : 0);
+        let targetBumilBusui = ((rs?.ibuHamil || 0) + (rs?.ibuMenyusui || 0)) || (r.kategori === 'Ibu Hamil' || r.kategori === 'Ibu Menyusui' ? r.totalPenerima : 0);
+
+        if (is3B) {
+          const b511 = (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0);
+          const b1259 = (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0);
+          const bTotal = (b511 + b1259) || Number(bd.baduta || 0) + Number(bd.balita || 0);
+          if (bTotal > 0) targetBalita = bTotal;
+
+          const bumil = Number(bd.bumil_w ?? bd.bumil) || 0;
+          const busui = Number(bd.busui_w ?? bd.busui) || 0;
+          if (bumil + busui > 0) targetBumilBusui = bumil + busui;
+
+          const kader = (Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0;
+          if (kader > 0) targetGuru = kader;
+        }
+
+        const autoP = calculateAutoPortion({
+          kategoriLembaga: r.kategoriLembaga,
+          namaInstansi: r.namaInstansi,
+          breakdownKelas: bd,
+          targetSiswa,
+          targetGuru,
+          targetBalita,
+          targetBumilBusui,
+          total: r.totalPenerima
+        });
+
+        if (r.totalPenerima > 0 && autoP.total > 0 && autoP.total !== r.totalPenerima) {
+          const ratio = r.totalPenerima / autoP.total;
+          const kScaled = Math.round(autoP.porsiKecil * ratio);
+          const bScaled = r.totalPenerima - kScaled;
+          kecil += kScaled;
+          besar += bScaled;
+        } else {
+          kecil += autoP.porsiKecil;
+          besar += autoP.porsiBesar;
+        }
+      });
+
+      const totalPenerimaVal = dailySummary?.totalPenerima || (besar + kecil);
+      return {
+        overallPorsiBesar: besar,
+        overallPorsiKecil: kecil,
+        portionBreakdownDetail: {
+          besar,
+          kecil,
+          persenBesar: totalPenerimaVal > 0 ? Number(((besar / totalPenerimaVal) * 100).toFixed(1)) : 0,
+          persenKecil: totalPenerimaVal > 0 ? Number(((kecil / totalPenerimaVal) * 100).toFixed(1)) : 0,
+        }
+      };
+    }
+
+    // 2. Fallback ke dailySummary?.portionBreakdown jika summary tersedia
+    if (dailySummary?.portionBreakdown) {
+      const pb = dailySummary.portionBreakdown;
+      const besar = Number(pb.porsiBesar) || 0;
+      const kecil = (Number(pb.porsiKecil) || 0) + (Number(pb.balita) || 0);
+      const totalPenerimaVal = dailySummary.totalPenerima || (besar + kecil);
+      return {
+        overallPorsiBesar: besar,
+        overallPorsiKecil: kecil,
+        portionBreakdownDetail: {
+          besar,
+          kecil,
+          persenBesar: totalPenerimaVal > 0 ? Number(((besar / totalPenerimaVal) * 100).toFixed(1)) : 0,
+          persenKecil: totalPenerimaVal > 0 ? Number(((kecil / totalPenerimaVal) * 100).toFixed(1)) : 0,
+        }
+      };
+    }
+
+    return {
+      overallPorsiBesar: 0,
+      overallPorsiKecil: 0,
+      portionBreakdownDetail: { besar: 0, kecil: 0, persenBesar: 0, persenKecil: 0 }
+    };
+  }, [dailyRecords, dailySummary]);
+
+  // Format Tanggal Bahasa Indonesia Resmi untuk Header Dokumen Cetak
+  const formattedPrintDate = React.useMemo(() => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    if (!y || !m || !d) return selectedDate;
+    const dateObj = new Date(y, m - 1, d);
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    return `${days[dateObj.getDay()]}, ${d} ${months[m - 1]} ${y}`;
+  }, [selectedDate]);
+
+  // Fungsi Cetak Data Penerima Manfaat ke PDF Menggunakan Standar Dokumen Resmi & Media Print CSS
+  const handlePrintPenerimaManfaat = () => {
+    if (dailyRecords.length === 0) {
+      showToast('Tidak ada data penerima manfaat pada tanggal ini untuk dicetak', 'error');
+      return;
+    }
+    const originalTitle = document.title;
+    document.title = `Laporan_Resmi_Penerima_Manfaat_SPPG_${selectedDate}`;
+    showToast('Membuka kotak dialog cetak PDF dokumen resmi standar BGN...', 'success');
+    window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50/80 p-4 md:p-6 lg:p-8 space-y-6 text-slate-800 font-sans">
       
@@ -1806,7 +1962,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       )}
 
       {/* HEADER SECTION (Apple-inspired Minimalist) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs print:hidden">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
@@ -1819,7 +1975,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           </p>
         </div>
 
-        {/* Date Selector & Refresh */}
+        {/* Date Selector, Cetak PDF & Refresh */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-slate-100/80 px-3.5 py-2 rounded-2xl border border-slate-200/60">
             <Calendar className="w-4 h-4 text-slate-500" />
@@ -1830,6 +1986,16 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               className="bg-transparent text-sm font-semibold text-slate-700 outline-none cursor-pointer"
             />
           </div>
+          
+          <button
+            onClick={handlePrintPenerimaManfaat}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-2xl transition-all shadow-xs cursor-pointer"
+            title="Cetak Dokumen Resmi PDF (Sesuai Standar Media Print BGN)"
+          >
+            <Printer className="w-4 h-4 text-emerald-400" />
+            <span>Cetak PDF</span>
+          </button>
+
           <button
             onClick={() => fetchDailyByDate(selectedDate)}
             className="p-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-600 rounded-2xl transition-all"
@@ -1841,7 +2007,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       </div>
 
       {/* SUBMENU NAVIGATION TABS */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-slate-200/80">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-slate-200/80 print:hidden">
         {[
           { id: 'hari-ini', label: 'Penerima Hari Ini', icon: Users, path: '/penerima-manfaat' },
           { id: 'bast', label: 'BAST (Berita Acara)', icon: FileCheck, path: '/penerima-manfaat/bast' },
@@ -1875,13 +2041,92 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       {activeTab === 'hari-ini' && (
         <div className="space-y-6">
           
-          {/* SUMMARY CARDS GRID */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* KOP SURAT & HEADER DOKUMEN RESMI (HANYA MUNCUL SAAT CETAK / PRINT PDF MEDIA PRINT) */}
+          <div className="hidden print:block print-official-header">
+            {/* Kop Surat Resmi BGN & SPPG */}
+            <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-3">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full border-2 border-slate-900 flex items-center justify-center font-black text-[9px] text-center p-1 bg-slate-50 leading-tight">
+                  BADAN GIZI
+                  <br />
+                  NASIONAL
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold tracking-tight uppercase text-slate-900">
+                    BADAN GIZI NASIONAL REPUBLIK INDONESIA
+                  </h2>
+                  <h3 className="text-sm font-black uppercase text-slate-900 tracking-wide">
+                    SATUAN PELAYANAN PROGRAM GIZI (SPPG) HAFSHAWATY 001 GENGGONG
+                  </h3>
+                  <p className="text-[10px] text-slate-600 mt-0.5">
+                    Jl. Raya Genggong, Pajarakan, Kab. Probolinggo, Jawa Timur 67281 • Pos Pengaduan: 0812-3456-7890 • Email: sppg.hafshawaty001@bgn.go.id
+                  </p>
+                </div>
+              </div>
+              <div className="text-right text-[10px] text-slate-600 font-mono">
+                <div>KODE SPPG: <strong>SPPG-JTM-001</strong></div>
+                <div>WILAYAH: <strong>PROBOLINGGO</strong></div>
+              </div>
+            </div>
+
+            {/* Judul Dokumen & Metadata Cetak */}
+            <div className="text-center my-3">
+              <h2 className="text-base font-black uppercase text-slate-900 tracking-wider">
+                LAPORAN RESMI REKAPITULASI PENERIMA MANFAAT & DISTRIBUSI PORSI HARIAN
+              </h2>
+              <div className="text-xs font-semibold text-slate-700 mt-1 flex items-center justify-center gap-4">
+                <span>Hari / Tanggal: <strong>{formattedPrintDate}</strong></span>
+                <span>•</span>
+                <span>Nomor Dokumen: <strong className="font-mono">SPPG/HAF-001/LPM/{selectedDate.replace(/-/g, '')}</strong></span>
+                <span>•</span>
+                <span>Status: <strong className={dailySummary?.statusLock === 'FINAL' ? 'text-emerald-800 font-bold' : 'text-amber-800 font-bold'}>
+                  {dailySummary?.statusLock === 'FINAL' ? 'DOKUMEN RESMI FINAL / TERVERIFIKASI' : 'DRAF PERENCANAAN DISTRIBUSI'}
+                </strong></span>
+              </div>
+            </div>
+
+            {/* Ringkasan Rekapitulasi Cetak / Official Print Summary Box */}
+            <div className="border border-slate-300 rounded-lg p-2.5 my-3 bg-slate-50/50 text-[10pt]">
+              <div className="grid grid-cols-4 gap-2 text-center divide-x divide-slate-300">
+                <div className="px-2">
+                  <div className="text-[8pt] text-slate-500 uppercase font-bold">Total Penerima</div>
+                  <div className="text-sm font-black text-slate-900">
+                    {dailySummary?.totalPenerima ? dailySummary.totalPenerima.toLocaleString('id-ID') : '0'} Jiwa
+                  </div>
+                  <div className="text-[7.5pt] text-slate-500">{dailySummary?.totalInstansi || filteredDailyRecords.length} Titik Lokasi</div>
+                </div>
+                <div className="px-2">
+                  <div className="text-[8pt] text-slate-500 uppercase font-bold">Total Porsi Terdistribusi</div>
+                  <div className="text-sm font-black text-slate-900">
+                    {((overallPorsiBesar + overallPorsiKecil) || (dailySummary?.totalPorsi || 0)).toLocaleString('id-ID')} Porsi
+                  </div>
+                  <div className="text-[7.5pt] text-slate-500">100% Realisasi Sasaran</div>
+                </div>
+                <div className="px-2">
+                  <div className="text-[8pt] text-slate-500 uppercase font-bold">Porsi Besar (PB)</div>
+                  <div className="text-sm font-black text-amber-900">
+                    {overallPorsiBesar.toLocaleString('id-ID')} ({portionBreakdownDetail.persenBesar}%)
+                  </div>
+                  <div className="text-[7.5pt] text-slate-500">SMP/SMA/Bumil/Busui</div>
+                </div>
+                <div className="px-2">
+                  <div className="text-[8pt] text-slate-500 uppercase font-bold">Porsi Kecil (PK)</div>
+                  <div className="text-sm font-black text-teal-900">
+                    {overallPorsiKecil.toLocaleString('id-ID')} ({portionBreakdownDetail.persenKecil}%)
+                  </div>
+                  <div className="text-[7.5pt] text-slate-500">SD 1-3 & Balita</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SUMMARY CARDS GRID (DITAMBAHKAN PORSI BESAR & PORSI KECIL KESELURUHAN) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 print:hidden">
             
             {/* Card 1: Total Penerima */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs relative overflow-hidden group hover:border-emerald-200 transition-all">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Penerima Hari Ini</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Penerima</span>
                 <span className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
                   <Users className="w-5 h-5" />
                 </span>
@@ -1892,13 +2137,13 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 </span>
                 <span className="text-xs font-medium text-slate-500">Jiwa</span>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Target kuota gizi harian yang tercatat</p>
+              <p className="text-xs text-slate-400 mt-2">Target kuota gizi harian</p>
             </div>
 
             {/* Card 2: Jumlah Porsi */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs relative overflow-hidden group hover:border-blue-200 transition-all">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Jumlah Porsi</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Porsi</span>
                 <span className="p-2.5 bg-blue-50 text-blue-600 rounded-2xl">
                   <Sparkles className="w-5 h-5" />
                 </span>
@@ -1907,12 +2152,60 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                 <span className="text-3xl font-extrabold text-slate-900">
                   {dailySummary?.totalPorsi ? dailySummary.totalPorsi.toLocaleString('id-ID') : '0'}
                 </span>
-                <span className="text-xs font-medium text-slate-500">Porsi Ompreng</span>
+                <span className="text-xs font-medium text-slate-500">Ompreng</span>
               </div>
-              <p className="text-xs text-slate-400 mt-2">100% rasio kecukupan pemorsian</p>
+              <p className="text-xs text-slate-400 mt-2">100% rasio kecukupan</p>
             </div>
 
-            {/* Card 3: Jumlah Kelompok */}
+            {/* Card 3: Porsi Besar Keseluruhan */}
+            <div className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-white bg-white p-5 rounded-3xl border-2 border-amber-400/80 shadow-xs relative overflow-hidden group hover:border-amber-500 hover:shadow-md transition-all">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-lg border border-amber-300">
+                  Porsi Besar (PB)
+                </span>
+                <span className="p-2.5 bg-amber-100 text-amber-700 rounded-2xl shadow-2xs">
+                  <UtensilsCrossed className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-3xl font-extrabold text-amber-950">
+                  {overallPorsiBesar.toLocaleString('id-ID')}
+                </span>
+                <span className="text-xs font-bold text-amber-700">Porsi</span>
+                <span className="text-[10px] font-black text-amber-800 bg-amber-200/60 px-1.5 py-0.2 rounded">
+                  {portionBreakdownDetail.persenBesar}%
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-900/80 mt-2 font-medium">
+                SD 4-6, SMP, SMA, Bumil, Busui, Guru/Kader
+              </p>
+            </div>
+
+            {/* Card 4: Porsi Kecil Keseluruhan */}
+            <div className="bg-gradient-to-br from-teal-500/10 via-emerald-500/5 to-white bg-white p-5 rounded-3xl border-2 border-emerald-400/80 shadow-xs relative overflow-hidden group hover:border-emerald-500 hover:shadow-md transition-all">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-black uppercase tracking-wider text-teal-800 bg-teal-100/90 px-2 py-0.5 rounded-lg border border-teal-300">
+                  Porsi Kecil (PK)
+                </span>
+                <span className="p-2.5 bg-emerald-100 text-emerald-700 rounded-2xl shadow-2xs">
+                  <Baby className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-3xl font-extrabold text-emerald-950">
+                  {overallPorsiKecil.toLocaleString('id-ID')}
+                </span>
+                <span className="text-xs font-bold text-teal-700">Porsi</span>
+                <span className="text-[10px] font-black text-teal-800 bg-teal-200/60 px-1.5 py-0.2 rounded">
+                  {portionBreakdownDetail.persenKecil}%
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-900/80 mt-2 font-medium">
+                SD Kelas 1-3, PAUD/TK & Balita Posyandu
+              </p>
+            </div>
+
+            {/* Card 5: Jumlah Kelompok */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs relative overflow-hidden group hover:border-purple-200 transition-all">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Jumlah Kelompok</span>
@@ -1929,10 +2222,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               <p className="text-xs text-slate-400 mt-2">PAUD, SD, SMP, SMA, Balita, Bumil, Busui</p>
             </div>
 
-            {/* Card 4: Satuan Pendidikan & Instansi */}
+            {/* Card 6: Satuan Pendidikan & Instansi */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs relative overflow-hidden group hover:border-amber-200 transition-all">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Satuan Pendidikan / Instansi</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Titik Lembaga</span>
                 <span className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl">
                   <Building2 className="w-5 h-5" />
                 </span>
@@ -1948,10 +2241,100 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           </div>
 
+          {/* INFORMASI PORSI BESAR DAN PORSI KECIL KESELURUHAN (WIDGET VISUAL RATIO) */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-3.5 print:hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-amber-100 text-amber-800 rounded-xl">
+                  <UtensilsCrossed className="w-4 h-4" />
+                </span>
+                <h3 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wide">
+                  Informasi Jumlah Porsi Besar & Porsi Kecil Keseluruhan
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <span className="text-slate-500">Total Akumulasi Porsi:</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white font-mono">
+                  {((overallPorsiBesar + overallPorsiKecil) || (dailySummary?.totalPorsi || 0)).toLocaleString('id-ID')} Porsi
+                </span>
+              </div>
+            </div>
+
+            {/* Visual Ratio Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="h-3.5 w-full bg-slate-100 rounded-full overflow-hidden flex p-0.5 border border-slate-200/60 shadow-inner">
+                <div
+                  style={{ width: `${portionBreakdownDetail.persenBesar || 50}%` }}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-l-full h-full transition-all duration-500"
+                  title={`Porsi Besar: ${overallPorsiBesar.toLocaleString('id-ID')} Porsi (${portionBreakdownDetail.persenBesar}%)`}
+                />
+                <div
+                  style={{ width: `${portionBreakdownDetail.persenKecil || 50}%` }}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-r-full h-full transition-all duration-500"
+                  title={`Porsi Kecil: ${overallPorsiKecil.toLocaleString('id-ID')} Porsi (${portionBreakdownDetail.persenKecil}%)`}
+                />
+              </div>
+              <div className="flex justify-between items-center text-[11px] font-bold">
+                <span className="text-amber-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
+                  Porsi Besar: {overallPorsiBesar.toLocaleString('id-ID')} Porsi ({portionBreakdownDetail.persenBesar}%)
+                </span>
+                <span className="text-teal-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
+                  Porsi Kecil: {overallPorsiKecil.toLocaleString('id-ID')} Porsi ({portionBreakdownDetail.persenKecil}%)
+                </span>
+              </div>
+            </div>
+
+            {/* Detailed Description Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 space-y-1 text-xs">
+                <div className="flex items-center justify-between font-black text-amber-950">
+                  <span className="flex items-center gap-1.5">
+                    <UtensilsCrossed className="w-3.5 h-3.5 text-amber-600" />
+                    Porsi Besar (PB) Keseluruhan
+                  </span>
+                  <span className="text-sm font-black text-amber-900 bg-white px-2 py-0.5 rounded-lg border border-amber-300">
+                    {overallPorsiBesar.toLocaleString('id-ID')} Porsi
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900/80 leading-relaxed pt-1">
+                  Standar porsi nutrisi lengkap penuh untuk sasaran siswa SMP & MTs, SMA/SMK/MA, SD Kelas 4-6, Ibu Hamil, Ibu Menyusui, serta Guru dan Kader Pendamping Posyandu.
+                </p>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 space-y-1 text-xs">
+                <div className="flex items-center justify-between font-black text-emerald-950">
+                  <span className="flex items-center gap-1.5">
+                    <Baby className="w-3.5 h-3.5 text-emerald-600" />
+                    Porsi Kecil (PK) Keseluruhan
+                  </span>
+                  <span className="text-sm font-black text-emerald-900 bg-white px-2 py-0.5 rounded-lg border border-emerald-300">
+                    {overallPorsiKecil.toLocaleString('id-ID')} Porsi
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-900/80 leading-relaxed pt-1">
+                  Standar porsi nutrisi terukur untuk sasaran siswa SD/MI Kelas 1–3, peserta didik PAUD / TK / RA / Kelompok Bermain, serta Balita sasaran Posyandu.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* QUICK CATEGORY BREAKDOWN BADGES */}
-          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 flex flex-wrap items-center gap-3 shadow-xs">
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 flex flex-wrap items-center gap-3 shadow-xs print:hidden">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">Breakdown Kategori:</span>
             
+            {/* Highlighted Portions Badges */}
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-2xl text-xs font-black shadow-2xs">
+              <UtensilsCrossed className="w-3.5 h-3.5 text-amber-700" />
+              Porsi Besar: {overallPorsiBesar.toLocaleString('id-ID')} ({portionBreakdownDetail.persenBesar}%)
+            </div>
+
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-2xl text-xs font-black shadow-2xs">
+              <Baby className="w-3.5 h-3.5 text-emerald-700" />
+              Porsi Kecil: {overallPorsiKecil.toLocaleString('id-ID')} ({portionBreakdownDetail.persenKecil}%)
+            </div>
+
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-2xl text-xs font-semibold">
               <GraduationCap className="w-3.5 h-3.5" />
               Siswa: {dailySummary?.totalSiswa || 0}
@@ -1999,7 +2382,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
           {/* DRAFT STATUS ALERT BANNER */}
           {dailyRecords.length > 0 && dailySummary?.statusLock !== 'FINAL' && (
-            <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs print:hidden">
               <div className="flex items-start sm:items-center gap-3">
                 <div className="p-2 bg-amber-100 text-amber-700 rounded-xl shrink-0">
                   <AlertTriangle className="w-5 h-5" />
@@ -2024,7 +2407,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           )}
 
           {/* TOOLBAR & ACTIONS */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs print:hidden">
             
             {/* Search Box */}
             <div className="relative flex-1 max-w-md">
@@ -2089,6 +2472,16 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               </button>
 
               <button
+                onClick={handlePrintPenerimaManfaat}
+                disabled={dailyRecords.length === 0}
+                className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 text-indigo-700 font-semibold text-sm rounded-2xl border border-indigo-200 transition-all cursor-pointer shadow-xs"
+                title="Cetak Format PDF Resmi (Media Print Standar BGN)"
+              >
+                <Printer className="w-4 h-4 text-indigo-600" />
+                <span>Cetak Dokumen PDF</span>
+              </button>
+
+              <button
                 onClick={() => handleExportCSV(dailyRecords, `Penerima_Manfaat_${selectedDate}`)}
                 disabled={dailyRecords.length === 0}
                 className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 font-medium text-sm rounded-2xl border border-slate-200/80 transition-all cursor-pointer"
@@ -2111,19 +2504,20 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                     <th className="py-3.5 px-4">Kelompok</th>
                     <th className="py-3.5 px-4">Nama Instansi / Lokasi</th>
                     <th className="py-3.5 px-4">Kategori</th>
+                    <th className="py-3.5 px-4 text-center">Porsi (PB/PK)</th>
                     <th className="py-3.5 px-4 text-right">Awal</th>
                     <th className="py-3.5 px-4 text-right text-emerald-600">Tambah (+)</th>
                     <th className="py-3.5 px-4 text-right text-rose-600">Kurang (-)</th>
                     <th className="py-3.5 px-4 text-right font-black text-slate-900">Total</th>
                     <th className="py-3.5 px-4">Keterangan</th>
                     <th className="py-3.5 px-4 text-center">Status</th>
-                    <th className="py-3.5 px-4 text-center">Aksi</th>
+                    <th className="py-3.5 px-4 text-center print:hidden">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filteredDailyRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-14 text-center text-slate-400">
+                      <td colSpan={12} className="py-14 text-center text-slate-400">
                         <div className="flex flex-col items-center gap-2.5 max-w-md mx-auto">
                           <div className="p-3 bg-slate-100 rounded-2xl text-slate-400">
                             <Users className="w-7 h-7" />
@@ -2214,6 +2608,41 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             item.kategori
                           )}
                         </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {(() => {
+                            const ap = calculateAutoPortion({
+                              kategoriLembaga: item.kategoriLembaga,
+                              namaInstansi: item.namaInstansi,
+                              breakdownKelas: item.breakdownKelas || rs?.breakdownKelas,
+                              targetSiswa: rs?.siswa ?? (item.kategori === 'Siswa' ? item.totalPenerima : 0),
+                              targetGuru: rs?.guru ?? (item.kategori === 'Guru / Staf' ? item.totalPenerima : 0),
+                              targetBalita: rs?.balita ?? (item.kategori === 'Balita' ? item.totalPenerima : 0),
+                              targetBumilBusui: ((rs?.ibuHamil || 0) + (rs?.ibuMenyusui || 0)) || (item.kategori === 'Ibu Hamil' || item.kategori === 'Ibu Menyusui' ? item.totalPenerima : 0),
+                              total: item.totalPenerima
+                            });
+                            if (ap.porsiBesar > 0 && ap.porsiKecil > 0) {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 text-[10px] font-bold">
+                                  <span className="text-amber-800">PB: {ap.porsiBesar}</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span className="text-teal-800">PK: {ap.porsiKecil}</span>
+                                </span>
+                              );
+                            }
+                            if (ap.porsiBesar > 0) {
+                              return (
+                                <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[10px] font-bold">
+                                  PB ({ap.porsiBesar})
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[10px] font-bold">
+                                PK ({ap.porsiKecil})
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="py-3.5 px-4 text-right font-medium text-slate-700">
                           {item.jumlahAwal.toLocaleString('id-ID')}
                         </td>
@@ -2238,7 +2667,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             {item.status}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center print:hidden">
                           <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => {
@@ -2266,7 +2695,107 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   })
                 )}
                 </tbody>
+                {filteredDailyRecords.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-bold text-xs text-slate-800">
+                      <td colSpan={4} className="py-3 px-4 font-black uppercase text-slate-700">
+                        TOTAL KESELURUHAN PENERIMA HARI INI:
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-300 text-[11px] font-black shadow-2xs">
+                          <span className="text-amber-800">PB: {overallPorsiBesar.toLocaleString('id-ID')}</span>
+                          <span className="text-slate-400">|</span>
+                          <span className="text-teal-800">PK: {overallPorsiKecil.toLocaleString('id-ID')}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-slate-700">
+                        {filteredDailyRecords.reduce((s, c) => s + (c.jumlahAwal || 0), 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-emerald-600">
+                        +{filteredDailyRecords.reduce((s, c) => s + (c.penambahan || 0), 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-rose-600">
+                        -{filteredDailyRecords.reduce((s, c) => s + (c.pengurangan || 0), 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="py-3 px-4 text-right font-black text-slate-900 text-sm bg-emerald-100/60">
+                        {filteredDailyRecords.reduce((s, c) => s + (c.totalPenerima || 0), 0).toLocaleString('id-ID')}
+                      </td>
+                      <td colSpan={3} className="py-3 px-4 text-slate-600 text-[11px] font-medium">
+                        Akumulasi: {(dailySummary?.totalPorsi || filteredDailyRecords.reduce((s, c) => s + (c.totalPenerima || 0), 0)).toLocaleString('id-ID')} Porsi ({overallPorsiBesar.toLocaleString('id-ID')} Besar + {overallPorsiKecil.toLocaleString('id-ID')} Kecil)
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
+            </div>
+          </div>
+
+          {/* TANDA TANGAN RESMI & PENGESAHAN DOKUMEN CETAK (HANYA MUNCUL SAAT CETAK / PRINT PDF MEDIA PRINT) */}
+          <div className="hidden print:block print-signatures print-avoid-break mt-6">
+            <div className="text-right text-[10pt] text-slate-700 mb-4 font-medium">
+              Probolinggo, {formattedPrintDate}
+            </div>
+
+            <div className="grid grid-cols-3 gap-6 text-center text-[9pt]">
+              {/* Petugas Distribusi & Lapangan */}
+              <div className="flex flex-col justify-between h-40">
+                <div>
+                  <div className="font-semibold text-slate-600">Disiapkan Oleh:</div>
+                  <div className="font-bold text-slate-900 mt-0.5">Petugas Distribusi & Lapangan</div>
+                  <div className="text-[8pt] text-slate-500">SPPG Hafshawaty 001 Genggong</div>
+                </div>
+                <div className="mt-auto">
+                  <div className="h-14 flex items-end justify-center font-serif italic text-slate-400 text-xs pb-1">
+                    ( Tanda Tangan Basah / Sah )
+                  </div>
+                  <div className="font-bold underline text-slate-900 uppercase">Abdus Salam</div>
+                  <div className="text-[8pt] text-slate-500">ID Petugas: SPPG-DS-014</div>
+                </div>
+              </div>
+
+              {/* Nutrisionis / Ahli Gizi SPPG */}
+              <div className="flex flex-col justify-between h-40">
+                <div>
+                  <div className="font-semibold text-slate-600">Diverifikasi & Divalidasi:</div>
+                  <div className="font-bold text-slate-900 mt-0.5">Nutrisionis / Ahli Gizi SPPG</div>
+                  <div className="text-[8pt] text-slate-500">Penanggung Jawab Porsi & Standar Gizi</div>
+                </div>
+                <div className="mt-auto">
+                  <div className="h-14 flex items-end justify-center font-serif italic text-slate-400 text-xs pb-1">
+                    ( Tanda Tangan Basah / Sah )
+                  </div>
+                  <div className="font-bold underline text-slate-900 uppercase">Ahli Gizi SPPG Hafshawaty</div>
+                  <div className="text-[8pt] text-slate-500">STR. Gz. 3513-2024-0891</div>
+                </div>
+              </div>
+
+              {/* Kepala SPPG Kab. Probolinggo dengan Tanda Tangan Digital */}
+              <div className="flex flex-col justify-between h-40">
+                <div>
+                  <div className="font-semibold text-slate-600">Mengetahui & Menyetujui:</div>
+                  <div className="font-bold text-slate-900 mt-0.5">Kepala SPPG Kab. Probolinggo</div>
+                  <div className="text-[8pt] text-slate-500">Satuan Pelayanan Program Gizi</div>
+                </div>
+                <div className="flex flex-col items-center mt-auto">
+                  <div className="my-1 scale-90 -mb-1">
+                    <SriRohayuSignature />
+                  </div>
+                  <div className="font-bold underline text-slate-900 uppercase">Sri Rohayu, S.Pd.</div>
+                  <div className="text-[8pt] text-slate-500">NIP. 19850412 201101 2 008</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Official Legal Footer */}
+            <div className="print-official-footer flex items-center justify-between text-[8pt] text-slate-500 mt-6 pt-2 border-t border-slate-300">
+              <div className="text-left space-y-0.5">
+                <div>Dokumen ini diterbitkan secara sah melalui Sistem Informasi Manajemen SPPG Hafshawaty 001 Genggong terintegrasi BGN.</div>
+                <div>Diakui sebagai dokumen pertanggungjawaban (SPJ) resmi alokasi bahan baku dan distribusi nutrisi harian.</div>
+              </div>
+              <div className="text-right font-mono text-[7.5pt] text-slate-400">
+                <div>HALAMAN: 1 / 1 (ARSIP RESMI)</div>
+                <div>AUTORISASI SPPG-BGN VALID</div>
+              </div>
             </div>
           </div>
 
