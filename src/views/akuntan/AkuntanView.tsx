@@ -40,7 +40,11 @@ import {
   Layers,
   ArrowRight,
   Clock,
-  UtensilsCrossed
+  UtensilsCrossed,
+  Lock,
+  Unlock,
+  Save,
+  Edit
 } from 'lucide-react';
 import {
   RabBahanBakuItem,
@@ -77,6 +81,8 @@ import {
   exportTableToExcel
 } from '../../utils/akuntanDocGenerator';
 import { DashboardAkuntan } from '../../components/akuntan/DashboardAkuntan';
+import { calculateDailyRecordsPortion } from '../../utils/portionHelper';
+import { INITIAL_PDF_INGREDIENTS } from '../../components/nutrition/nutritionData';
 
 interface AkuntanViewProps {
   currentPath: string;
@@ -91,6 +97,60 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // Tanggal aktif terintegrasi dengan Penerima Manfaat & Food Cost
+  const [selectedDate, setSelectedDate] = useState<string>('2026-11-01');
+  const [isLoadingBeneficiary, setIsLoadingBeneficiary] = useState<boolean>(false);
+  const [beneficiaryInfo, setBeneficiaryInfo] = useState<{
+    porsiBesar: number;
+    porsiKecil: number;
+    totalPm: number;
+    hasPlanning: boolean;
+  }>({
+    porsiBesar: 2397,
+    porsiKecil: 519,
+    totalPm: 2916,
+    hasPlanning: true
+  });
+
+  // Tarik data valid dari menu Penerima Manfaat untuk menentukan klasifikasi porsi besar dan porsi kecil
+  const fetchBeneficiaryForAkuntan = React.useCallback(async (targetDate: string) => {
+    setIsLoadingBeneficiary(true);
+    try {
+      const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${targetDate}`);
+      if (!res.ok) {
+        setIsLoadingBeneficiary(false);
+        return;
+      }
+      const json = await res.json();
+      if (json.success && ((json.records && json.records.length > 0) || (json.summary && json.summary.totalPenerima > 0))) {
+        const calculated = calculateDailyRecordsPortion(json.records || [], json.summary);
+        if (calculated.totalPenerima > 0) {
+          setBeneficiaryInfo({
+            porsiBesar: calculated.overallPorsiBesar,
+            porsiKecil: calculated.overallPorsiKecil,
+            totalPm: calculated.totalPenerima,
+            hasPlanning: true
+          });
+        } else {
+          setBeneficiaryInfo({
+            porsiBesar: 0,
+            porsiKecil: 0,
+            totalPm: 0,
+            hasPlanning: false
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[AkuntanView] Error fetching beneficiary data:', err);
+    } finally {
+      setIsLoadingBeneficiary(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBeneficiaryForAkuntan(selectedDate);
+  }, [selectedDate, fetchBeneficiaryForAkuntan]);
+
   // State Persistence with localStorage
   const [rabBahanBaku, setRabBahanBaku] = useState<RabBahanBakuItem[]>(() => {
     try {
@@ -100,6 +160,33 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return initialRabBahanBaku;
     }
   });
+
+  // State kunci data RAB Bahan Baku (Simpan & Kunci vs Edit/Revisi)
+  const [isRabBahanBakuLocked, setIsRabBahanBakuLocked] = useState<boolean>(() => {
+    try {
+      const s = localStorage.getItem('sppg_akuntan_rab_bb_locked');
+      return s === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSimpanRabBahanBaku = () => {
+    setIsRabBahanBakuLocked(true);
+    try {
+      localStorage.setItem('sppg_akuntan_rab_bb_locked', 'true');
+      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(rabBahanBaku));
+    } catch (_) {}
+    triggerToast('RAB Bahan Baku berhasil disimpan dan dikunci! Data aman dari perubahan.');
+  };
+
+  const handleEditRabBahanBaku = () => {
+    setIsRabBahanBakuLocked(false);
+    try {
+      localStorage.setItem('sppg_akuntan_rab_bb_locked', 'false');
+    } catch (_) {}
+    triggerToast('Mode revisi aktif: Anda dapat mengedit harga satuan atau menarik ulang data Food Cost.');
+  };
 
   const [rabOperasionalBarang, setRabOperasionalBarang] = useState<RabOperasionalBarangItem[]>(() => {
     try {
@@ -459,8 +546,139 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       } catch (_) {}
 
       setIsSyncing(false);
-      triggerToast('Berhasil menarik data formula: RAB Bahan Baku (Rp 28.036.000) & RAB Operasional (Rp 8.748.000) telah disinkronkan!');
+      triggerToast('Berhasil menarik data formula: RAB Bahan Baku & RAB Operasional telah disinkronkan!');
     }, 400);
+  };
+
+  // 2. Tarik Data dari Menu Food Cost (Nama Bahan Baku, Pembulatan, Satuan)
+  const handleTarikDataFoodCost = async () => {
+    if (isRabBahanBakuLocked) {
+      triggerToast('Data RAB Bahan Baku sedang terkunci. Klik tombol "Edit Data" terlebih dahulu jika ingin merevisi.');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      let foodCostItems: any[] = [];
+
+      // A. Coba ambil dari Nutrition Plans API sesuai tanggal yang dipilih
+      try {
+        const res = await fetch(`/api/v1/nutrition-plans/by-date/${selectedDate}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            if (Array.isArray(json.data.ingredientsData) && json.data.ingredientsData.length > 0) {
+              foodCostItems = json.data.ingredientsData;
+            } else if (Array.isArray(json.data.items) && json.data.items.length > 0) {
+              foodCostItems = json.data.items.map((it: any, idx: number) => ({
+                no: idx + 1,
+                bahanPangan: it.ingredientName,
+                pembulatan: Math.ceil(it.requiredKg || 1),
+                satuan: 'kg',
+                hargaPerKg: it.pricePerKg || 0
+              }));
+            }
+          }
+        }
+      } catch (_) {}
+
+      // B. Jika belum ada dari API, periksa localStorage
+      if (foodCostItems.length === 0) {
+        try {
+          const localPlans = localStorage.getItem('sppg_nutrition_plans');
+          if (localPlans) {
+            const parsed = JSON.parse(localPlans);
+            const matched = parsed.find((p: any) => p.tanggalPelaksanaan === selectedDate);
+            if (matched && Array.isArray(matched.ingredientsData) && matched.ingredientsData.length > 0) {
+              foodCostItems = matched.ingredientsData;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // C. Fallback ke INITIAL_PDF_INGREDIENTS (Master 24 Bahan Food Cost Standar SPPG)
+      if (foodCostItems.length === 0) {
+        foodCostItems = INITIAL_PDF_INGREDIENTS;
+      }
+
+      // Simpan harga satuan yang sudah pernah diinput oleh akuntan agar tidak hilang
+      const existingPriceMap = new Map<string, number>();
+      rabBahanBaku.forEach(item => {
+        if (item.hargaSatuan > 0) {
+          existingPriceMap.set(item.namaBarang.toLowerCase().trim(), item.hargaSatuan);
+        }
+      });
+
+      const newRabBahanBaku: RabBahanBakuItem[] = foodCostItems.map((item: any, idx: number) => {
+        const nama = item.bahanPangan || item.ingredientName || `Bahan Baku ${idx + 1}`;
+        const cleanName = nama.toLowerCase().trim();
+        const existingPrice = existingPriceMap.get(cleanName);
+
+        let pembulatanNum = 0;
+        if (typeof item.pembulatan === 'number') {
+          pembulatanNum = item.pembulatan;
+        } else if (typeof item.pembulatan === 'string' && item.pembulatan !== '-') {
+          pembulatanNum = parseFloat(item.pembulatan) || 0;
+        }
+        if (pembulatanNum === 0) {
+          pembulatanNum = Number(item.totalWithBufferKg || item.totalRequiredKg || item.requiredKg || 1);
+        }
+
+        const satuan = item.satuan || item.unit || 'Kg';
+        // Harga satuan diisi oleh akuntan di menu RAB Bahan Baku ini
+        const hargaSatuan = existingPrice !== undefined ? existingPrice : (Number(item.hargaPerKg) || 0);
+        const totalAnggaran = Math.round(pembulatanNum * hargaSatuan);
+
+        return {
+          id: `RAB-BB-FC-${selectedDate}-${idx + 1}`,
+          kode: `BB-${String(idx + 1).padStart(2, '0')}`,
+          kategori: item.kategori || 'Bahan Pangan',
+          namaBarang: nama,
+          spesifikasi: `Standar Food Cost SPPG (${satuan})`,
+          kebutuhanPorsi: Number(item.porsiBesarNet || item.netWeightGram || 0),
+          targetPorsi: beneficiaryInfo.totalPm,
+          totalKebutuhanKg: Number(item.totalRequiredKg || pembulatanNum),
+          pembulatan: pembulatanNum,
+          satuan: satuan,
+          hargaSatuan: hargaSatuan,
+          totalAnggaran: totalAnggaran,
+          tanggalPelaksanaan: selectedDate,
+          keterangan: `Disinkronkan dari Food Cost (${pembulatanNum} ${satuan})`
+        };
+      });
+
+      setRabBahanBaku(newRabBahanBaku);
+      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(newRabBahanBaku));
+      triggerToast(`Berhasil menarik ${newRabBahanBaku.length} bahan baku dari menu Food Cost! Silakan sesuaikan harga satuan.`);
+    } catch (err) {
+      console.error('Error tarik food cost:', err);
+      triggerToast('Gagal menarik data food cost.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Handler pengisian harga satuan oleh akuntan
+  const handleUpdateHargaSatuan = (itemId: string, newHarga: number) => {
+    if (isRabBahanBakuLocked) {
+      triggerToast('Data RAB Bahan Baku terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    const val = isNaN(newHarga) || newHarga < 0 ? 0 : newHarga;
+    setRabBahanBaku(prev => {
+      const updated = prev.map(item => {
+        if (item.id === itemId) {
+          const p = Number(item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg || 1));
+          return {
+            ...item,
+            hargaSatuan: val,
+            totalAnggaran: Math.round(p * val)
+          };
+        }
+        return item;
+      });
+      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   // Determine current route configuration
@@ -645,16 +863,198 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
   const HeaderIcon = routeMeta.icon;
 
-  // Global calculations for KPIs
-  const totalAnggaranRabBb = useMemo(() => rabBahanBaku.reduce((acc, c) => acc + c.totalAnggaran, 0), [rabBahanBaku]);
+  // Global calculations for KPIs terintegrasi dengan data valid Penerima Manfaat
+  const paguBahanBakuValid = useMemo(() => {
+    return (beneficiaryInfo.porsiBesar * 10000) + (beneficiaryInfo.porsiKecil * 8000);
+  }, [beneficiaryInfo]);
+
+  const paguOperasionalValid = useMemo(() => {
+    return beneficiaryInfo.totalPm * 3000;
+  }, [beneficiaryInfo]);
+
+  const paguKeseluruhanValid = useMemo(() => {
+    return (beneficiaryInfo.porsiBesar * 15000) + (beneficiaryInfo.porsiKecil * 13000);
+  }, [beneficiaryInfo]);
+
+  const totalAnggaranRabBb = useMemo(() => rabBahanBaku.reduce((acc, c) => acc + (c.totalAnggaran || 0), 0), [rabBahanBaku]);
+  // Sisa Pagu Anggaran = Pagu Bahan Baku - Total Anggaran Belanja
+  // Apabila total belanja melebihi batas pagu, nilai sisa pagu menjadi negatif (melebihi batas pagu / defisit)
+  const sisaPaguBb = paguBahanBakuValid - totalAnggaranRabBb;
+  const isMelebihiPaguBb = sisaPaguBb < 0;
+  const sisaAnggaranBb = sisaPaguBb;
+
   const totalAnggaranRabOp = useMemo(() => rabOperasionalBarang.reduce((acc, c) => acc + c.totalAnggaran, 0), [rabOperasionalBarang]);
   const totalGajiKaryawan = useMemo(() => gajiKaryawan.reduce((acc, c) => acc + c.gajiBersih, 0), [gajiKaryawan]);
+  const totalInsentifPicLembaga = useMemo(() => insentifPicLembaga.reduce((a, c) => a + c.totalInsentif, 0), [insentifPicLembaga]);
+  const totalInsentifPicPosyandu = useMemo(() => insentifPicPosyandu.reduce((a, c) => a + c.totalInsentif, 0), [insentifPicPosyandu]);
   const totalGajiStaf = useMemo(() => gajiStaf.reduce((acc, c) => acc + c.gajiBersih, 0), [gajiStaf]);
-  const totalInsentifPic = useMemo(() => {
-    return insentifPicLembaga.reduce((a, c) => a + c.totalInsentif, 0) + insentifPicPosyandu.reduce((a, c) => a + c.totalInsentif, 0);
-  }, [insentifPicLembaga, insentifPicPosyandu]);
+  const totalInsentifPic = useMemo(() => totalInsentifPicLembaga + totalInsentifPicPosyandu, [totalInsentifPicLembaga, totalInsentifPicPosyandu]);
+
+  // Kalkulasi semua total anggaran operasional: Rab Op. Barang, Gaji Karyawan, Insentif PIC Sekolah, Insentif PIC Posyandu, Gaji Staf
+  const totalAkumulasiOperasional = useMemo(() => {
+    return totalAnggaranRabOp + totalGajiKaryawan + totalInsentifPicLembaga + totalInsentifPicPosyandu + totalGajiStaf;
+  }, [totalAnggaranRabOp, totalGajiKaryawan, totalInsentifPicLembaga, totalInsentifPicPosyandu, totalGajiStaf]);
+
+  // Sinkronisasi dengan Pagu Harian Operasional (Rp 3.000 × Jumlah PM)
+  const sisaPaguOperasional = paguOperasionalValid - totalAkumulasiOperasional;
+  const isMelebihiPaguOperasional = sisaPaguOperasional < 0;
+
   const totalRealisasiBb = useMemo(() => realisasiBahanBaku.reduce((acc, c) => acc + c.totalRealisasi, 0), [realisasiBahanBaku]);
   const efisiensiBb = useMemo(() => totalAnggaranRabBb - totalRealisasiBb, [totalAnggaranRabBb, totalRealisasiBb]);
+
+  // Komponen Pagu Harian Operasional SPPG & Sinkronisasi 5 Komponen Operasional
+  const renderPaguOperasionalSection = (activeSubmenuTitle: string) => {
+    return (
+      <div className="space-y-3">
+        {/* Banner Pagu Harian Operasional */}
+        <div className="bg-gradient-to-r from-sky-500/10 via-blue-500/10 to-transparent border-2 border-sky-500/60 dark:border-sky-500/40 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black uppercase tracking-wider text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950 px-2 py-0.5 rounded-md">
+                2. PAGU HARIAN OPERASIONAL SPPG
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                (Alokasi: Rp 3.000 / PM)
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
+                Menu: {activeSubmenuTitle}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <div className="text-2xl font-black text-sky-950 dark:text-sky-200 tracking-tight">
+                {formatRupiah(paguOperasionalValid)}
+              </div>
+              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                isMelebihiPaguOperasional
+                  ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-700'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+              }`}>
+                {isMelebihiPaguOperasional
+                  ? `Sisa Pagu: -Rp ${Math.abs(sisaPaguOperasional).toLocaleString('id-ID')} (Defisit)`
+                  : `Sisa Pagu: +${formatRupiah(sisaPaguOperasional)} (Surplus)`}
+              </span>
+            </div>
+            <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-300 flex items-center gap-1.5 flex-wrap">
+              <span>Formula: Rp 3.000 × {beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM = {formatRupiah(paguOperasionalValid)}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+              <span className="font-bold text-slate-700 dark:text-slate-300">Target: {beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM (Tgl {selectedDate})</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start md:self-center">
+            <button
+              type="button"
+              onClick={handleTarikDataPaguFormula}
+              disabled={isSyncing}
+              className="px-3.5 py-2 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-sky-500/20 flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+              title="Sinkronisasi formula pagu operasional"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Menyinkronkan...' : `⚡ Sinkron Pagu (${formatRupiah(paguOperasionalValid)})`}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Ringkasan Kalkulasi 5 Pos Pengeluaran Operasional SPPG */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Barang')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>📦</span>
+              <span>1. Op. Barang</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalAnggaranRabOp)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Karyawan')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>👨‍🍳</span>
+              <span>2. Gaji Karyawan</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalGajiKaryawan)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Sekolah')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>🏫</span>
+              <span>3. PIC Sekolah</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalInsentifPicLembaga)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Posyandu')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>👶</span>
+              <span>4. PIC Posyandu</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalInsentifPicPosyandu)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Staf')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>👔</span>
+              <span>5. Gaji Staf</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalGajiStaf)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
+            isMelebihiPaguOperasional
+              ? 'bg-red-50 dark:bg-red-950/50 border-red-300 dark:border-red-800'
+              : 'bg-teal-50 dark:bg-teal-950/50 border-teal-300 dark:border-teal-800'
+          }`}>
+            <div className={`text-[10px] font-bold ${isMelebihiPaguOperasional ? 'text-red-700 dark:text-red-400' : 'text-teal-700 dark:text-teal-300'}`}>
+              Total Akumulasi
+            </div>
+            <div className={`text-xs font-black mt-0.5 ${isMelebihiPaguOperasional ? 'text-red-700 dark:text-red-400' : 'text-teal-900 dark:text-teal-200'}`}>
+              {formatRupiah(totalAkumulasiOperasional)}
+            </div>
+          </div>
+        </div>
+
+        {/* Peringatan jika Total Keseluruhannya Melebihi Pagu Operasional */}
+        {isMelebihiPaguOperasional && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-red-50 dark:bg-red-950/70 border-2 border-red-500 rounded-2xl text-xs text-red-950 dark:text-red-100 shadow-sm animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-red-100 dark:bg-red-900/80 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-300 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 animate-pulse" />
+              </div>
+              <div>
+                <div className="font-black text-red-700 dark:text-red-400 text-sm flex items-center gap-2 flex-wrap">
+                  <span>Total Anggaran Melebihi Batas Pagu operasional</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-red-200 dark:bg-red-900 text-red-900 dark:text-red-100 border border-red-300 dark:border-red-700">
+                    Defisit: -Rp {Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}
+                  </span>
+                </div>
+                <div className="text-[11px] text-red-800/90 dark:text-red-300/90 mt-0.5 leading-relaxed">
+                  Total akumulasi operasional (Rab Op. Barang + Gaji Karyawan + Insentif PIC Sekolah + Insentif PIC Posyandu + Gaji Staf = <strong>{formatRupiah(totalAkumulasiOperasional)}</strong>) telah melebihi Pagu Harian Operasional (<strong>{formatRupiah(paguOperasionalValid)}</strong>). Nilai sisa pagu operasional saat ini: <span className="font-bold text-red-700 dark:text-red-400">-Rp {Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}</span>.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -709,17 +1109,37 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
           {/* Quick Toolbar Actions */}
           <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
-            {/* Tombol Tarik Data Pagu Formula dari Dashboard (image_1ca7e826.png) */}
-            {(routeMeta.key === 'rab-bahan-baku' || routeMeta.key.startsWith('rab-op') || routeMeta.key === 'overview') && (
+            {/* Filter Tanggal Terintegrasi Penerima Manfaat */}
+            <div className="flex items-center gap-1.5 bg-slate-100/90 dark:bg-slate-800/90 px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+                title="Pilih tanggal untuk sinkronisasi Penerima Manfaat & Food Cost"
+              />
               <button
                 type="button"
-                onClick={handleTarikDataPaguFormula}
-                disabled={isSyncing}
-                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black rounded-2xl text-xs shadow-md shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                title="Tarik data pagu: RAB Bahan Baku (Rp 28.036.000) dan RAB Operasional (Rp 8.748.000) untuk 2.916 PM"
+                onClick={() => fetchBeneficiaryForAkuntan(selectedDate)}
+                className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 transition-all cursor-pointer"
+                title="Refresh sinkronisasi data Penerima Manfaat"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Tarik Pagu Formula (2.916 PM)</span>
+                <RefreshCw className={`w-3 h-3 ${isLoadingBeneficiary ? 'animate-spin text-teal-600' : ''}`} />
+              </button>
+            </div>
+
+            {/* Tombol Tarik Data Food Cost untuk Menu RAB Bahan Baku */}
+            {routeMeta.key === 'rab-bahan-baku' && (
+              <button
+                type="button"
+                onClick={handleTarikDataFoodCost}
+                disabled={isSyncing}
+                className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-2xl text-xs shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                title="Tarik data Nama Bahan Baku, Pembulatan dan Satuan dari menu Food Cost"
+              >
+                <UtensilsCrossed className="w-3.5 h-3.5" />
+                <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Food Cost'}</span>
               </button>
             )}
 
@@ -882,7 +1302,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 1: RAB BAHAN BAKU */}
       {routeMeta.key === 'rab-bahan-baku' && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-          {/* Header Formula Banner disinkronkan dengan Gambar Header Dashboard */}
+          {/* Header Formula Banner disinkronkan dengan Penerima Manfaat */}
           <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-transparent border-2 border-teal-500/60 dark:border-teal-500/40 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -890,33 +1310,114 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   1. RAB BAHAN BAKU
                 </span>
                 <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
-                  (65.8% dari Pagu Total SPPG Rp 42.616.000)
+                  (Pagu Harian Bahan Pokok SPPG: {formatRupiah(paguBahanBakuValid)})
                 </span>
               </div>
               <div className="text-2xl font-black text-teal-950 dark:text-teal-200 tracking-tight">
-                Rp 28.036.000
+                {formatRupiah(paguBahanBakuValid)}
               </div>
               <div className="text-[11px] font-semibold text-teal-700 dark:text-teal-300 flex items-center gap-1.5 flex-wrap">
-                <span>Formula: Porsi Besar (2.354 × Rp 10.000 = Rp 23.540.000) + Porsi Kecil (562 × Rp 8.000 = Rp 4.496.000)</span>
+                <span>
+                  Formula: Porsi Besar ({beneficiaryInfo.porsiBesar.toLocaleString('id-ID')} × Rp 10.000 = {formatRupiah(beneficiaryInfo.porsiBesar * 10000)}) + Porsi Kecil ({beneficiaryInfo.porsiKecil.toLocaleString('id-ID')} × Rp 8.000 = {formatRupiah(beneficiaryInfo.porsiKecil * 8000)})
+                </span>
                 <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-                <span className="font-bold text-slate-700 dark:text-slate-300">Target: 2.916 PM</span>
+                <span className="font-bold text-slate-700 dark:text-slate-300">
+                  Target: {beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM (Tgl {selectedDate})
+                </span>
               </div>
             </div>
 
             <button
               type="button"
-              onClick={handleTarikDataPaguFormula}
-              disabled={isSyncing}
-              className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs shadow-md shadow-teal-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 self-start md:self-center"
-              title="Tarik data formula dari gambar header ke tabel RAB Bahan Baku"
+              onClick={handleTarikDataFoodCost}
+              disabled={isSyncing || isRabBahanBakuLocked}
+              className={`px-4 py-2 font-bold rounded-xl text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 self-start md:self-center ${
+                isRabBahanBakuLocked
+                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                  : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-teal-500/20'
+              }`}
+              title={isRabBahanBakuLocked ? 'Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menarik data baru' : 'Tarik data Nama Bahan Baku, Pembulatan, dan Satuan dari Menu Food Cost'}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Pagu (Rp 28.036.000)'}</span>
+              <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Food Cost'}</span>
             </button>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-2">
+          {/* Status Alert Banner: Terkunci vs Mode Edit */}
+          {isRabBahanBakuLocked ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-bold text-amber-900 dark:text-amber-200">
+                    Status Data: Terkunci (Tersimpan)
+                  </div>
+                  <div className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                    Data RAB Bahan Baku telah tersimpan dan aman dari perubahan tak disengaja. Klik tombol <strong>"Edit Data"</strong> di kanan untuk merevisi harga satuan.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleEditRabBahanBaku}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span>Edit / Revisi Data</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-teal-50 to-emerald-50/50 dark:from-teal-950/40 dark:to-emerald-950/20 border border-teal-200/80 dark:border-teal-800/60 rounded-2xl text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                  <Unlock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-bold text-teal-900 dark:text-teal-200">
+                    Status Data: Mode Edit Aktif
+                  </div>
+                  <div className="text-[11px] text-teal-700/90 dark:text-teal-300/80">
+                    Anda dapat mengisi dan merevisi harga satuan pada kolom tabel di bawah. Setelah selesai, klik tombol <strong>"Simpan Data"</strong> untuk mengunci anggaran.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSimpanRabBahanBaku}
+                className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Simpan & Kunci Data</span>
+              </button>
+            </div>
+          )}
+
+          {/* Peringatan Visual jika Nilai Sisa Pagu Negatif (Melebihi Batas Pagu) */}
+          {isMelebihiPaguBb && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-red-50 dark:bg-red-950/60 border-2 border-red-500 rounded-2xl text-xs text-red-950 dark:text-red-100 shadow-sm animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-100 dark:bg-red-900/80 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-300 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <div className="font-black text-red-700 dark:text-red-400 flex items-center gap-2 flex-wrap">
+                    <span>PERINGATAN: Total Anggaran Melebihi Batas Pagu Bahan Baku!</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-200 dark:bg-red-900 text-red-900 dark:text-red-100">
+                      Defisit: -Rp {Math.abs(sisaPaguBb).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-red-800/90 dark:text-red-300/90 mt-0.5">
+                    Total RAB Bahan Baku ({formatRupiah(totalAnggaranRabBb)}) melampaui Pagu Bahan Baku ({formatRupiah(paguBahanBakuValid)}). Baris sisa anggaran di bawah ditandai warna merah.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2">
               <Receipt className="w-5 h-5 text-teal-600" />
               <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
                 Rencana Anggaran Belanja (RAB) Bahan Baku Pangan
@@ -924,14 +1425,59 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
                 {rabBahanBaku.length} Item Bahan (Total: {formatRupiah(totalAnggaranRabBb)})
               </span>
+              {isRabBahanBakuLocked ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                  <Lock className="w-3 h-3" />
+                  Terkunci
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                  <Unlock className="w-3 h-3" />
+                  Dapat Diedit
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
+              {/* Tombol Simpan / Edit */}
+              {isRabBahanBakuLocked ? (
+                <button
+                  type="button"
+                  onClick={handleEditRabBahanBaku}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  title="Klik untuk membuka kunci dan merevisi harga satuan"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit Data</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSimpanRabBahanBaku}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  title="Klik untuk menyimpan dan mengunci data RAB Bahan Baku"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Data</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
-                  const headers = ['No', 'Kode', 'Kategori', 'Nama Bahan Baku', 'Kebutuhan/Porsi (gr)', 'Target Porsi', 'Total Kg', 'Harga Satuan (Rp)', 'Total Anggaran (Rp)'];
-                  const data = rabBahanBaku.map((r, i) => [i + 1, r.kode, r.kategori, r.namaBarang, r.kebutuhanPorsi, r.targetPorsi, r.totalKebutuhanKg, r.hargaSatuan, r.totalAnggaran]);
-                  exportTableToExcel(data, headers, 'RAB_Bahan_Baku_SPPG', 'RAB Bahan Baku');
+                  const headers = ['No', 'Nama Bahan Baku', 'Pembulatan', 'Satuan', 'Harga Satuan (Rp)', 'Total Anggaran (Rp)', 'Keterangan'];
+                  const data = rabBahanBaku.map((r, i) => [
+                    i + 1,
+                    r.namaBarang,
+                    r.pembulatan !== undefined ? r.pembulatan : r.totalKebutuhanKg,
+                    r.satuan,
+                    r.hargaSatuan,
+                    r.totalAnggaran,
+                    r.keterangan
+                  ]);
+                  data.push(['', 'TOTAL KESELURUHAN RAB BAHAN BAKU', '', '', '', totalAnggaranRabBb, 'Akumulasi Pembulatan × Harga Satuan']);
+                  data.push(['', 'JUMLAH PAGU BAHAN BAKU', '', '', '', paguBahanBakuValid, `PB: ${beneficiaryInfo.porsiBesar} @ 10rb + PK: ${beneficiaryInfo.porsiKecil} @ 8rb`]);
+                  data.push(['', 'SISA PAGU ANGGARAN (PAGU − TOTAL)', '', '', '', sisaPaguBb, isMelebihiPaguBb ? 'DEFISIT (Melebihi Batas Pagu)' : 'SURPLUS (Di Bawah Batas Pagu)']);
+                  exportTableToExcel(data, headers, `RAB_Bahan_Baku_${selectedDate}`, 'RAB Bahan Baku');
                   triggerToast('RAB Bahan Baku berhasil diekspor ke Excel!');
                 }}
                 className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
@@ -947,52 +1493,147 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <thead>
                 <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
                   <th className="py-3 px-3 w-10 text-center">No</th>
-                  <th className="py-3 px-3">Kategori & Nama Bahan</th>
-                  <th className="py-3 px-3 text-right">Gramatur/Porsi</th>
-                  <th className="py-3 px-3 text-right">Target Porsi</th>
-                  <th className="py-3 px-3 text-right">Total Kebutuhan</th>
-                  <th className="py-3 px-3 text-right">Harga Satuan</th>
-                  <th className="py-3 px-3 text-right">Total Anggaran</th>
+                  <th className="py-3 px-3">Nama Bahan Baku (Food Cost)</th>
+                  <th className="py-3 px-3 text-right">Pembulatan</th>
+                  <th className="py-3 px-3 text-center">Satuan</th>
+                  <th className="py-3 px-3 text-right min-w-[150px]">
+                    {isRabBahanBakuLocked ? 'Harga Satuan (Rp)' : 'Harga Satuan (Rp) [Diisi Akuntan]'}
+                  </th>
+                  <th className="py-3 px-3 text-right">Total Anggaran (Rp)</th>
                   <th className="py-3 px-3">Keterangan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rabBahanBaku.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</div>
-                      <div className="text-[10px] text-slate-400 font-medium">{item.spesifikasi}</div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                        {item.kategori}
-                      </span>
+                {rabBahanBaku.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
+                      Belum ada data RAB Bahan Baku. Klik tombol <strong>"⚡ Tarik Data Food Cost"</strong> di atas.
                     </td>
-                    <td className="py-2.5 px-3 text-right font-medium">{item.kebutuhanPorsi} gr</td>
-                    <td className="py-2.5 px-3 text-right font-bold text-teal-700 dark:text-teal-400">
-                      {item.targetPorsi.toLocaleString('id-ID')}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
-                      {item.totalKebutuhanKg} {item.satuan}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">{formatRupiah(item.hargaSatuan)}</td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                      {formatRupiah(item.totalAnggaran)}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
                   </tr>
-                ))}
-                <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
-                  <td colSpan={6} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                ) : (
+                  rabBahanBaku.map((item, idx) => {
+                    const pembulatanVal = item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg || 0);
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</div>
+                          <div className="text-[10px] text-slate-400 font-medium">{item.spesifikasi || `Standar SPPG`}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100 text-xs">
+                          {typeof pembulatanVal === 'number' ? pembulatanVal.toLocaleString('id-ID') : pembulatanVal}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {item.satuan}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {isRabBahanBakuLocked ? (
+                            <div className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 shadow-2xs font-bold text-slate-800 dark:text-slate-100">
+                              <span>{formatRupiah(item.hargaSatuan)}</span>
+                              <Lock className="w-3 h-3 text-amber-500 shrink-0" title="Terkunci (Klik Edit Data untuk merevisi)" />
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 dark:border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500/20">
+                              <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="500"
+                                value={item.hargaSatuan === 0 ? '' : item.hargaSatuan}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  handleUpdateHargaSatuan(item.id, val);
+                                }}
+                                className="w-24 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden"
+                              />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-teal-700 dark:text-teal-400">
+                          {formatRupiah(item.totalAnggaran)}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              <tfoot className="border-t-2 border-slate-300 dark:border-slate-700 text-xs">
+                {/* Baris 1: Total Keseluruhan RAB Bahan Baku */}
+                <tr className="bg-slate-50 dark:bg-slate-800/70 font-black text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-700">
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
                     TOTAL KESELURUHAN RAB BAHAN BAKU:
                   </td>
                   <td className="py-3 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300">
                     {formatRupiah(totalAnggaranRabBb)}
                   </td>
-                  <td className="py-3 px-3 text-[10px] font-bold text-teal-700">
-                    Sesuai Kuota Harian SPPG
+                  <td className="py-3 px-3 text-[10px] font-bold text-slate-500">
+                    Akumulasi Pembulatan × Harga Satuan
                   </td>
                 </tr>
-              </tbody>
+
+                {/* Baris 2: Jumlah Pagu Bahan Baku */}
+                <tr className="bg-teal-50/60 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-b border-teal-200 dark:border-teal-900">
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    JUMLAH PAGU BAHAN BAKU:
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-teal-900 dark:text-teal-200">
+                    {formatRupiah(paguBahanBakuValid)}
+                  </td>
+                  <td className="py-3 px-3 text-[10px] font-bold text-teal-700 dark:text-teal-400">
+                    PB: {beneficiaryInfo.porsiBesar.toLocaleString('id-ID')} × 10rb + PK: {beneficiaryInfo.porsiKecil.toLocaleString('id-ID')} × 8rb
+                  </td>
+                </tr>
+
+                {/* Baris 3: Sisa Pagu Anggaran (Indikator Visual Merah jika Negatif / Melebihi Batas Pagu) */}
+                <tr className={`font-black transition-colors ${
+                  isMelebihiPaguBb
+                    ? 'bg-red-50 dark:bg-red-950/70 text-red-950 dark:text-red-100 border-t-2 border-b-2 border-red-500'
+                    : 'bg-emerald-50/80 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-200 border-b-2 border-emerald-500'
+                }`}>
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    <div className="flex flex-col items-end">
+                      <span className={isMelebihiPaguBb ? 'text-red-700 dark:text-red-400 font-black' : 'text-emerald-800 dark:text-emerald-300 font-black'}>
+                        SISA PAGU ANGGARAN (PAGU − TOTAL):
+                      </span>
+                      <span className={`text-[10px] font-semibold ${isMelebihiPaguBb ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                        {isMelebihiPaguBb ? '⚠️ Nilai sisa pagu negatif (melebihi batas pagu bahan baku)' : '✓ Anggaran belanja terjaga di bawah batas pagu'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className={`py-3 px-3 text-right text-sm font-black ${
+                    isMelebihiPaguBb ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'
+                  }`}>
+                    {isMelebihiPaguBb ? `-Rp ${Math.abs(sisaPaguBb).toLocaleString('id-ID')}` : `+${formatRupiah(sisaPaguBb)}`}
+                  </td>
+                  <td className="py-3 px-3">
+                    {isMelebihiPaguBb ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/80 dark:text-red-200 dark:border-red-700 shadow-xs animate-pulse">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                          DEFISIT (Melebihi Pagu)
+                        </span>
+                        <span className="text-[10px] font-bold text-red-600 dark:text-red-400">
+                          Melebihi {formatRupiah(Math.abs(sisaPaguBb))}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/80 dark:text-emerald-200 dark:border-emerald-700 shadow-xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          SURPLUS (Di Bawah Pagu)
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                          Sisa Saldo {formatRupiah(sisaPaguBb)}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -1001,38 +1642,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 2: RAB OPERASIONAL BARANG */}
       {routeMeta.key === 'rab-op-barang' && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-          {/* Header Formula Banner disinkronkan dengan Gambar Header Dashboard */}
-          <div className="bg-gradient-to-r from-sky-500/10 via-blue-500/10 to-transparent border-2 border-sky-500/60 dark:border-sky-500/40 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950 px-2 py-0.5 rounded-md">
-                  2. RAB OPERASIONAL
-                </span>
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
-                  (20.5% dari Pagu Total SPPG Rp 42.616.000)
-                </span>
-              </div>
-              <div className="text-2xl font-black text-sky-950 dark:text-sky-200 tracking-tight">
-                Rp 8.748.000
-              </div>
-              <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-300 flex items-center gap-1.5 flex-wrap">
-                <span>Formula: Rp 3.000 × 2.916 PM = Rp 8.748.000 (Porsi Besar: 2.354 × 3rb = Rp 7.062.000 + Porsi Kecil: 562 × 3rb = Rp 1.686.000)</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-                <span className="font-bold text-slate-700 dark:text-slate-300">Target: 2.916 PM</span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleTarikDataPaguFormula}
-              disabled={isSyncing}
-              className="px-4 py-2 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-sky-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 self-start md:self-center"
-              title="Tarik data formula dari gambar header ke tabel RAB Operasional"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Pagu (Rp 8.748.000)'}</span>
-            </button>
-          </div>
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
+          {renderPaguOperasionalSection('RAB Operasional Pengadaan Barang')}
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
             <div className="flex items-center gap-2">
@@ -1049,6 +1660,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               onClick={() => {
                 const headers = ['No', 'Kode', 'Kategori', 'Nama Barang Operasional', 'Jumlah', 'Satuan', 'Harga Satuan (Rp)', 'Total Anggaran (Rp)', 'Periode'];
                 const data = rabOperasionalBarang.map((r, i) => [i + 1, r.kode, r.kategori, r.namaBarang, r.jumlah, r.satuan, r.hargaSatuan, r.totalAnggaran, r.periode]);
+                data.push(['', 'TOTAL ANGGARAN OPERASIONAL BARANG', '', '', '', '', '', totalAnggaranRabOp, 'RAB Op Barang']);
+                data.push(['', 'TOTAL AKUMULASI 5 POS OPERASIONAL', '', '', '', '', '', totalAkumulasiOperasional, 'Barang+Gaji+PIC+Staf']);
+                data.push(['', 'PAGU HARIAN OPERASIONAL SPPG', '', '', '', '', '', paguOperasionalValid, `Rp 3.000 × ${beneficiaryInfo.totalPm} PM`]);
+                data.push(['', 'SISA PAGU OPERASIONAL', '', '', '', '', '', sisaPaguOperasional, isMelebihiPaguOperasional ? 'DEFISIT (Melebihi Pagu)' : 'SURPLUS']);
                 exportTableToExcel(data, headers, 'RAB_Operasional_Barang_SPPG', 'RAB Op Barang');
                 triggerToast('RAB Operasional Barang berhasil diekspor!');
               }}
@@ -1092,14 +1707,70 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
                   </tr>
                 ))}
-                <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
+                {/* Baris Total Op Barang */}
+                <tr className="bg-slate-50 dark:bg-slate-800/70 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
                   <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
                     TOTAL ANGGARAN OPERASIONAL BARANG:
                   </td>
-                  <td className="py-3 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300">
+                  <td className="py-3 px-3 text-right text-sm font-black text-sky-800 dark:text-sky-300">
                     {formatRupiah(totalAnggaranRabOp)}
                   </td>
-                  <td className="py-3 px-3 text-[10px] text-teal-700 font-bold">November 2026</td>
+                  <td className="py-3 px-3 text-[10px] text-slate-500 font-bold">RAB Pengadaan Barang</td>
+                </tr>
+                {/* Baris Total Akumulasi 5 Pos Operasional */}
+                <tr className="bg-sky-50/70 dark:bg-sky-950/40 font-black text-sky-950 dark:text-sky-200 border-b border-sky-200 dark:border-sky-900">
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    TOTAL AKUMULASI 5 POS OPERASIONAL (BARANG + GAJI + PIC + STAF):
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-sky-900 dark:text-sky-200">
+                    {formatRupiah(totalAkumulasiOperasional)}
+                  </td>
+                  <td className="py-3 px-3 text-[10px] text-sky-700 dark:text-sky-400 font-bold">Total Gabungan Operasional</td>
+                </tr>
+                {/* Baris Pagu Harian Operasional */}
+                <tr className="bg-blue-50/50 dark:bg-blue-950/30 font-black text-blue-950 dark:text-blue-200 border-b border-blue-200 dark:border-blue-900">
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    PAGU HARIAN OPERASIONAL SPPG:
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-blue-900 dark:text-blue-200">
+                    {formatRupiah(paguOperasionalValid)}
+                  </td>
+                  <td className="py-3 px-3 text-[10px] text-blue-700 dark:text-blue-400 font-bold">Rp 3.000 × {beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM</td>
+                </tr>
+                {/* Baris Sisa Pagu Operasional dengan Indikator Merah saat Negatif */}
+                <tr className={`font-black transition-colors ${
+                  isMelebihiPaguOperasional
+                    ? 'bg-red-50 dark:bg-red-950/70 text-red-950 dark:text-red-100 border-b-2 border-red-500'
+                    : 'bg-emerald-50/80 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-200 border-b-2 border-emerald-500'
+                }`}>
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    <div className="flex flex-col items-end">
+                      <span className={isMelebihiPaguOperasional ? 'text-red-700 dark:text-red-400 font-black' : 'text-emerald-800 dark:text-emerald-300 font-black'}>
+                        SISA PAGU OPERASIONAL (PAGU − TOTAL AKUMULASI):
+                      </span>
+                      <span className={`text-[10px] font-semibold ${isMelebihiPaguOperasional ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                        {isMelebihiPaguOperasional ? '⚠️ Total Anggaran Melebihi Batas Pagu operasional' : '✓ Total operasional terjaga di bawah pagu'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className={`py-3 px-3 text-right text-sm font-black ${
+                    isMelebihiPaguOperasional ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'
+                  }`}>
+                    {isMelebihiPaguOperasional ? `-Rp ${Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}` : `+${formatRupiah(sisaPaguOperasional)}`}
+                  </td>
+                  <td className="py-3 px-3">
+                    {isMelebihiPaguOperasional ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/80 dark:text-red-200 dark:border-red-700 shadow-xs animate-pulse">
+                        <AlertCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                        DEFISIT OPERASIONAL
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/80 dark:text-emerald-200 dark:border-emerald-700 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        SURPLUS OPERASIONAL
+                      </span>
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1110,6 +1781,9 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 3: GAJI KARYAWAN (REKAP & SLIP GAJI) */}
       {(routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'slip-gaji-karyawan') && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
+          {renderPaguOperasionalSection('Gaji Karyawan Dapur')}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-teal-600" />
@@ -1283,6 +1957,9 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 4: INSENTIF PIC LEMBAGA (SEKOLAH) */}
       {(routeMeta.key === 'rekap-pic-lembaga' || routeMeta.key === 'kwitansi-pic-lembaga') && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
+          {renderPaguOperasionalSection('Insentif PIC Lembaga (Sekolah)')}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-teal-600" />
@@ -1384,6 +2061,9 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 5: INSENTIF PIC POSYANDU (3B & BALITA) */}
       {(routeMeta.key === 'rekap-pic-posyandu' || routeMeta.key === 'kwitansi-pic-posyandu') && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
+          {renderPaguOperasionalSection('Insentif PIC Posyandu (3B & Balita)')}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <HeartPulse className="w-5 h-5 text-teal-600" />
@@ -1485,6 +2165,9 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 6: GAJI STAF (REKAP & SLIP GAJI) */}
       {(routeMeta.key === 'rekap-gaji-staf' || routeMeta.key === 'slip-gaji-staf') && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
+          {renderPaguOperasionalSection('Gaji Staf Struktural & Pengemudi')}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-teal-600" />

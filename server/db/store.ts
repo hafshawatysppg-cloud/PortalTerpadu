@@ -3552,8 +3552,9 @@ class EnterpriseDataStore {
       const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
 
       if (is3B) {
-        // Balita has its own category (balita), Bumil/Busui has its own category (bumilBusui), Kader gets porsi besar
-        porsiBesar += itemG;
+        // Balita mendapat Porsi Kecil, Bumil/Busui dan Kader mendapat Porsi Besar
+        porsiKecil += itemB;
+        porsiBesar += (itemIh + itemIm + itemG);
       } else if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
         porsiKecil += itemS;
         porsiBesar += itemG;
@@ -3588,10 +3589,10 @@ class EnterpriseDataStore {
       totalSiswa = Math.max(0, totalSiswa + (totalPenerima - catSum));
     }
     
-    // Ensure the 4 groups (Porsi Kecil + Porsi Besar + Balita + Bumil/Busui) exactly equal totalPenerima
-    const fourGroupSum = porsiBesar + porsiKecil + totalBalita + (totalIbuHamil + totalIbuMenyusui);
-    if (fourGroupSum !== totalPenerima && totalPenerima > 0) {
-      porsiBesar = Math.max(0, porsiBesar + (totalPenerima - fourGroupSum));
+    // Ensure Porsi Besar + Porsi Kecil exactly equals totalPenerima
+    const twoGroupSum = porsiBesar + porsiKecil;
+    if (twoGroupSum !== totalPenerima && totalPenerima > 0) {
+      porsiBesar = Math.max(0, porsiBesar + (totalPenerima - twoGroupSum));
     }
 
     return {

@@ -57,6 +57,7 @@ import {
   RealisasiOperasionalItem
 } from '../../types/akuntan';
 import { formatRupiah, exportTableToExcel } from '../../utils/akuntanDocGenerator';
+import { calculateDailyRecordsPortion } from '../../utils/portionHelper';
 
 interface DashboardAkuntanProps {
   rabBahanBaku: RabBahanBakuItem[];
@@ -192,27 +193,33 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
       }
       const json = JSON.parse(text);
 
-      if (json.success && json.summary && json.hasPlanning && json.summary.totalPenerima > 0) {
-        const pb = json.summary.portionBreakdown;
-        const porsiBesar = Number(pb?.porsiBesar) || 0;
-        // Porsi Kecil mencakup siswa SD kelas 1-3, TK/PAUD, Balita & Bumil/Busui
-        const porsiKecil = (Number(pb?.porsiKecil) || 0) + (Number(pb?.balita) || 0) + (Number(pb?.bumilBusui) || 0);
-        const totalPm = Number(json.summary.totalPenerima) || (porsiBesar + porsiKecil);
-        setBeneficiaryState({
-          porsiBesar,
-          porsiKecil,
-          totalPm,
-          hasPlanning: true,
-          isCustom: false
-        });
+      if (json.success && ((json.records && json.records.length > 0) || (json.summary && json.summary.totalPenerima > 0))) {
+        const calculated = calculateDailyRecordsPortion(json.records || [], json.summary);
+        if (calculated.totalPenerima > 0) {
+          setBeneficiaryState({
+            porsiBesar: calculated.overallPorsiBesar,
+            porsiKecil: calculated.overallPorsiKecil,
+            totalPm: calculated.totalPenerima,
+            hasPlanning: true,
+            isCustom: false
+          });
+        } else {
+          setBeneficiaryState({
+            porsiBesar: 0,
+            porsiKecil: 0,
+            totalPm: 0,
+            hasPlanning: false,
+            isCustom: false
+          });
+        }
       } else {
-        // Fallback ke estimasi referensi standar SPPG (2.810 PM: 2.250 Besar & 560 Kecil) bila belum ada data perencanaan
+        // Fallback bila belum ada data perencanaan di tanggal tersebut
         setBeneficiaryState(prev => {
           if (prev.isCustom) return prev;
           return {
-            porsiBesar: 2250,
-            porsiKecil: 560,
-            totalPm: 2810,
+            porsiBesar: 0,
+            porsiKecil: 0,
+            totalPm: 0,
             hasPlanning: false,
             isCustom: false
           };

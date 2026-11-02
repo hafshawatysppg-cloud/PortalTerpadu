@@ -25,16 +25,17 @@ export type AkuntanSubPath =
 
 export interface RabBahanBakuItem {
   id: string;
-  kode: string;
-  kategori: 'Bahan Pokok' | 'Lauk Hewani' | 'Lauk Nabati' | 'Sayuran' | 'Buah & Pelengkap' | 'Bumbu & Minyak';
+  kode?: string;
+  kategori?: string;
   namaBarang: string;
-  spesifikasi: string;
-  kebutuhanPorsi: number; // gram per porsi
-  targetPorsi: number; // jumlah sasaran
-  totalKebutuhanKg: number;
-  satuan: string;
-  hargaSatuan: number;
-  totalAnggaran: number;
+  spesifikasi?: string;
+  kebutuhanPorsi?: number; // gram per porsi
+  targetPorsi?: number; // jumlah sasaran
+  totalKebutuhanKg?: number;
+  pembulatan?: number; // Pembulatan kebutuhan dari Food Cost
+  satuan: string; // Satuan pembelian dari Food Cost
+  hargaSatuan: number; // Harga satuan yang diisi oleh akuntan
+  totalAnggaran: number; // Pembulatan * Harga Satuan
   tanggalPelaksanaan: string;
   keterangan: string;
 }
