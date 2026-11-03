@@ -1184,8 +1184,12 @@ router.get('/po/list', (req: Request, res: Response): void => {
 });
 
 router.post('/po/aggregate', (req: Request, res: Response): void => {
-  const { startDate, dates } = req.body;
-  const result = dbStore.aggregatePeriodPO(startDate || new Date().toISOString().split('T')[0], dates);
+  const { startDate, dates, rabBahanBaku, rabOpBarang, operasionalLainnya } = req.body;
+  const result = dbStore.aggregatePeriodPO(startDate || new Date().toISOString().split('T')[0], dates, {
+    rabBahanBaku,
+    rabOpBarang,
+    operasionalLainnya
+  });
   res.json({
     success: true,
     data: result

@@ -102,12 +102,30 @@ export const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({ currentPat
   const runPOAggregation = async (baseDate: string, customDates?: string[]) => {
     setLoading(true);
     try {
+      let localRabBahanBaku: any[] = [];
+      let localRabOpBarang: any[] = [];
+      let localOpLainnya: any[] = [];
+
+      try {
+        const sBB = localStorage.getItem('sppg_akuntan_rab_bahan_baku');
+        if (sBB) localRabBahanBaku = JSON.parse(sBB);
+        const sOp = localStorage.getItem('sppg_akuntan_rab_op_barang');
+        if (sOp) localRabOpBarang = JSON.parse(sOp);
+        const sLainnya = localStorage.getItem('sppg_akuntan_op_lainnya');
+        if (sLainnya) localOpLainnya = JSON.parse(sLainnya);
+      } catch (e) {
+        console.warn('Error reading akuntan local storage:', e);
+      }
+
       const res = await fetch('/api/v1/nutrition-plans/po/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           startDate: baseDate,
-          dates: customDates && customDates.length > 0 ? customDates : undefined
+          dates: customDates && customDates.length > 0 ? customDates : undefined,
+          rabBahanBaku: localRabBahanBaku.length > 0 ? localRabBahanBaku : undefined,
+          rabOpBarang: localRabOpBarang.length > 0 ? localRabOpBarang : undefined,
+          operasionalLainnya: localOpLainnya.length > 0 ? localOpLainnya : undefined
         })
       });
       const json = await res.json();
@@ -832,12 +850,16 @@ export const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({ currentPat
 
                 <button
                   type="button"
-                  onClick={() => runPOAggregation(startDate)}
+                  onClick={() => {
+                    runPOAggregation(startDate);
+                    showToast('Purchase Order berhasil disinkronkan dengan RAB Bahan Baku & gabungan Pos Operasional!', 'success');
+                  }}
                   disabled={loading}
                   className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  title="Sinkronkan dengan RAB Bahan Baku & Gabungan Pos Operasional (Barang + Utilitas/Lab)"
                 >
                   <Icons.RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  <span>Sinkron RAB</span>
+                  <span>Sinkronkan RAB</span>
                 </button>
               </div>
             </div>
@@ -863,10 +885,19 @@ export const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({ currentPat
                 {/* Header Info Bar for current PO */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 bg-blue-50/50 dark:bg-blue-950/30 rounded-2xl border border-blue-100 dark:border-blue-900/40">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                        currentDailyPO.poType === 'Bahan Baku'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                      }`}>
                         {currentDailyPO.poType}
                       </span>
+                      {currentDailyPO.poType === 'Operasional' && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                          Gabungan: RAB Op. Barang & Operasional Lainnya
+                        </span>
+                      )}
                       <span className="text-xs font-black text-slate-900 dark:text-slate-100">
                         {currentDailyPO.poNumber}
                       </span>

@@ -44,7 +44,8 @@ import {
   Lock,
   Unlock,
   Save,
-  Edit
+  Edit,
+  Trash2
 } from 'lucide-react';
 import {
   RabBahanBakuItem,
@@ -153,15 +154,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     fetchBeneficiaryForAkuntan(selectedDate);
   }, [selectedDate, fetchBeneficiaryForAkuntan]);
 
-  // State Persistence with localStorage
-  const [rabBahanBaku, setRabBahanBaku] = useState<RabBahanBakuItem[]>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_rab_bahan_baku');
-      return s ? JSON.parse(s) : initialRabBahanBaku;
-    } catch {
-      return initialRabBahanBaku;
-    }
-  });
+  // State Persistence with localStorage - Dikosongkan jika belum ada data Food Cost / belum diatur admin
+  const [rabBahanBaku, setRabBahanBaku] = useState<RabBahanBakuItem[]>([]);
 
   // State kunci data RAB Bahan Baku (Simpan & Kunci vs Edit/Revisi)
   const [isRabBahanBakuLocked, setIsRabBahanBakuLocked] = useState<boolean>(() => {
@@ -178,6 +172,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     try {
       localStorage.setItem('sppg_akuntan_rab_bb_locked', 'true');
       localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(rabBahanBaku));
+      localStorage.setItem(`sppg_akuntan_rab_bb_${selectedDate}`, JSON.stringify(rabBahanBaku));
+      // Simpan riwayat harga satuan agar dapat dipakai otomatis saat sync food cost berikutnya
+      const priceMap: Record<string, number> = {};
+      rabBahanBaku.forEach(item => {
+        if (item.hargaSatuan > 0) {
+          priceMap[item.namaBarang.toLowerCase().trim()] = item.hargaSatuan;
+        }
+      });
+      localStorage.setItem('sppg_akuntan_saved_prices', JSON.stringify(priceMap));
     } catch (_) {}
     triggerToast('RAB Bahan Baku berhasil disimpan dan dikunci! Data aman dari perubahan.');
   };
@@ -190,12 +193,17 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, jumlah, dan harga satuan.');
   };
 
+  // RAB Operasional Pengadaan Barang: Kosongkan jika admin belum mengatur / mengisi
   const [rabOperasionalBarang, setRabOperasionalBarang] = useState<RabOperasionalBarangItem[]>(() => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_rab_op_barang');
-      return s ? JSON.parse(s) : initialRabOperasionalBarang;
+      const isConfigured = localStorage.getItem('sppg_akuntan_rab_op_barang_configured');
+      if (isConfigured === 'true') {
+        const s = localStorage.getItem('sppg_akuntan_rab_op_barang');
+        return s ? JSON.parse(s) : [];
+      }
+      return [];
     } catch {
-      return initialRabOperasionalBarang;
+      return [];
     }
   });
 
@@ -214,6 +222,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     try {
       localStorage.setItem('sppg_akuntan_rab_op_locked', 'true');
       localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(rabOperasionalBarang));
+      localStorage.setItem('sppg_akuntan_rab_op_barang_configured', 'true');
     } catch (_) {}
     triggerToast('RAB Operasional Pengadaan Barang berhasil disimpan dan dikunci!');
   };
@@ -223,76 +232,141 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     try {
       localStorage.setItem('sppg_akuntan_rab_op_locked', 'false');
     } catch (_) {}
-    triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, jumlah, dan harga satuan.');
+    triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, satuan, jumlah, dan harga satuan.');
   };
 
+  const handleTambahBarisOpBarang = () => {
+    if (isRabOpBarangLocked) {
+      triggerToast('Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menambah barang.');
+      return;
+    }
+    const newItem: RabOperasionalBarangItem = {
+      id: `OPB-${Date.now()}`,
+      kode: `OP-${String(rabOperasionalBarang.length + 1).padStart(2, '0')}`,
+      kategori: 'Operasional Dapur',
+      namaBarang: '',
+      jumlah: 1,
+      satuan: 'Pcs',
+      hargaSatuan: 0,
+      totalAnggaran: 0,
+      periode: `Harian (${selectedDate})`,
+      keterangan: 'Diinput oleh Admin / Akuntan'
+    };
+    const updated = [...rabOperasionalBarang, newItem];
+    setRabOperasionalBarang(updated);
+    try {
+      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
+      localStorage.setItem('sppg_akuntan_rab_op_barang_configured', 'true');
+    } catch (_) {}
+    triggerToast('Baris barang operasional baru berhasil ditambahkan.');
+  };
+
+  const handleHapusBarisOpBarang = (id: string) => {
+    if (isRabOpBarangLocked) {
+      triggerToast('Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menghapus baris.');
+      return;
+    }
+    const updated = rabOperasionalBarang.filter(item => item.id !== id);
+    setRabOperasionalBarang(updated);
+    try {
+      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
+    } catch (_) {}
+    triggerToast('Barang operasional berhasil dihapus.');
+  };
+
+  // Gaji Karyawan Dapur: Kosongkan jika admin belum mengatur / mengisi / menyinkronkan
   const [gajiKaryawan, setGajiKaryawan] = useState<GajiKaryawanRecord[]>(() => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_gaji_karyawan');
-      return s ? JSON.parse(s) : initialGajiKaryawan;
+      const isConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured');
+      if (isConfigured === 'true') {
+        const s = localStorage.getItem('sppg_akuntan_gaji_karyawan');
+        return s ? JSON.parse(s) : [];
+      }
+      return [];
     } catch {
-      return initialGajiKaryawan;
+      return [];
     }
   });
   const [isSyncingPetugas, setIsSyncingPetugas] = useState<boolean>(false);
 
+  // Insentif PIC Sekolah: Kosongkan jika admin belum mengatur / mengisi
   const [insentifPicLembaga, setInsentifPicLembaga] = useState<InsentifPicRecord[]>(() => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_pic_lembaga');
-      const data: InsentifPicRecord[] = s ? JSON.parse(s) : initialInsentifPicLembaga;
-      return data.map(item => {
-        const { nominal, tierLabel } = hitungInsentifPicSekolah(item.jumlahSasaran);
-        return {
-          ...item,
-          insentifPokok: nominal,
-          totalInsentif: nominal,
-          tierInfo: tierLabel
-        };
-      });
+      const isConfigured = localStorage.getItem('sppg_akuntan_pic_lembaga_configured');
+      if (isConfigured === 'true') {
+        const s = localStorage.getItem('sppg_akuntan_pic_lembaga');
+        if (s) {
+          const data: InsentifPicRecord[] = JSON.parse(s);
+          return data.map(item => {
+            const { nominal, tierLabel } = hitungInsentifPicSekolah(item.jumlahSasaran);
+            return {
+              ...item,
+              insentifPokok: nominal,
+              totalInsentif: nominal,
+              tierInfo: tierLabel
+            };
+          });
+        }
+      }
+      return [];
     } catch {
-      return initialInsentifPicLembaga;
+      return [];
     }
   });
 
+  // Insentif PIC Posyandu: Kosongkan jika admin belum mengatur / mengisi
   const [insentifPicPosyandu, setInsentifPicPosyandu] = useState<InsentifPicRecord[]>(() => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_pic_posyandu');
-      const data: InsentifPicRecord[] = s ? JSON.parse(s) : initialInsentifPicPosyandu;
-      return data.map(item => {
-        const { nominal, tierLabel } = hitungInsentifPicPosyandu(item.jumlahSasaran);
-        return {
-          ...item,
-          insentifPokok: nominal,
-          totalInsentif: nominal,
-          tierInfo: tierLabel
-        };
-      });
+      const isConfigured = localStorage.getItem('sppg_akuntan_pic_posyandu_configured');
+      if (isConfigured === 'true') {
+        const s = localStorage.getItem('sppg_akuntan_pic_posyandu');
+        if (s) {
+          const data: InsentifPicRecord[] = JSON.parse(s);
+          return data.map(item => {
+            const { nominal, tierLabel } = hitungInsentifPicPosyandu(item.jumlahSasaran);
+            return {
+              ...item,
+              insentifPokok: nominal,
+              totalInsentif: nominal,
+              tierInfo: tierLabel
+            };
+          });
+        }
+      }
+      return [];
     } catch {
-      return initialInsentifPicPosyandu;
+      return [];
     }
   });
 
   const [gajiStaf, setGajiStaf] = useState<GajiStafRecord[]>(() => {
     try {
       const s = localStorage.getItem('sppg_akuntan_gaji_staf');
-      return s ? JSON.parse(s) : initialGajiStaf;
+      return s ? JSON.parse(s) : [];
     } catch {
-      return initialGajiStaf;
+      return [];
     }
   });
 
+  // Operasional Lainnya: Kosongkan jika admin belum mengatur / mengisi
   const [operasionalLainnya, setOperasionalLainnya] = useState<OperasionalLainnyaItem[]>(() => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_op_lainnya');
-      const data: OperasionalLainnyaItem[] = s ? JSON.parse(s) : initialOperasionalLainnya;
-      return data.map(item => ({
-        ...item,
-        satuan: item.satuan || (item.kategori?.includes('Lab') ? 'Sampel' : 'Bulan'),
-        biayaSatuan: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya,
-        jumlahBiaya: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya
-      }));
+      const isConfigured = localStorage.getItem('sppg_akuntan_op_lainnya_configured');
+      if (isConfigured === 'true') {
+        const s = localStorage.getItem('sppg_akuntan_op_lainnya');
+        if (s) {
+          const data: OperasionalLainnyaItem[] = JSON.parse(s);
+          return data.map(item => ({
+            ...item,
+            satuan: item.satuan || (item.kategori?.includes('Lab') ? 'Sampel' : 'Bulan'),
+            biayaSatuan: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya,
+            jumlahBiaya: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya
+          }));
+        }
+      }
+      return [];
     } catch {
-      return initialOperasionalLainnya;
+      return [];
     }
   });
 
@@ -311,6 +385,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     try {
       localStorage.setItem('sppg_akuntan_op_lainnya_locked', 'true');
       localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(operasionalLainnya));
+      localStorage.setItem('sppg_akuntan_op_lainnya_configured', 'true');
     } catch (_) {}
     triggerToast('Data Operasional Lainnya berhasil disimpan dan dikunci!');
   };
@@ -466,184 +541,44 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   };
 
-  // Tarik Data Pagu Formula dari Gambar Header Dashboard:
-  // 1. RAB Bahan Baku: Rp 28.036.000 (2.916 PM: 2.354 PB @ 10rb + 562 PK @ 8rb)
-  // 2. RAB Operasional: Rp 8.748.000 (2.916 PM @ 3rb)
-  // 3. Sewa Fasilitas Dapur: Rp 5.832.000 (2.916 PM @ 2rb)
-  // 4. Pagu Keseluruhan: Rp 42.616.000 (2.916 PM)
+  // Sinkronisasi Pagu Formula dari target PM
   const handleTarikDataPaguFormula = () => {
     setIsSyncing(true);
+    fetchBeneficiaryForAkuntan(selectedDate);
     setTimeout(() => {
-      const syncedBahanBaku: RabBahanBakuItem[] = [
-        {
-          id: 'RAB-BB-SYNC-001',
-          kode: 'BB-01-BRS',
-          kategori: 'Bahan Pokok',
-          namaBarang: 'Beras Premium Ramos (Steamer)',
-          spesifikasi: 'Beras Kepala Slip 95%, Kadar Air Max 14%',
-          kebutuhanPorsi: 100,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 291.6,
-          satuan: 'Kg',
-          hargaSatuan: 14500,
-          totalAnggaran: 4228200,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Kebutuhan pokok karbohidrat (PB 2.354 + PK 562)'
-        },
-        {
-          id: 'RAB-BB-SYNC-002',
-          kode: 'BB-02-AYM',
-          kategori: 'Lauk Hewani',
-          namaBarang: 'Daging Ayam Broiler Fillet & Daging Sapi Segar',
-          spesifikasi: 'Dada & Paha Segar Halal, Higienis Bebas Residu',
-          kebutuhanPorsi: 65,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 189.5,
-          satuan: 'Kg',
-          hargaSatuan: 46000,
-          totalAnggaran: 8717000,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Protein hewani menu utama rolade & semur'
-        },
-        {
-          id: 'RAB-BB-SYNC-003',
-          kode: 'BB-03-TMP',
-          kategori: 'Lauk Nabati',
-          namaBarang: 'Tempe Daun Kedelai & Tahu Segar',
-          spesifikasi: 'Padat Segar, Fermentasi Sempurna Non-GMO',
-          kebutuhanPorsi: 50,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 145.8,
-          satuan: 'Kg',
-          hargaSatuan: 18000,
-          totalAnggaran: 2624400,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Protein nabati tempe krispy & tahu bacem'
-        },
-        {
-          id: 'RAB-BB-SYNC-004',
-          kode: 'BB-04-SYR',
-          kategori: 'Sayuran',
-          namaBarang: 'Sayuran Campur (Wortel, Buncis & Jagung Manis)',
-          spesifikasi: 'Segar Baru Panen, Bebas Pestisida Grade A',
-          kebutuhanPorsi: 60,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 175.0,
-          satuan: 'Kg',
-          hargaSatuan: 20000,
-          totalAnggaran: 3500000,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Serat & vitamin sayur tumis sop capcay'
-        },
-        {
-          id: 'RAB-BB-SYNC-005',
-          kode: 'BB-05-BUH',
-          kategori: 'Buah & Pelengkap',
-          namaBarang: 'Buah Semangka Merah / Pisang Cavendish',
-          spesifikasi: 'Matang Pohon, Manis Segar dan Bersih',
-          kebutuhanPorsi: 100,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 291.6,
-          satuan: 'Kg',
-          hargaSatuan: 24000,
-          totalAnggaran: 6998400,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Vitamin & mineral pencuci mulut santri & siswa'
-        },
-        {
-          id: 'RAB-BB-SYNC-006',
-          kode: 'BB-06-BMU',
-          kategori: 'Bumbu & Minyak',
-          namaBarang: 'Minyak Goreng Sawit & Bumbu Dapur Rempah Alami',
-          spesifikasi: 'Kemasan Jerigen Food Grade & Rempah Alami',
-          kebutuhanPorsi: 25,
-          targetPorsi: 2916,
-          totalKebutuhanKg: 72.9,
-          satuan: 'Kg',
-          hargaSatuan: 27000,
-          totalAnggaran: 1968000,
-          tanggalPelaksanaan: '2026-11-01',
-          keterangan: 'Bumbu halus bawang, rempah, dan minyak goreng'
-        }
-      ];
-
-      const syncedOpBarang: RabOperasionalBarangItem[] = [
-        {
-          id: 'RAB-OP-SYNC-001',
-          kode: 'OP-01-GAS',
-          kategori: 'Bahan Bakar & Energi',
-          namaBarang: 'Gas LPG 50 Kg & 12 Kg Dapur Sentral',
-          jumlah: 4,
-          satuan: 'Tabung',
-          hargaSatuan: 485000,
-          totalAnggaran: 1940000,
-          periode: 'November 2026',
-          keterangan: 'Bahan bakar kompor steamer & wajan besar dapur'
-        },
-        {
-          id: 'RAB-OP-SYNC-002',
-          kode: 'OP-02-KMS',
-          kategori: 'Packaging & Wadah',
-          namaBarang: 'Plastik Wrap Roll & Paper Lunch Box Food Grade',
-          jumlah: 2916,
-          satuan: 'Pcs',
-          hargaSatuan: 1250,
-          totalAnggaran: 3645000,
-          periode: 'November 2026',
-          keterangan: 'Wadah higienis pemorsian 2.916 penerima manfaat'
-        },
-        {
-          id: 'RAB-OP-SYNC-003',
-          kode: 'OP-03-APD',
-          kategori: 'Kebersihan & Sanitasi',
-          namaBarang: 'Perlengkapan Kerja APD, Hairnet & Sabun Sanitasi',
-          jumlah: 1,
-          satuan: 'Paket',
-          hargaSatuan: 1850000,
-          totalAnggaran: 1850000,
-          periode: 'November 2026',
-          keterangan: 'Protokol higienitas petugas masak dan pemorsian'
-        },
-        {
-          id: 'RAB-OP-SYNC-004',
-          kode: 'OP-04-LOG',
-          kategori: 'Logistik & Distribusi',
-          namaBarang: 'Perawatan Box Termal & Ice Gel Pendingin Armada',
-          jumlah: 1,
-          satuan: 'Paket',
-          hargaSatuan: 1313000,
-          totalAnggaran: 1313000,
-          periode: 'November 2026',
-          keterangan: 'Pengendalian suhu rantai dingin armada distribusi'
-        }
-      ];
-
-      setRabBahanBaku(syncedBahanBaku);
-      setRabOperasionalBarang(syncedOpBarang);
-
-      try {
-        localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(syncedBahanBaku));
-        localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(syncedOpBarang));
-      } catch (_) {}
-
       setIsSyncing(false);
-      triggerToast('Berhasil menarik data formula: RAB Bahan Baku & RAB Operasional telah disinkronkan!');
+      triggerToast(`Pagu Operasional berhasil disinkronkan: Rp 3.000 × ${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM = ${formatRupiah(beneficiaryInfo.totalPm * 3000)}`);
     }, 400);
   };
 
-  // 2. Tarik Data dari Menu Food Cost (Nama Bahan Baku, Pembulatan, Satuan)
-  const handleTarikDataFoodCost = async () => {
-    if (isRabBahanBakuLocked) {
-      triggerToast('Data RAB Bahan Baku sedang terkunci. Klik tombol "Edit Data" terlebih dahulu jika ingin merevisi.');
-      return;
+  // Sinkronisasi RAB Bahan Baku dengan Food Cost: Jika di Food Cost belum ada data maka RAB Bahan Baku kosong []
+  const syncRabBahanBakuWithFoodCost = React.useCallback(async (targetDate: string, isManual: boolean = false) => {
+    // 1. Cek apakah ada data RAB Bahan Baku yang telah disimpan/dikunci spesifik untuk tanggal ini oleh admin
+    try {
+      const savedDateKey = `sppg_akuntan_rab_bb_${targetDate}`;
+      const savedForDate = localStorage.getItem(savedDateKey);
+      if (savedForDate) {
+        const parsed = JSON.parse(savedForDate);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRabBahanBaku(parsed);
+          if (isManual) {
+            triggerToast(`Memuat ${parsed.length} bahan baku tersimpan untuk tanggal ${targetDate}.`);
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+
+    if (isManual) {
+      setIsSyncing(true);
     }
-    setIsSyncing(true);
+
     try {
       let foodCostItems: any[] = [];
 
-      // A. Coba ambil dari Nutrition Plans API sesuai tanggal yang dipilih
+      // A. Ambil dari Nutrition Plans API sesuai tanggal yang dipilih
       try {
-        const res = await fetch(`/api/v1/nutrition-plans/by-date/${selectedDate}`);
+        const res = await fetch(`/api/v1/nutrition-plans/by-date/${targetDate}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) {
@@ -655,39 +590,55 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                 bahanPangan: it.ingredientName,
                 pembulatan: Math.ceil(it.requiredKg || 1),
                 satuan: 'kg',
-                hargaPerKg: it.pricePerKg || 0
+                hargaPerKg: it.pricePerKg || 0,
+                totalRequiredKg: it.requiredKg
               }));
             }
           }
         }
       } catch (_) {}
 
-      // B. Jika belum ada dari API, periksa localStorage
+      // B. Jika belum ada dari API, periksa localStorage sppg_nutrition_plans
       if (foodCostItems.length === 0) {
         try {
           const localPlans = localStorage.getItem('sppg_nutrition_plans');
           if (localPlans) {
             const parsed = JSON.parse(localPlans);
-            const matched = parsed.find((p: any) => p.tanggalPelaksanaan === selectedDate);
+            const matched = parsed.find((p: any) => p.tanggalPelaksanaan === targetDate);
             if (matched && Array.isArray(matched.ingredientsData) && matched.ingredientsData.length > 0) {
               foodCostItems = matched.ingredientsData;
+            } else if (matched && Array.isArray(matched.items) && matched.items.length > 0) {
+              foodCostItems = matched.items.map((it: any, idx: number) => ({
+                no: idx + 1,
+                bahanPangan: it.ingredientName,
+                pembulatan: Math.ceil(it.requiredKg || 1),
+                satuan: 'kg',
+                hargaPerKg: it.pricePerKg || 0,
+                totalRequiredKg: it.requiredKg
+              }));
             }
           }
         } catch (_) {}
       }
 
-      // C. Fallback ke INITIAL_PDF_INGREDIENTS (Master 24 Bahan Food Cost Standar SPPG)
+      // C. ATURAN PENGEMBANGAN: Jika di Food Cost BELUM ada data, maka di RAB Bahan Baku TIDAK AKAN MUNCUL DATA (kosong [])
       if (foodCostItems.length === 0) {
-        foodCostItems = INITIAL_PDF_INGREDIENTS;
+        setRabBahanBaku([]);
+        if (isManual) {
+          triggerToast(`Belum ada data perencanaan Food Cost untuk tanggal ${targetDate}. Data RAB Bahan Baku tidak dimunculkan.`);
+        }
+        return;
       }
 
-      // Simpan harga satuan yang sudah pernah diinput oleh akuntan agar tidak hilang
+      // D. Ambil harga satuan yang pernah diinput sebelumnya dari riwayat harga
       const existingPriceMap = new Map<string, number>();
-      rabBahanBaku.forEach(item => {
-        if (item.hargaSatuan > 0) {
-          existingPriceMap.set(item.namaBarang.toLowerCase().trim(), item.hargaSatuan);
+      try {
+        const savedPrices = localStorage.getItem('sppg_akuntan_saved_prices');
+        if (savedPrices) {
+          const parsedMap = JSON.parse(savedPrices);
+          Object.entries(parsedMap).forEach(([k, v]) => existingPriceMap.set(k.toLowerCase().trim(), Number(v)));
         }
-      });
+      } catch (_) {}
 
       const newRabBahanBaku: RabBahanBakuItem[] = foodCostItems.map((item: any, idx: number) => {
         const nama = item.bahanPangan || item.ingredientName || `Bahan Baku ${idx + 1}`;
@@ -705,12 +656,11 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         }
 
         const satuan = item.satuan || item.unit || 'Kg';
-        // Harga satuan diisi oleh akuntan di menu RAB Bahan Baku ini
         const hargaSatuan = existingPrice !== undefined ? existingPrice : (Number(item.hargaPerKg) || 0);
         const totalAnggaran = Math.round(pembulatanNum * hargaSatuan);
 
         return {
-          id: `RAB-BB-FC-${selectedDate}-${idx + 1}`,
+          id: `RAB-BB-FC-${targetDate}-${idx + 1}`,
           kode: `BB-${String(idx + 1).padStart(2, '0')}`,
           kategori: item.kategori || 'Bahan Pangan',
           namaBarang: nama,
@@ -722,20 +672,35 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           satuan: satuan,
           hargaSatuan: hargaSatuan,
           totalAnggaran: totalAnggaran,
-          tanggalPelaksanaan: selectedDate,
+          tanggalPelaksanaan: targetDate,
           keterangan: `Disinkronkan dari Food Cost (${pembulatanNum} ${satuan})`
         };
       });
 
       setRabBahanBaku(newRabBahanBaku);
       localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(newRabBahanBaku));
-      triggerToast(`Berhasil menarik ${newRabBahanBaku.length} bahan baku dari menu Food Cost! Silakan sesuaikan harga satuan.`);
+      if (isManual) {
+        triggerToast(`Berhasil menarik ${newRabBahanBaku.length} bahan baku dari menu Food Cost! Silakan sesuaikan harga satuan.`);
+      }
     } catch (err) {
       console.error('Error tarik food cost:', err);
-      triggerToast('Gagal menarik data food cost.');
+      if (isManual) {
+        triggerToast('Gagal menarik data food cost.');
+      }
     } finally {
-      setIsSyncing(false);
+      if (isManual) {
+        setIsSyncing(false);
+      }
     }
+  }, [beneficiaryInfo.totalPm]);
+
+  // Tarik Data dari Menu Food Cost (Tombol Manual)
+  const handleTarikDataFoodCost = () => {
+    if (isRabBahanBakuLocked) {
+      triggerToast('Data RAB Bahan Baku sedang terkunci. Klik tombol "Edit Data" terlebih dahulu jika ingin merevisi.');
+      return;
+    }
+    syncRabBahanBakuWithFoodCost(selectedDate, true);
   };
 
   // Handler pengisian dan pengeditan RAB Bahan Baku (Nama, Jumlah, Harga Satuan)
@@ -1076,7 +1041,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         }
 
         if (showToast) {
+          localStorage.setItem('sppg_akuntan_pic_lembaga_configured', 'true');
+          localStorage.setItem('sppg_akuntan_pic_posyandu_configured', 'true');
           triggerToast(`Berhasil menyinkronkan data sasaran penerima manfaat & skema tarif insentif PIC untuk ${targetDate}!`);
+        }
+      } else {
+        if (showToast) {
+          triggerToast(`Belum ada data sasaran penerima manfaat untuk tanggal ${targetDate}.`);
         }
       }
     } catch (err) {
@@ -1086,6 +1057,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
   // Sinkronisasi data Gaji Karyawan dengan Slip Gaji Harian dari Menu Daftar Petugas
   const syncGajiKaryawanFromPetugas = React.useCallback(async (targetDate: string, isAuto: boolean = false) => {
+    // Jika auto-sync pada saat load/ganti tanggal tapi admin belum pernah mengatur gaji, tetap kosongkan []
+    if (isAuto) {
+      const isConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured') === 'true';
+      if (!isConfigured) {
+        setGajiKaryawan([]);
+        return;
+      }
+    }
+
     setIsSyncingPetugas(true);
     try {
       // 1. Ambil slip gaji harian sesuai tanggal aktif dari API Petugas
@@ -1093,8 +1073,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       let json = await res.json();
       let slips: any[] = (json.success && Array.isArray(json.data)) ? json.data : [];
 
-      // 2. Jika belum ada slip untuk tanggal tersebut, generate batch slip harian otomatis untuk seluruh petugas aktif
-      if (slips.length === 0) {
+      // 2. Jika manual sync dan belum ada slip untuk tanggal tersebut, coba generate batch slip dari petugas aktif
+      if (slips.length === 0 && !isAuto) {
         try {
           const genRes = await fetch('/api/petugas/slip-gaji/batch-generate', {
             method: 'POST',
@@ -1108,19 +1088,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         } catch (_) {}
       }
 
-      // 3. Jika tetap belum ada untuk tanggal tersebut, ambil seluruh slip gaji harian yang tersedia di database petugas
-      if (slips.length === 0) {
-        try {
-          const allRes = await fetch('/api/petugas/slip-gaji');
-          const allJson = await allRes.json();
-          if (allJson.success && Array.isArray(allJson.data) && allJson.data.length > 0) {
-            slips = allJson.data;
-          }
-        } catch (_) {}
-      }
-
-      // 4. Jika tetap belum ada dari API, periksa data master petugas aktif untuk membentuk data slip harian
-      if (slips.length === 0) {
+      // 3. Jika tetap belum ada dari API dan manual sync, periksa master petugas aktif
+      if (slips.length === 0 && !isAuto) {
         try {
           const petRes = await fetch('/api/petugas');
           const petJson = await petRes.json();
@@ -1152,7 +1121,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         } catch (_) {}
       }
 
-      // 5. Transformasi data Slip Gaji Harian Petugas ke struktur GajiKaryawanRecord untuk akuntan
+      // 4. Transformasi data Slip Gaji Harian Petugas ke struktur GajiKaryawanRecord untuk akuntan
       if (slips.length > 0) {
         const mappedKaryawan: GajiKaryawanRecord[] = slips.map((s: any, idx: number) => {
           const kehadiran = Number(s.kehadiranHari !== undefined ? s.kehadiranHari : 1);
@@ -1191,12 +1160,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
         setGajiKaryawan(mappedKaryawan);
         localStorage.setItem('sppg_akuntan_gaji_karyawan', JSON.stringify(mappedKaryawan));
+        localStorage.setItem('sppg_akuntan_gaji_karyawan_configured', 'true');
         if (!isAuto) {
           triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas dari menu Daftar Petugas!`);
         }
       } else {
         if (!isAuto) {
-          triggerToast('Data slip gaji harian petugas belum tersedia untuk disinkronkan.');
+          triggerToast('Data slip gaji harian petugas belum tersedia di menu Daftar Petugas.');
         }
       }
     } catch (err) {
@@ -1209,11 +1179,18 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   }, []);
 
-  // Auto-sinkronisasi Slip Gaji Karyawan & PIC dari menu terkait saat tanggal aktif berubah
+  // Auto-sinkronisasi Food Cost saat tanggal aktif berubah (Kosongkan jika Food Cost belum direncanakan)
   useEffect(() => {
-    syncGajiKaryawanFromPetugas(selectedDate, true);
-    handleSyncPicDariPenerimaManfaat(selectedDate, false);
-  }, [selectedDate, syncGajiKaryawanFromPetugas, handleSyncPicDariPenerimaManfaat]);
+    syncRabBahanBakuWithFoodCost(selectedDate, false);
+    const isGkConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured') === 'true';
+    if (isGkConfigured) {
+      syncGajiKaryawanFromPetugas(selectedDate, true);
+    }
+    const isPicConfigured = localStorage.getItem('sppg_akuntan_pic_lembaga_configured') === 'true';
+    if (isPicConfigured) {
+      handleSyncPicDariPenerimaManfaat(selectedDate, false);
+    }
+  }, [selectedDate, syncRabBahanBakuWithFoodCost, syncGajiKaryawanFromPetugas, handleSyncPicDariPenerimaManfaat]);
 
   // Determine current route configuration
   const routeMeta = useMemo(() => {
@@ -2104,8 +2081,39 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rabBahanBaku.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400">
-                      Belum ada data RAB Bahan Baku. Klik tombol <strong>"⚡ Tarik Data Food Cost"</strong> di atas.
+                    <td colSpan={7} className="py-12 px-4 text-center">
+                      <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-300 flex items-center justify-center shadow-xs">
+                          <UtensilsCrossed className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            Belum Ada Data Food Cost untuk Tanggal Ini ({selectedDate})
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            Data RAB Bahan Baku disinkronkan langsung dari menu Perencanaan Menu & Food Cost. Jika belum ada perencanaan menu dan kebutuhan bahan pangan pada tanggal <strong>{selectedDate}</strong>, tabel RAB Bahan Baku tidak akan menampilkan data.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
+                          <button
+                            type="button"
+                            onClick={handleTarikDataFoodCost}
+                            disabled={isSyncing}
+                            className="px-3.5 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                            <span>Periksa Ulang Food Cost</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('/perencanaan-menu')}
+                            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            <ArrowRight className="w-3.5 h-3.5" />
+                            <span>Buka Perencanaan Menu</span>
+                          </button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ) : (

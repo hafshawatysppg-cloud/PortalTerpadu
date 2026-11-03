@@ -2888,7 +2888,11 @@ class EnterpriseDataStore {
   }
 
   // --- PURCHASE ORDER (PO) CONSOLIDATION & DAILY GENERATION ALGORITHM ---
-  public aggregatePeriodPO(startDate: string, datesOverride?: string[]): {
+  public aggregatePeriodPO(startDate: string, datesOverride?: string[], syncData?: {
+    rabBahanBaku?: any[];
+    rabOpBarang?: any[];
+    operasionalLainnya?: any[];
+  }): {
     poBahanBaku: Partial<PurchaseOrderDocument>;
     poOperasional: Partial<PurchaseOrderDocument>;
     dailyPOBahanBaku: PurchaseOrderDocument[];
@@ -2932,6 +2936,29 @@ class EnterpriseDataStore {
 
     const rabs = dates.map(d => this.getOrCreateRABForDate(d));
 
+    // Standar Sinkronisasi Pos Anggaran RAB Akuntan SPPG
+    const defaultRabBahanBaku = [
+      { namaBarang: 'Beras Premium Ramos (Steamer)', satuan: 'Kg', totalKebutuhanKg: 291.6, hargaSatuan: 14500, totalAnggaran: 4228200 },
+      { namaBarang: 'Daging Ayam Broiler Fillet & Daging Sapi Segar', satuan: 'Kg', totalKebutuhanKg: 189.5, hargaSatuan: 46000, totalAnggaran: 8717000 },
+      { namaBarang: 'Tempe Daun Kedelai & Tahu Segar', satuan: 'Kg', totalKebutuhanKg: 145.8, hargaSatuan: 18000, totalAnggaran: 2624400 },
+      { namaBarang: 'Sayuran Campur (Wortel, Buncis & Jagung Manis)', satuan: 'Kg', totalKebutuhanKg: 175.0, hargaSatuan: 20000, totalAnggaran: 3500000 },
+      { namaBarang: 'Buah Semangka Merah / Pisang Cavendish', satuan: 'Kg', totalKebutuhanKg: 291.6, hargaSatuan: 24000, totalAnggaran: 6998400 },
+      { namaBarang: 'Minyak Goreng Sawit & Bumbu Dapur Rempah Alami', satuan: 'Kg', totalKebutuhanKg: 72.9, hargaSatuan: 27000, totalAnggaran: 1968000 }
+    ];
+
+    const defaultRabOpBarang = [
+      { namaBarang: 'Gas LPG 50 Kg & 12 Kg Dapur Sentral', satuan: 'Tabung', jumlah: 4, hargaSatuan: 485000, totalAnggaran: 1940000 },
+      { namaBarang: 'Plastik Wrap Roll & Paper Lunch Box Food Grade', satuan: 'Pcs', jumlah: 2916, hargaSatuan: 1250, totalAnggaran: 3645000 },
+      { namaBarang: 'Perlengkapan Kerja APD, Hairnet & Sabun Sanitasi', satuan: 'Paket', jumlah: 1, hargaSatuan: 1850000, totalAnggaran: 1850000 },
+      { namaBarang: 'Perawatan Box Termal & Ice Gel Pendingin Armada', satuan: 'Paket', jumlah: 1, hargaSatuan: 1313000, totalAnggaran: 1313000 }
+    ];
+
+    const defaultOperasionalLainnya = [
+      { namaPengeluaran: 'Tagihan Listrik PLN 3 Phase Dapur Pengolahan', satuan: 'Bulan', biayaSatuan: 2450000, jumlahBiaya: 2450000 },
+      { namaPengeluaran: 'Paket Internet Fiber Optic Dedicated Portal Terpadu', satuan: 'Bulan', biayaSatuan: 750000, jumlahBiaya: 750000 },
+      { namaPengeluaran: 'Uji Laboratorium Sampel Pangan & Mikrobiologi E.Coli', satuan: 'Sampel', biayaSatuan: 1200000, jumlahBiaya: 1200000 }
+    ];
+
     // Array 5 PO Harian Bahan Baku & 5 PO Harian Operasional
     const dailyPOBahanBaku: PurchaseOrderDocument[] = [];
     const dailyPOOperasional: PurchaseOrderDocument[] = [];
@@ -2947,20 +2974,26 @@ class EnterpriseDataStore {
       const dayPorsi = pB + pK;
       overallPorsiTotal += dayPorsi;
 
-      // Item Bahan Baku Harian
-      const itemsBahan: POItem[] = (r.itemsBahanBaku || []).map((item, iIdx) => {
-        const key = (item.namaBahan || '').trim().toLowerCase();
+      // 1. Sinkronisasi Item Bahan Baku Harian
+      const sourceBahanBaku = (syncData?.rabBahanBaku && syncData.rabBahanBaku.length > 0)
+        ? syncData.rabBahanBaku
+        : ((r.itemsBahanBaku && r.itemsBahanBaku.length > 0) ? r.itemsBahanBaku : defaultRabBahanBaku);
+
+      const itemsBahan: POItem[] = sourceBahanBaku.map((item: any, iIdx: number) => {
+        const name = item.namaBarang || item.namaBahan || 'Bahan Baku';
+        const key = name.trim().toLowerCase();
         const masterMatch = this.masterBahanPangan.find(m => m.namaBahan.toLowerCase() === key);
-        const unit = masterMatch?.satuanPembelian || item.satuan || 'Kg';
+        const unit = item.satuan || masterMatch?.satuanPembelian || 'Kg';
         const price = item.hargaSatuan || masterMatch?.hargaDasarPerKg || 0;
-        const qty = item.kebutuhanKg || 0;
+        const qty = item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg !== undefined ? item.totalKebutuhanKg : (item.kebutuhanKg !== undefined ? item.kebutuhanKg : (item.jumlah !== undefined ? item.jumlah : 1)));
+        const total = item.totalAnggaran || Math.round(Number(qty) * price);
         return {
           no: iIdx + 1,
-          details: item.namaBahan,
-          qty: Math.round(qty * 100) / 100,
+          details: name,
+          qty: Math.round(Number(qty) * 100) / 100,
           unit,
           unitPrice: price,
-          totalPrice: Math.round(qty * price),
+          totalPrice: total,
           category: 'Bahan Baku'
         };
       });
@@ -2969,7 +3002,6 @@ class EnterpriseDataStore {
       overallBahanTotal += dayBahanAmount;
 
       const dateClean = d.replace(/-/g, '');
-      const yearStr = new Date().getFullYear();
 
       // Hitung tanggal target tiba: 1 hari sebelum tanggal pemesanan/menu (H-1)
       const dParts = d.split('-');
@@ -3013,15 +3045,42 @@ class EnterpriseDataStore {
       };
       dailyPOBahanBaku.push(dailyPOBahanDoc);
 
-      // Item Operasional Harian
-      const itemsOps: POItem[] = (r.biayaOperasionalItems || []).map((item, oIdx) => ({
-        no: oIdx + 1,
-        details: item.namaItem,
-        qty: Math.round((item.volume || 1) * 100) / 100,
-        unit: item.satuan || 'Pack',
+      // 2. Sinkronisasi Item Operasional Harian: Gabungkan Rab Op. Barang & Operasional Lainnya
+      const sourceOpBarang = (syncData?.rabOpBarang && syncData.rabOpBarang.length > 0)
+        ? syncData.rabOpBarang
+        : defaultRabOpBarang;
+
+      const sourceOpLainnya = (syncData?.operasionalLainnya && syncData.operasionalLainnya.length > 0)
+        ? syncData.operasionalLainnya
+        : defaultOperasionalLainnya;
+
+      const itemsOpBarang: POItem[] = sourceOpBarang.map((item: any) => ({
+        no: 0,
+        details: item.namaBarang || item.namaItem || 'Operasional Barang Dapur',
+        qty: Math.round((Number(item.jumlah || item.volume || 1)) * 100) / 100,
+        unit: item.satuan || 'Paket',
         unitPrice: item.hargaSatuan || 0,
-        totalPrice: Math.round((item.volume || 1) * (item.hargaSatuan || 0)),
+        totalPrice: item.totalAnggaran || Math.round((Number(item.jumlah || item.volume || 1)) * (item.hargaSatuan || 0)),
         category: 'Operasional'
+      }));
+
+      const itemsOpLainnya: POItem[] = sourceOpLainnya.map((item: any) => {
+        const price = item.biayaSatuan !== undefined ? item.biayaSatuan : (item.jumlahBiaya || 0);
+        return {
+          no: 0,
+          details: item.namaPengeluaran || item.keterangan || 'Operasional Lainnya (Utilitas/Lab)',
+          qty: 1,
+          unit: item.satuan || item.kategori || 'Bulan',
+          unitPrice: price,
+          totalPrice: item.jumlahBiaya || price,
+          category: 'Operasional'
+        };
+      });
+
+      // Gabungkan menjadi satu list utuh item operasional
+      const itemsOps: POItem[] = [...itemsOpBarang, ...itemsOpLainnya].map((it, oIdx) => ({
+        ...it,
+        no: oIdx + 1
       }));
 
       const dayOpsAmount = itemsOps.reduce((sum, i) => sum + i.totalPrice, 0);
@@ -3044,7 +3103,7 @@ class EnterpriseDataStore {
         porsiBesar: pB,
         porsiKecil: pK,
         totalPorsi: dayPorsi,
-        menuSummary: `PERLENGKAPAN & OPERASIONAL DAPUR HARIAN (${d})`,
+        menuSummary: `PENGADAAN BARANG & OPERASIONAL LAINNYA (${d})`,
         supplier: defaultSupplier,
         shipTo: defaultShipTo,
         pemesan: 'Muhammad Fadil, S. Akun',
@@ -3052,7 +3111,7 @@ class EnterpriseDataStore {
         approvedTitle: 'Kepala Satuan Pelayanan Pemenuhan Gizi',
         items: itemsOps,
         totalAmount: dayOpsAmount,
-        additionalNotes: `Tanggal Pemesanan (Menu): ${d}. Target Tiba / Kedatangan Barang (H-1): ${targetArrivalDate} pkl 16:00 WIB.`,
+        additionalNotes: `Tanggal Pemesanan: ${d}. Target Tiba / Realisasi (H-1): ${targetArrivalDate} pkl 16:00 WIB. Konsolidasi gabungan RAB Operasional Pengadaan Barang & Operasional Lainnya.`,
         status: 'Draft',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
