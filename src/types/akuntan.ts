@@ -119,7 +119,9 @@ export interface OperasionalLainnyaItem {
   id: string;
   kodeTransaksi: string;
   namaPengeluaran: string;
-  kategori: 'Listrik & Air (Utilitas)' | 'Internet & Telekomunikasi' | 'Pemeliharaan Alat Dapur' | 'Uji Lab & Sampel Pangan' | 'Administrasi Kantor';
+  satuan?: string;
+  biayaSatuan?: number;
+  kategori?: string;
   jumlahBiaya: number;
   tanggalTransaksi: string;
   penanggungJawab: string;

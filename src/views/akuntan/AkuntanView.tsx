@@ -284,11 +284,44 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   const [operasionalLainnya, setOperasionalLainnya] = useState<OperasionalLainnyaItem[]>(() => {
     try {
       const s = localStorage.getItem('sppg_akuntan_op_lainnya');
-      return s ? JSON.parse(s) : initialOperasionalLainnya;
+      const data: OperasionalLainnyaItem[] = s ? JSON.parse(s) : initialOperasionalLainnya;
+      return data.map(item => ({
+        ...item,
+        satuan: item.satuan || (item.kategori?.includes('Lab') ? 'Sampel' : 'Bulan'),
+        biayaSatuan: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya,
+        jumlahBiaya: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya
+      }));
     } catch {
       return initialOperasionalLainnya;
     }
   });
+
+  // State kunci data Operasional Lainnya
+  const [isOperasionalLainnyaLocked, setIsOperasionalLainnyaLocked] = useState<boolean>(() => {
+    try {
+      const s = localStorage.getItem('sppg_akuntan_op_lainnya_locked');
+      return s === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSimpanOperasionalLainnya = () => {
+    setIsOperasionalLainnyaLocked(true);
+    try {
+      localStorage.setItem('sppg_akuntan_op_lainnya_locked', 'true');
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(operasionalLainnya));
+    } catch (_) {}
+    triggerToast('Data Operasional Lainnya berhasil disimpan dan dikunci!');
+  };
+
+  const handleEditOperasionalLainnya = () => {
+    setIsOperasionalLainnyaLocked(false);
+    try {
+      localStorage.setItem('sppg_akuntan_op_lainnya_locked', 'false');
+    } catch (_) {}
+    triggerToast('Mode revisi aktif: Anda dapat mengedit tanggal, uraian pengeluaran, satuan, dan biaya satuan.');
+  };
 
   const [insentifFasilitas, setInsentifFasilitas] = useState<InsentifFasilitasRecord[]>(() => {
     try {
@@ -833,6 +866,140 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     });
   };
 
+  // Handler pengisian dan pengeditan Operasional Lainnya (Tanggal, Uraian Pengeluaran, Satuan, Biaya Satuan)
+  const handleUpdateTanggalOpLainnya = (itemId: string, newTanggal: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, tanggalTransaksi: newTanggal } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateNamaPengeluaranOpLainnya = (itemId: string, newNama: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, namaPengeluaran: newNama } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateSatuanOpLainnya = (itemId: string, newSatuan: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, satuan: newSatuan } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateBiayaSatuanOpLainnya = (itemId: string, newBiaya: number) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    const val = isNaN(newBiaya) || newBiaya < 0 ? 0 : newBiaya;
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => {
+        if (item.id === itemId) {
+          return {
+            ...item,
+            biayaSatuan: val,
+            jumlahBiaya: val
+          };
+        }
+        return item;
+      });
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateKeteranganOpLainnya = (itemId: string, newKet: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, keterangan: newKet } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdatePenanggungJawabOpLainnya = (itemId: string, newPj: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, penanggungJawab: newPj } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateBuktiNotaOpLainnya = (itemId: string, newNota: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.map(item => item.id === itemId ? { ...item, buktiNota: newNota } : item);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleTambahBarisOpLainnya = () => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Buka kunci data terlebih dahulu untuk menambah baris pengeluaran.');
+      return;
+    }
+    const newId = `OPL-${Date.now()}`;
+    const newItem: OperasionalLainnyaItem = {
+      id: newId,
+      kodeTransaksi: `TRX-OPL-${Date.now().toString().slice(-6)}`,
+      namaPengeluaran: '',
+      satuan: 'Bulan',
+      biayaSatuan: 0,
+      jumlahBiaya: 0,
+      tanggalTransaksi: selectedDate || new Date().toISOString().split('T')[0],
+      penanggungJawab: 'Staf Administrasi SPPG',
+      buktiNota: `NOTA-${Date.now().toString().slice(-4)}`,
+      keterangan: 'Pengeluaran operasional dapur'
+    };
+    setOperasionalLainnya(prev => {
+      const updated = [...prev, newItem];
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+    triggerToast('Baris pengeluaran baru berhasil ditambahkan.');
+  };
+
+  const handleHapusBarisOpLainnya = (itemId: string) => {
+    if (isOperasionalLainnyaLocked) {
+      triggerToast('Buka kunci data terlebih dahulu untuk menghapus baris pengeluaran.');
+      return;
+    }
+    setOperasionalLainnya(prev => {
+      const updated = prev.filter(item => item.id !== itemId);
+      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
+      return updated;
+    });
+    triggerToast('Baris pengeluaran berhasil dihapus.');
+  };
+
   // Sinkronisasi data PIC Sekolah & Posyandu dari data Penerima Manfaat sesuai Skema Tarif
   const handleSyncPicDariPenerimaManfaat = React.useCallback(async (targetDate: string, showToast: boolean = true) => {
     try {
@@ -1292,10 +1459,14 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   }, [beneficiaryInfo.totalPm]);
 
-  // Kalkulasi semua total anggaran operasional: Rab Op. Barang, Gaji Karyawan, Insentif PIC Sekolah, Insentif PIC Posyandu
+  // Kalkulasi semua total anggaran operasional: Rab Op. Barang, Gaji Karyawan, Insentif PIC Sekolah, Insentif PIC Posyandu, Operasional Lainnya
+  const totalOperasionalLainnya = useMemo(() => {
+    return operasionalLainnya.reduce((acc, c) => acc + c.jumlahBiaya, 0);
+  }, [operasionalLainnya]);
+
   const totalAkumulasiOperasional = useMemo(() => {
-    return totalAnggaranRabOp + totalGajiKaryawan + totalInsentifPicLembaga + totalInsentifPicPosyandu;
-  }, [totalAnggaranRabOp, totalGajiKaryawan, totalInsentifPicLembaga, totalInsentifPicPosyandu]);
+    return totalAnggaranRabOp + totalGajiKaryawan + totalInsentifPicLembaga + totalInsentifPicPosyandu + totalOperasionalLainnya;
+  }, [totalAnggaranRabOp, totalGajiKaryawan, totalInsentifPicLembaga, totalInsentifPicPosyandu, totalOperasionalLainnya]);
 
   // Sinkronisasi dengan Pagu Harian Operasional (Rp 3.000 × Jumlah PM)
   const sisaPaguOperasional = paguOperasionalValid - totalAkumulasiOperasional;
@@ -1358,7 +1529,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         </div>
 
         {/* Ringkasan Kalkulasi Pos Pengeluaran Operasional SPPG */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
           <div className={`p-2.5 rounded-xl border transition-all ${
             activeSubmenuTitle.includes('Barang')
               ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
@@ -1408,6 +1579,18 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           </div>
 
           <div className={`p-2.5 rounded-xl border transition-all ${
+            activeSubmenuTitle.includes('Lainnya')
+              ? 'bg-sky-50/80 dark:bg-sky-950/60 border-sky-400 dark:border-sky-600 ring-2 ring-sky-400/20'
+              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/80'
+          }`}>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <span>🪙</span>
+              <span>5. Op. Lainnya</span>
+            </div>
+            <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatRupiah(totalOperasionalLainnya)}</div>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border transition-all ${
             isMelebihiPaguOperasional
               ? 'bg-red-50 dark:bg-red-950/50 border-red-300 dark:border-red-800'
               : 'bg-teal-50 dark:bg-teal-950/50 border-teal-300 dark:border-teal-800'
@@ -1436,7 +1619,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </span>
                 </div>
                 <div className="text-[11px] text-red-800/90 dark:text-red-300/90 mt-0.5 leading-relaxed">
-                  Total akumulasi operasional (Rab Op. Barang + Gaji Karyawan + Insentif PIC Sekolah + Insentif PIC Posyandu = <strong>{formatRupiah(totalAkumulasiOperasional)}</strong>) telah melebihi Pagu Harian Operasional (<strong>{formatRupiah(paguOperasionalValid)}</strong>). Nilai sisa pagu operasional saat ini: <span className="font-bold text-red-700 dark:text-red-400">-Rp {Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}</span>.
+                  Total akumulasi operasional (Rab Op. Barang + Gaji Karyawan + Insentif PIC Sekolah + Insentif PIC Posyandu + Operasional Lainnya = <strong>{formatRupiah(totalAkumulasiOperasional)}</strong>) telah melebihi Pagu Harian Operasional (<strong>{formatRupiah(paguOperasionalValid)}</strong>). Nilai sisa pagu operasional saat ini: <span className="font-bold text-red-700 dark:text-red-400">-Rp {Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}</span>.
                 </div>
               </div>
             </div>
@@ -1668,6 +1851,16 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               }`}
             >
               Insentif PIC Posyandu
+            </button>
+            <button
+              onClick={() => onNavigate('/akuntan/rab-operasional/jasa/operasional-lainnya')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
+                currentPath.includes('/akuntan/rab-operasional/jasa/operasional-lainnya')
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              Op. Lainnya
             </button>
             <button
               onClick={() => onNavigate('/akuntan/insentif-fasilitas/berita-acara')}
@@ -2291,10 +2484,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </td>
                   <td className="py-3 px-3 text-[10px] text-slate-500 font-bold">RAB Pengadaan Barang</td>
                 </tr>
-                {/* Baris Total Akumulasi 5 Pos Operasional */}
+                {/* Baris Total Akumulasi Gabungan Pos Operasional */}
                 <tr className="bg-sky-50/70 dark:bg-sky-950/40 font-black text-sky-950 dark:text-sky-200 border-b border-sky-200 dark:border-sky-900">
                   <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
-                    TOTAL AKUMULASI 5 POS OPERASIONAL (BARANG + GAJI + PIC + STAF):
+                    TOTAL AKUMULASI POS OPERASIONAL (BARANG + GAJI + PIC + OP. LAINNYA):
                   </td>
                   <td className="py-3 px-3 text-right text-sm font-black text-sky-900 dark:text-sky-200">
                     {formatRupiah(totalAkumulasiOperasional)}
@@ -3121,26 +3314,141 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       {/* VIEW 7: OPERASIONAL LAINNYA */}
       {routeMeta.key === 'operasional-lainnya' && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen Tergabung */}
+          {renderPaguOperasionalSection('Operasional Lainnya (Utilitas & Lab)')}
+
+          {/* Status Alert Banner Operasional Lainnya: Terkunci vs Mode Edit */}
+          {isOperasionalLainnyaLocked ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-bold text-amber-900 dark:text-amber-200">
+                    Status Data: Terkunci (Tersimpan)
+                  </div>
+                  <div className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                    Data Operasional Lainnya telah tersimpan dan dikunci. Klik tombol <strong>"Edit Data"</strong> untuk merevisi tanggal, uraian pengeluaran, satuan, atau biaya satuan.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleEditOperasionalLainnya}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span>Edit / Revisi Data</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-teal-50 to-emerald-50/50 dark:from-teal-950/40 dark:to-emerald-950/20 border border-teal-200/80 dark:border-teal-800/60 rounded-2xl text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                  <Unlock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-bold text-teal-900 dark:text-teal-200">
+                    Status Data: Mode Edit Aktif
+                  </div>
+                  <div className="text-[11px] text-teal-700/90 dark:text-teal-300/80">
+                    Anda dapat mengedit tanggal, uraian pengeluaran, satuan, dan biaya satuan secara langsung. Klik tombol <strong>"Simpan Data"</strong> untuk mengunci anggaran.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSimpanOperasionalLainnya}
+                className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Simpan & Kunci Data</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2">
               <Coins className="w-5 h-5 text-teal-600" />
               <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
                 Pencatatan Biaya Operasional Lainnya (Utilitas & Lab)
               </h2>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
+                {operasionalLainnya.length} Transaksi (Total: {formatRupiah(totalOperasionalLainnya)})
+              </span>
+              {isOperasionalLainnyaLocked ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                  <Lock className="w-3 h-3" />
+                  Terkunci
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                  <Unlock className="w-3 h-3" />
+                  Dapat Diedit
+                </span>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const headers = ['No', 'Kode Transaksi', 'Kategori', 'Uraian Pengeluaran', 'Biaya (Rp)', 'Tanggal', 'Penanggung Jawab', 'Bukti Nota'];
-                const data = operasionalLainnya.map((r, i) => [i + 1, r.kodeTransaksi, r.kategori, r.namaPengeluaran, r.jumlahBiaya, r.tanggalTransaksi, r.penanggungJawab, r.buktiNota]);
-                exportTableToExcel(data, headers, 'Operasional_Lainnya_SPPG', 'Op Lainnya');
-                triggerToast('Operasional Lainnya berhasil diekspor!');
-              }}
-              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Export Excel</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isOperasionalLainnyaLocked && (
+                <button
+                  type="button"
+                  onClick={handleTambahBarisOpLainnya}
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                  title="Tambah baris pengeluaran baru"
+                >
+                  <Plus className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Tambah Baris</span>
+                </button>
+              )}
+              {isOperasionalLainnyaLocked ? (
+                <button
+                  type="button"
+                  onClick={handleEditOperasionalLainnya}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  title="Klik untuk membuka kunci dan merevisi data Operasional Lainnya"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit Data</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSimpanOperasionalLainnya}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  title="Klik untuk menyimpan dan mengunci data Operasional Lainnya"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Data</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const headers = ['No', 'Tanggal', 'Uraian Pengeluaran', 'Satuan', 'Biaya Satuan (Rp)', 'Total Biaya (Rp)', 'Penanggung Jawab', 'No. Nota / Bukti'];
+                  const data = operasionalLainnya.map((r, i) => [
+                    i + 1,
+                    r.tanggalTransaksi,
+                    r.namaPengeluaran,
+                    r.satuan || r.kategori || 'Bulan',
+                    r.biayaSatuan !== undefined ? r.biayaSatuan : r.jumlahBiaya,
+                    r.jumlahBiaya,
+                    r.penanggungJawab,
+                    r.buktiNota
+                  ]);
+                  data.push(['', '', 'TOTAL BIAYA OPERASIONAL LAINNYA', '', '', totalOperasionalLainnya, '', 'Op Lainnya']);
+                  data.push(['', '', 'TOTAL AKUMULASI POS OPERASIONAL', '', '', totalAkumulasiOperasional, '', 'Barang+Gaji+PIC+Lainnya']);
+                  data.push(['', '', 'PAGU HARIAN OPERASIONAL SPPG', '', '', paguOperasionalValid, '', `Rp 3.000 × ${beneficiaryInfo.totalPm} PM`]);
+                  data.push(['', '', 'SISA PAGU OPERASIONAL', '', '', sisaPaguOperasional, '', isMelebihiPaguOperasional ? 'DEFISIT' : 'SURPLUS']);
+                  exportTableToExcel(data, headers, 'Operasional_Lainnya_SPPG', 'Op Lainnya');
+                  triggerToast('Operasional Lainnya berhasil diekspor!');
+                }}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs self-start sm:self-auto"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Export Excel</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -3148,36 +3456,209 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <thead>
                 <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
                   <th className="py-3 px-3 w-10 text-center">No</th>
+                  <th className="py-3 px-3 w-36">Tanggal</th>
                   <th className="py-3 px-3">Uraian Pengeluaran</th>
-                  <th className="py-3 px-3">Kategori</th>
-                  <th className="py-3 px-3 text-right">Biaya (Rp)</th>
-                  <th className="py-3 px-3">Tanggal</th>
+                  <th className="py-3 px-3 text-center w-28">Satuan</th>
+                  <th className="py-3 px-3 text-right w-36">Biaya Satuan</th>
                   <th className="py-3 px-3">Penanggung Jawab</th>
                   <th className="py-3 px-3">No. Nota / Bukti</th>
+                  {!isOperasionalLainnyaLocked && <th className="py-3 px-2 text-center w-12">Aksi</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {operasionalLainnya.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaPengeluaran}</div>
-                      <div className="text-[10px] text-slate-400">{item.keterangan}</div>
+                {operasionalLainnya.length === 0 ? (
+                  <tr>
+                    <td colSpan={isOperasionalLainnyaLocked ? 7 : 8} className="py-6 text-center text-slate-400">
+                      Belum ada transaksi operasional lainnya. Klik "Tambah Baris" untuk menambahkan data.
                     </td>
-                    <td className="py-2.5 px-3">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                        {item.kategori}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                      {formatRupiah(item.jumlahBiaya)}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{item.tanggalTransaksi}</td>
-                    <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">{item.penanggungJawab}</td>
-                    <td className="py-2.5 px-3 font-mono text-[11px] text-teal-700 dark:text-teal-400">{item.buktiNota}</td>
                   </tr>
-                ))}
+                ) : (
+                  operasionalLainnya.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                      {/* Kolom Tanggal (Paling Depan setelah Nomor) */}
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                        {isOperasionalLainnyaLocked ? (
+                          <div className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{item.tanggalTransaksi}</span>
+                          </div>
+                        ) : (
+                          <input
+                            type="date"
+                            value={item.tanggalTransaksi}
+                            onChange={(e) => handleUpdateTanggalOpLainnya(item.id, e.target.value)}
+                            className="w-32 text-xs font-semibold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
+                          />
+                        )}
+                      </td>
+                      {/* Kolom Uraian Pengeluaran (Editable) */}
+                      <td className="py-2.5 px-3">
+                        {isOperasionalLainnyaLocked ? (
+                          <div>
+                            <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaPengeluaran}</div>
+                            <div className="text-[10px] text-slate-400">{item.keterangan}</div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <input
+                              type="text"
+                              value={item.namaPengeluaran}
+                              placeholder="Uraian pengeluaran operasional..."
+                              onChange={(e) => handleUpdateNamaPengeluaranOpLainnya(item.id, e.target.value)}
+                              className="w-full text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
+                            />
+                            <input
+                              type="text"
+                              value={item.keterangan || ''}
+                              placeholder="Keterangan / rincian..."
+                              onChange={(e) => handleUpdateKeteranganOpLainnya(item.id, e.target.value)}
+                              className="w-full text-[10px] text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-0.5 outline-hidden"
+                            />
+                          </div>
+                        )}
+                      </td>
+                      {/* Kolom Satuan (Ganti Kategori Menjadi Satuan Editable) */}
+                      <td className="py-2.5 px-3 text-center">
+                        {isOperasionalLainnyaLocked ? (
+                          <span className="font-bold text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs inline-block">
+                            {item.satuan || item.kategori || 'Bulan'}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.satuan || ''}
+                            placeholder="Satuan..."
+                            onChange={(e) => handleUpdateSatuanOpLainnya(item.id, e.target.value)}
+                            className="w-24 text-center text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
+                          />
+                        )}
+                      </td>
+                      {/* Kolom Biaya Satuan (Editable) */}
+                      <td className="py-2.5 px-3 text-right">
+                        {isOperasionalLainnyaLocked ? (
+                          <div className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 shadow-2xs font-bold text-slate-800 dark:text-slate-100">
+                            <span>{formatRupiah(item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya)}</span>
+                            <Lock className="w-3 h-3 text-amber-500 shrink-0" title="Terkunci (Klik Edit Data untuk merevisi)" />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500/20">
+                            <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              value={(item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya) === 0 ? '' : (item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya)}
+                              placeholder="0"
+                              onChange={(e) => handleUpdateBiayaSatuanOpLainnya(item.id, parseFloat(e.target.value) || 0)}
+                              className="w-28 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden"
+                            />
+                          </div>
+                        )}
+                      </td>
+                      {/* Kolom Penanggung Jawab */}
+                      <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">
+                        {isOperasionalLainnyaLocked ? (
+                          item.penanggungJawab
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.penanggungJawab}
+                            placeholder="Penanggung Jawab..."
+                            onChange={(e) => handleUpdatePenanggungJawabOpLainnya(item.id, e.target.value)}
+                            className="w-full text-xs text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 outline-hidden"
+                          />
+                        )}
+                      </td>
+                      {/* Kolom No. Nota / Bukti */}
+                      <td className="py-2.5 px-3 font-mono text-[11px] text-teal-700 dark:text-teal-400">
+                        {isOperasionalLainnyaLocked ? (
+                          item.buktiNota
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.buktiNota}
+                            placeholder="No. Nota..."
+                            onChange={(e) => handleUpdateBuktiNotaOpLainnya(item.id, e.target.value)}
+                            className="w-full text-xs font-mono text-teal-700 dark:text-teal-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 outline-hidden"
+                          />
+                        )}
+                      </td>
+                      {/* Kolom Aksi saat mode edit */}
+                      {!isOperasionalLainnyaLocked && (
+                        <td className="py-2.5 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleHapusBarisOpLainnya(item.id)}
+                            className="p-1 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/50 cursor-pointer transition-colors"
+                            title="Hapus baris pengeluaran ini"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
               </tbody>
+              <tfoot>
+                {/* Baris Total Op Lainnya */}
+                <tr className="bg-slate-50 dark:bg-slate-800/70 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
+                  <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    TOTAL BIAYA OPERASIONAL LAINNYA:
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-sky-800 dark:text-sky-300">
+                    {formatRupiah(totalOperasionalLainnya)}
+                  </td>
+                  <td colSpan={isOperasionalLainnyaLocked ? 2 : 3} className="py-3 px-3 text-[10px] text-slate-500 font-bold">
+                    Utilitas, Listrik, Internet & Uji Lab
+                  </td>
+                </tr>
+                {/* Baris Total Akumulasi Gabungan Pos Operasional */}
+                <tr className="bg-sky-50/70 dark:bg-sky-950/40 font-black text-sky-950 dark:text-sky-200 border-b border-sky-200 dark:border-sky-900">
+                  <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    TOTAL AKUMULASI POS OPERASIONAL (BARANG + GAJI + PIC + OP. LAINNYA):
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-sky-900 dark:text-sky-200">
+                    {formatRupiah(totalAkumulasiOperasional)}
+                  </td>
+                  <td colSpan={isOperasionalLainnyaLocked ? 2 : 3} className="py-3 px-3 text-[10px] text-sky-700 dark:text-sky-400 font-bold">
+                    Gabungan Seluruh Pos RAB Operasional SPPG
+                  </td>
+                </tr>
+                {/* Baris Pagu Harian Operasional */}
+                <tr className="bg-blue-50/50 dark:bg-blue-950/30 font-black text-blue-950 dark:text-blue-200 border-b border-blue-200 dark:border-blue-900">
+                  <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    PAGU HARIAN OPERASIONAL SPPG (RP 3.000 × PM):
+                  </td>
+                  <td className="py-3 px-3 text-right text-sm font-black text-blue-900 dark:text-blue-200">
+                    {formatRupiah(paguOperasionalValid)}
+                  </td>
+                  <td colSpan={isOperasionalLainnyaLocked ? 2 : 3} className="py-3 px-3 text-[10px] text-blue-700 dark:text-blue-400 font-bold">
+                    Rp 3.000 × {beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM
+                  </td>
+                </tr>
+                {/* Baris Sisa Pagu Operasional dengan Indikator Defisit/Surplus */}
+                <tr className={`font-black transition-colors ${
+                  isMelebihiPaguOperasional
+                    ? 'bg-red-50 dark:bg-red-950/70 text-red-950 dark:text-red-100 border-b-2 border-red-500'
+                    : 'bg-emerald-50/80 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-200 border-b-2 border-emerald-500'
+                }`}>
+                  <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                    SISA PAGU OPERASIONAL:
+                  </td>
+                  <td className={`py-3 px-3 text-right text-sm font-black ${
+                    isMelebihiPaguOperasional ? 'text-red-700 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'
+                  }`}>
+                    {isMelebihiPaguOperasional
+                      ? `-Rp ${Math.abs(sisaPaguOperasional).toLocaleString('id-ID')}`
+                      : `+${formatRupiah(sisaPaguOperasional)}`}
+                  </td>
+                  <td colSpan={isOperasionalLainnyaLocked ? 2 : 3} className="py-3 px-3 text-[10px] font-bold">
+                    {isMelebihiPaguOperasional ? 'DEFISIT (Melebihi Batas Pagu Operasional)' : 'SURPLUS (Efisiensi Pagu Terjaga)'}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
