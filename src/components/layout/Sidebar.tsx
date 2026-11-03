@@ -47,7 +47,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     '/akuntan/rab-operasional/jasa/gaji-karyawan': true,
     '/akuntan/rab-operasional/jasa/insentif-pic-lembaga': true,
     '/akuntan/rab-operasional/jasa/insentif-pic-posyandu': true,
-    '/akuntan/rab-operasional/jasa/gaji-staf': true,
     '/akuntan/insentif-fasilitas': true,
   });
 
@@ -209,15 +208,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                 children: [
                   { title: 'Rekap', path: '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/rekap', icon: Icons.TableProperties },
                   { title: 'Kwitansi', path: '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/kwitansi', icon: Icons.FileCheck2 }
-                ]
-              },
-              {
-                title: 'Gaji Staf',
-                path: '/akuntan/rab-operasional/jasa/gaji-staf',
-                icon: Icons.UserCheck,
-                children: [
-                  { title: 'Rekap Gaji', path: '/akuntan/rab-operasional/jasa/gaji-staf/rekap-gaji', icon: Icons.TableProperties },
-                  { title: 'Slip Gaji', path: '/akuntan/rab-operasional/jasa/gaji-staf/slip-gaji', icon: Icons.Receipt }
                 ]
               },
               { title: 'Operasional Lainnya', path: '/akuntan/rab-operasional/jasa/operasional-lainnya', icon: Icons.Coins }

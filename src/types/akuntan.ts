@@ -13,9 +13,6 @@ export type AkuntanSubPath =
   | '/akuntan/rab-operasional/jasa/insentif-pic-posyandu'
   | '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/rekap'
   | '/akuntan/rab-operasional/jasa/insentif-pic-posyandu/kwitansi'
-  | '/akuntan/rab-operasional/jasa/gaji-staf'
-  | '/akuntan/rab-operasional/jasa/gaji-staf/rekap-gaji'
-  | '/akuntan/rab-operasional/jasa/gaji-staf/slip-gaji'
   | '/akuntan/rab-operasional/jasa/operasional-lainnya'
   | '/akuntan/insentif-fasilitas'
   | '/akuntan/insentif-fasilitas/berita-acara'
@@ -58,7 +55,7 @@ export interface GajiKaryawanRecord {
   nomorSlip: string;
   nik: string;
   nama: string;
-  jabatan: 'Kepala Koki (Head Chef)' | 'Cook Helper (Asisten Masak)' | 'Petugas Preparasi Bahan' | 'Tim Pemorsian (Packing)' | 'Petugas Cuci & Higiene Dapur';
+  jabatan: 'Kepala Koki (Head Chef)' | 'Cook Helper (Asisten Masak)' | 'Petugas Preparasi Bahan' | 'Tim Pemorsian (Packing)' | 'Petugas Cuci & Higiene Dapur' | string;
   tipeGaji: 'Bulanan' | 'Harian';
   hariKerja: number;
   gajiPokok: number;
@@ -72,7 +69,7 @@ export interface GajiKaryawanRecord {
   gajiBersih: number;
   periode: string;
   tanggalBayar: string;
-  statusBayar: 'Lunas' | 'Menunggu Verifikasi' | 'Draft';
+  statusBayar: 'Lunas' | 'Menunggu Verifikasi' | 'Draft' | string;
   rekeningBank: string;
 }
 
@@ -93,6 +90,7 @@ export interface InsentifPicRecord {
   statusBayar: 'Lunas' | 'Draft';
   telepon: string;
   penerimaNama: string;
+  tierInfo?: string;
 }
 
 export interface GajiStafRecord {

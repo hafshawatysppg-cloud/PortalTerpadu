@@ -267,6 +267,40 @@ export const initialGajiKaryawan: GajiKaryawanRecord[] = [
   }
 ];
 
+// Rumus Penyesuaian Insentif Khusus PIC Posyandu:
+// * < 100 PM = Rp 60.000
+// * 101 - 300 PM = Rp 150.000
+// * 301 - 500 PM = Rp 250.000
+// * 501 - 1.000 PM = Rp 400.000
+// * 1.001 - 1.500 PM = Rp 550.000
+// * > 1.500 PM = Rp 700.000
+export function hitungInsentifPicPosyandu(pm: number): { nominal: number; tierLabel: string } {
+  if (pm <= 0) return { nominal: 0, tierLabel: '0 PM (Rp 0)' };
+  if (pm < 100) return { nominal: 60000, tierLabel: '< 100 PM (Rp 60.000)' };
+  if (pm <= 300) return { nominal: 150000, tierLabel: '101 - 300 PM (Rp 150.000)' };
+  if (pm <= 500) return { nominal: 250000, tierLabel: '301 - 500 PM (Rp 250.000)' };
+  if (pm <= 1000) return { nominal: 400000, tierLabel: '501 - 1.000 PM (Rp 400.000)' };
+  if (pm <= 1500) return { nominal: 550000, tierLabel: '1.001 - 1.500 PM (Rp 550.000)' };
+  return { nominal: 700000, tierLabel: '> 1.500 PM (Rp 700.000)' };
+}
+
+// Rumus Penyesuaian Insentif PIC Sekolah:
+// * < 100 PM = Rp 20.000
+// * 101 - 500 PM = Rp 30.000
+// * 501 - 750 PM = Rp 50.000
+// * 751 - 1.000 PM = Rp 60.000
+// * 1.001 - 2.000 PM = Rp 100.000
+// * 2.001 - 3.000 PM = Rp 200.000
+export function hitungInsentifPicSekolah(pm: number): { nominal: number; tierLabel: string } {
+  if (pm <= 0) return { nominal: 0, tierLabel: '0 PM (Rp 0)' };
+  if (pm < 100) return { nominal: 20000, tierLabel: '< 100 PM (Rp 20.000)' };
+  if (pm <= 500) return { nominal: 30000, tierLabel: '101 - 500 PM (Rp 30.000)' };
+  if (pm <= 750) return { nominal: 50000, tierLabel: '501 - 750 PM (Rp 50.000)' };
+  if (pm <= 1000) return { nominal: 60000, tierLabel: '751 - 1.000 PM (Rp 60.000)' };
+  if (pm <= 2000) return { nominal: 100000, tierLabel: '1.001 - 2.000 PM (Rp 100.000)' };
+  return { nominal: 200000, tierLabel: '2.001 - 3.000 PM (Rp 200.000)' };
+}
+
 export const initialInsentifPicLembaga: InsentifPicRecord[] = [
   {
     id: 'PIC-LMB-001',
@@ -276,10 +310,11 @@ export const initialInsentifPicLembaga: InsentifPicRecord[] = [
     lembaga: 'SD Zainul Hasan Genggong',
     kategori: 'Sekolah / Madrasah',
     jumlahSasaran: 409,
-    nominalPerPorsi: 500,
-    insentifPokok: 204500,
-    uangTransport: 100000,
-    totalInsentif: 304500,
+    nominalPerPorsi: Math.round(30000 / 409),
+    insentifPokok: 30000,
+    uangTransport: 0,
+    totalInsentif: 30000,
+    tierInfo: '101 - 500 PM (Rp 30.000)',
     periode: 'Pekan 1 November 2026',
     tanggalKwitansi: '2026-11-06',
     statusBayar: 'Lunas',
@@ -294,10 +329,11 @@ export const initialInsentifPicLembaga: InsentifPicRecord[] = [
     lembaga: 'SMP Zainul Hasan 1 Genggong',
     kategori: 'Sekolah / Madrasah',
     jumlahSasaran: 370,
-    nominalPerPorsi: 500,
-    insentifPokok: 185000,
-    uangTransport: 100000,
-    totalInsentif: 285000,
+    nominalPerPorsi: Math.round(30000 / 370),
+    insentifPokok: 30000,
+    uangTransport: 0,
+    totalInsentif: 30000,
+    tierInfo: '101 - 500 PM (Rp 30.000)',
     periode: 'Pekan 1 November 2026',
     tanggalKwitansi: '2026-11-06',
     statusBayar: 'Lunas',
@@ -312,10 +348,11 @@ export const initialInsentifPicLembaga: InsentifPicRecord[] = [
     lembaga: 'MA Model Hafshawaty Genggong',
     kategori: 'Sekolah / Madrasah',
     jumlahSasaran: 233,
-    nominalPerPorsi: 500,
-    insentifPokok: 116500,
-    uangTransport: 100000,
-    totalInsentif: 216500,
+    nominalPerPorsi: Math.round(30000 / 233),
+    insentifPokok: 30000,
+    uangTransport: 0,
+    totalInsentif: 30000,
+    tierInfo: '101 - 500 PM (Rp 30.000)',
     periode: 'Pekan 1 November 2026',
     tanggalKwitansi: '2026-11-06',
     statusBayar: 'Lunas',
@@ -333,10 +370,11 @@ export const initialInsentifPicPosyandu: InsentifPicRecord[] = [
     lembaga: 'Posyandu Mawar Temenggungan',
     kategori: 'Posyandu / Balita & 3B',
     jumlahSasaran: 85,
-    nominalPerPorsi: 1000,
-    insentifPokok: 85000,
-    uangTransport: 75000,
-    totalInsentif: 160000,
+    nominalPerPorsi: Math.round(60000 / 85),
+    insentifPokok: 60000,
+    uangTransport: 0,
+    totalInsentif: 60000,
+    tierInfo: '< 100 PM (Rp 60.000)',
     periode: 'Pekan 1 November 2026',
     tanggalKwitansi: '2026-11-06',
     statusBayar: 'Lunas',
@@ -351,10 +389,11 @@ export const initialInsentifPicPosyandu: InsentifPicRecord[] = [
     lembaga: 'Posyandu Melati Karanganyar',
     kategori: 'Posyandu / Balita & 3B',
     jumlahSasaran: 92,
-    nominalPerPorsi: 1000,
-    insentifPokok: 92000,
-    uangTransport: 75000,
-    totalInsentif: 167000,
+    nominalPerPorsi: Math.round(60000 / 92),
+    insentifPokok: 60000,
+    uangTransport: 0,
+    totalInsentif: 60000,
+    tierInfo: '< 100 PM (Rp 60.000)',
     periode: 'Pekan 1 November 2026',
     tanggalKwitansi: '2026-11-06',
     statusBayar: 'Lunas',
@@ -474,10 +513,10 @@ export const initialInsentifFasilitas: InsentifFasilitasRecord[] = [
     pemilikPenyedia: 'Yayasan Hafshawaty Zainul Hasan',
     pihakPertama: 'Hafshawaty (Akuntan SPPG)',
     pihakKedua: 'KH. Moh. Hasan Mutawakkil Alallah, S.H., M.M.',
-    kompensasiBulan: 5000000,
-    biayaUtilitas: 1500000,
-    totalInsentif: 6500000,
-    periode: 'November 2026',
+    kompensasiBulan: 5832000,
+    biayaUtilitas: 0,
+    totalInsentif: 5832000,
+    periode: 'November 2026 (2.916 PM @ Rp 2.000)',
     tanggalBeritaAcara: '2026-11-01',
     fasilitasRincian: [
       'Bangunan dapur higienis berstandar HACCP seluas 350 m²',
