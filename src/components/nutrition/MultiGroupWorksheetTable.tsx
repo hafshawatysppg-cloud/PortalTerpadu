@@ -46,6 +46,10 @@ interface MultiGroupWorksheetTableProps {
 
 export type TargetGroupKey = 'all' | 'porsiKecil' | 'porsiBesar' | 'balita' | 'bumilBusui';
 
+export const formatRupiah = (val: number) => {
+  return 'Rp ' + Math.round(val || 0).toLocaleString('id-ID');
+};
+
 export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> = ({
   ingredients,
   onChangeIngredients,
@@ -297,44 +301,78 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                 <span>{isSyncingBeneficiaries ? 'Menyinkronkan...' : 'Sinkronkan Realtime Penerima Manfaat'}</span>
               </button>
             )}
-            <div className="text-xs font-semibold px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl">
-              Total Seluruh Sasaran: <span className="text-emerald-600 dark:text-emerald-400 font-bold">{(targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui).toLocaleString('id-ID')}</span> Porsi
-            </div>
+            {(() => {
+              const totalSasaranSum = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
+              const riilTotal = beneficiaryLiveInfo?.totalPenerima || totalSasaranSum;
+              const isMatch = totalSasaranSum === riilTotal && riilTotal > 0;
+
+              return (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="text-xs font-semibold px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl">
+                    Total Seluruh Sasaran: <span className="text-emerald-600 dark:text-emerald-400 font-bold">{totalSasaranSum.toLocaleString('id-ID')}</span> Porsi
+                  </div>
+                  {isMatch && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      100% Sinkron Riil
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
         {/* Live Beneficiary Breakdown Info Bar */}
-        <div className={`mb-3 px-3.5 py-2.5 rounded-xl text-[11px] flex flex-wrap items-center justify-between gap-2 border ${
-          beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0
-            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
-            : 'bg-slate-100/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-        }`}>
-          <div className="flex items-center gap-2">
-            <Users className={`w-3.5 h-3.5 ${beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'} shrink-0`} />
-            <span className="font-bold">Data Riil Penerima Manfaat:</span>
-            <span className="font-extrabold text-xs">
-              {(beneficiaryLiveInfo?.totalPenerima || 0).toLocaleString('id-ID')} Total Jiwa
-            </span>
-            <span className="opacity-40">•</span>
-            <span>{beneficiaryLiveInfo?.totalInstansi || 0} Lokasi/Instansi</span>
-            {beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? (
-              <span className="px-1.5 py-0.2 bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-[9px] font-bold">
-                Status: {beneficiaryLiveInfo.statusLock || 'DRAFT'}
-              </span>
-            ) : (
-              <span className="px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-[9px] font-semibold">
-                Tidak Ada Penerima Manfaat
-              </span>
-            )}
-          </div>
-          <div className="text-[10px] font-medium">
-            {beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? (
-              <span>Siswa: {beneficiaryLiveInfo.totalSiswa?.toLocaleString('id-ID') || 0} | Guru: {beneficiaryLiveInfo.totalGuru?.toLocaleString('id-ID') || 0} | Balita: {beneficiaryLiveInfo.totalBalita?.toLocaleString('id-ID') || 0} | Bumil: {beneficiaryLiveInfo.totalIbuHamil?.toLocaleString('id-ID') || 0} | Busui: {beneficiaryLiveInfo.totalIbuMenyusui?.toLocaleString('id-ID') || 0}</span>
-            ) : (
-              <span className="text-slate-400">Belum ada perencanaan penerima manfaat pada tanggal pelaksanaan ini</span>
-            )}
-          </div>
-        </div>
+        {(() => {
+          const totalSasaranSum = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
+          const riilTotal = beneficiaryLiveInfo?.totalPenerima || totalSasaranSum;
+          const isMatch = totalSasaranSum === riilTotal && riilTotal > 0;
+
+          return (
+            <div className={`mb-3 px-3.5 py-2.5 rounded-xl text-[11px] flex flex-wrap items-center justify-between gap-2 border ${
+              riilTotal > 0
+                ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
+                : 'bg-slate-100/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+            }`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Users className={`w-3.5 h-3.5 ${riilTotal > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'} shrink-0`} />
+                <span className="font-bold">Data Riil Penerima Manfaat:</span>
+                <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
+                  {riilTotal.toLocaleString('id-ID')} Total Jiwa
+                </span>
+                <span className="opacity-40">•</span>
+                <span className="font-bold">Total Porsi Terjadwal:</span>
+                <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">
+                  {totalSasaranSum.toLocaleString('id-ID')} Porsi
+                </span>
+                <span className="opacity-40">•</span>
+                <span>{beneficiaryLiveInfo?.totalInstansi || 0} Lokasi/Instansi</span>
+                {isMatch ? (
+                  <span className="px-2 py-0.5 bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-[9px] font-bold inline-flex items-center gap-1">
+                    <Check className="w-2.5 h-2.5" />
+                    Sinkron Sesuai Riil (Status: {beneficiaryLiveInfo?.statusLock || 'FINAL'})
+                  </span>
+                ) : riilTotal > 0 ? (
+                  <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 rounded text-[9px] font-bold">
+                    Perlu Sinkronisasi Ulang
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-[9px] font-semibold">
+                    Tidak Ada Penerima Manfaat
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] font-medium">
+                {riilTotal > 0 ? (
+                  <span>Siswa: {beneficiaryLiveInfo?.totalSiswa?.toLocaleString('id-ID') || (targetCounts.porsiKecil + targetCounts.porsiBesar).toLocaleString('id-ID')} | Guru/Kader: {beneficiaryLiveInfo?.totalGuru?.toLocaleString('id-ID') || 0} | Balita: {beneficiaryLiveInfo?.totalBalita?.toLocaleString('id-ID') || targetCounts.balita.toLocaleString('id-ID')} | Bumil & Busui: {((beneficiaryLiveInfo?.totalIbuHamil || 0) + (beneficiaryLiveInfo?.totalIbuMenyusui || 0))?.toLocaleString('id-ID') || targetCounts.bumilBusui.toLocaleString('id-ID')}</span>
+                ) : (
+                  <span className="text-slate-400">Belum ada perencanaan penerima manfaat pada tanggal pelaksanaan ini</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {groupConfig.map(grp => (
@@ -444,7 +482,7 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
         </div>
       ) : (
         <>
-          {/* SINGLE GROUP TABLE VIEW (Exact 8-Column Format from PDF) */}
+          {/* SINGLE GROUP TABLE VIEW (Exact Format with Satuan, Harga Dasar, Total Harga, and Total Per Sasaran Footer) */}
           {selectedGroupTab !== 'all' && (
             <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               {(() => {
@@ -456,19 +494,23 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                 ) as keyof MultiGroupIngredientItem;
 
                 let sumKg = 0;
+                let sumHarga = 0;
 
                 return (
                   <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
                     <thead>
                       <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
-                        <th className="py-2.5 px-3 font-bold w-12 border-r border-slate-700">1<br/><span className="text-[10px] font-normal">No</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 text-left min-w-[220px]">2<br/><span className="text-[10px] font-normal">Bahan Pangan (Master Data)</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700">3<br/><span className="text-[10px] font-normal">Kelompok Sasaran</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700">4<br/><span className="text-[10px] font-normal">Berat Bersih (gr)</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700">5<br/><span className="text-[10px] font-normal">PERSEN BDD</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700">6<br/><span className="text-[10px] font-normal">Berat Kotor (gr)</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700">7<br/><span className="text-[10px] font-normal">Jumlah Sasaran</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-emerald-900/90 text-emerald-100">8<br/><span className="text-[10px] font-normal">Kebutuhan Bahan Pangan (kg)</span></th>
+                        <th className="py-2.5 px-2 font-bold w-10 border-r border-slate-700">1<br/><span className="text-[10px] font-normal">No</span></th>
+                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">2<br/><span className="text-[10px] font-normal">Bahan Pangan (Master Data)</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">3<br/><span className="text-[10px] font-normal">Kelompok Sasaran</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">4<br/><span className="text-[10px] font-normal">Berat Bersih (gr)</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">5<br/><span className="text-[10px] font-normal">PERSEN BDD</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">6<br/><span className="text-[10px] font-normal">Berat Kotor (gr)</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">7<br/><span className="text-[10px] font-normal">Jumlah Sasaran</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-emerald-900/90 text-emerald-100">8<br/><span className="text-[10px] font-normal">Kebutuhan (kg)</span></th>
+                        <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">9<br/><span className="text-[10px] font-normal">Satuan</span></th>
+                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">10<br/><span className="text-[10px] font-normal">Harga Dasar (Rp)</span></th>
+                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">11<br/><span className="text-[10px] font-normal">Total Harga (Rp)</span></th>
                         {!isReadOnly && <th className="py-2.5 px-2 font-bold w-10">Aksi</th>}
                       </tr>
                     </thead>
@@ -478,22 +520,25 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                         const bddVal = Number(item.bddPercent) || 100;
                         const grossVal = calcGross(netVal, bddVal);
                         const reqKg = calcReqKg(grossVal, currentGrp.count);
+                        const itemHargaDasar = item.hargaPerKg !== undefined ? item.hargaPerKg : 0;
+                        const itemTotalHarga = Math.round(reqKg * itemHargaDasar);
                         sumKg += reqKg;
+                        sumHarga += itemTotalHarga;
 
                         return (
                           <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="py-2 px-3 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
                               {item.no}
                             </td>
                             <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
                               {renderBahanPanganCell(item, index)}
                             </td>
-                            <td className="py-2 px-3 text-center font-bold text-[11px] border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center font-bold text-[11px] border-r border-slate-200 dark:border-slate-800">
                               <span className={`px-2 py-0.5 rounded text-[10px] ${currentGrp.color}`}>
                                 {currentGrp.label}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-center border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
                               {isReadOnly ? (
                                 netVal
                               ) : (
@@ -502,11 +547,11 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                                   step="0.1"
                                   value={netVal}
                                   onChange={(e) => handleUpdateItem(index, netKey, Number(e.target.value) || 0)}
-                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100"
+                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
                                 />
                               )}
                             </td>
-                            <td className="py-2 px-3 text-center border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
                               {isReadOnly ? (
                                 `${bddVal}%`
                               ) : (
@@ -516,18 +561,53 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                                   max="100"
                                   value={bddVal}
                                   onChange={(e) => handleUpdateItem(index, 'bddPercent', Number(e.target.value) || 100)}
-                                  className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100"
+                                  className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
                                 />
                               )}
                             </td>
-                            <td className="py-2 px-3 text-center font-semibold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center font-semibold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
                               {grossVal.toFixed(2)}
                             </td>
-                            <td className="py-2 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">
                               {currentGrp.count.toLocaleString('id-ID')}
                             </td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                            <td className="py-2 px-2 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
                               {reqKg.toFixed(2)}
+                            </td>
+                            {/* Satuan Editable */}
+                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                              {isReadOnly ? (
+                                <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{item.satuan || 'Kg'}</span>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={item.satuan || 'Kg'}
+                                  onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
+                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                />
+                              )}
+                            </td>
+                            {/* Harga Dasar Editable */}
+                            <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
+                              {isReadOnly ? (
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">{formatRupiah(itemHargaDasar)}</span>
+                              ) : (
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-[10px] text-slate-400">Rp</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="500"
+                                    value={itemHargaDasar}
+                                    onChange={(e) => handleUpdateItem(index, 'hargaPerKg', Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+                            </td>
+                            {/* Total Harga */}
+                            <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                              {formatRupiah(itemTotalHarga)}
                             </td>
                             {!isReadOnly && (
                               <td className="py-2 px-2 text-center">
@@ -545,12 +625,46 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
                       })}
                     </tbody>
                     <tfoot>
+                      {/* Baris Total Kebutuhan Bahan & Total Harga */}
                       <tr className="bg-slate-100 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={7} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
-                          Total Kebutuhan Bahan Pangan ({currentGrp.label}):
+                        <td colSpan={7} className="py-2.5 px-4 text-right uppercase tracking-wider text-xs">
+                          Total Kebutuhan Bahan ({currentGrp.label}):
                         </td>
-                        <td className="py-3 px-3 text-center text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60">
+                        <td className="py-2.5 px-2 text-center text-xs font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/60">
                           {sumKg.toFixed(2)} kg
+                        </td>
+                        <td className="py-2.5 px-2 text-center text-xs text-slate-400 font-semibold">-</td>
+                        <td className="py-2.5 px-3 text-right uppercase tracking-wider text-xs text-slate-700 dark:text-slate-300">
+                          Total Harga:
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60">
+                          {formatRupiah(sumHarga)}
+                        </td>
+                        {!isReadOnly && <td></td>}
+                      </tr>
+
+                      {/* Baris Khusus: Total Harga di Setiap Porsi dan Total Per Sasaran */}
+                      <tr className="bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-100/80 dark:from-teal-950/60 dark:via-emerald-950/50 dark:to-teal-900/60 border-t border-teal-200 dark:border-teal-800 font-extrabold text-teal-950 dark:text-teal-100">
+                        <td colSpan={7} className="py-3 px-4 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="text-xs uppercase tracking-wider font-black text-teal-900 dark:text-teal-200">
+                              Total Per Sasaran ({currentGrp.label}):
+                            </span>
+                            <span className="text-[10px] text-teal-700 dark:text-teal-300 font-normal">
+                              Rumus: Total Harga ({formatRupiah(sumHarga)}) ÷ {currentGrp.count.toLocaleString('id-ID')} Penerima Manfaat ({currentGrp.label})
+                            </span>
+                          </div>
+                        </td>
+                        <td colSpan={2} className="py-3 px-2 text-center border-l border-teal-200 dark:border-teal-800">
+                          <div className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold uppercase">Total Sasaran (PM)</div>
+                          <div className="text-xs font-black text-slate-900 dark:text-slate-100">{currentGrp.count.toLocaleString('id-ID')} Jiwa</div>
+                        </td>
+                        <td colSpan={2} className="py-3 px-3 text-right border-l border-teal-200 dark:border-teal-800 bg-emerald-100/70 dark:bg-emerald-900/50">
+                          <div className="text-[9px] text-emerald-800 dark:text-emerald-300 font-bold uppercase">Total Biaya Per Sasaran</div>
+                          <div className="text-sm font-black text-emerald-900 dark:text-emerald-100">
+                            {currentGrp.count > 0 ? formatRupiah(Math.round(sumHarga / currentGrp.count)) : 'Rp 0'}
+                            <span className="text-[10px] font-normal text-emerald-700 dark:text-emerald-300"> / sasaran</span>
+                          </div>
                         </td>
                         {!isReadOnly && <td></td>}
                       </tr>
@@ -564,135 +678,240 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
           {/* ALL GROUPS COMBINED MATRIX VIEW */}
           {selectedGroupTab === 'all' && (
             <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
-                <thead>
-                  <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
-                    <th rowSpan={2} className="py-2 px-2 font-bold w-10 border-r border-slate-700">No</th>
-                    <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 text-left min-w-[220px]">Bahan Pangan (Master)</th>
-                    <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">BDD</th>
-                    <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-amber-950 text-amber-200">
-                      Porsi Kecil ({targetCounts.porsiKecil})
-                    </th>
-                    <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200">
-                      Porsi Besar ({targetCounts.porsiBesar})
-                    </th>
-                    <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-blue-950 text-blue-200">
-                      Balita ({targetCounts.balita})
-                    </th>
-                    <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-purple-950 text-purple-200">
-                      Bumil & Busui ({targetCounts.bumilBusui})
-                    </th>
-                    <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-emerald-900 text-emerald-100">
-                      TOTAL (kg)
-                    </th>
-                    <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-teal-900 text-teal-100">
-                      Buffer 5%
-                    </th>
-                    <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">
-                      Pembulatan
-                    </th>
-                    <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">
-                      Satuan
-                    </th>
-                    {!isReadOnly && <th rowSpan={2} className="py-2 px-2 font-bold w-8">Aksi</th>}
-                  </tr>
-                  <tr className="bg-slate-700 text-[10px] text-slate-200 dark:bg-slate-900 border-b border-slate-600 text-center">
-                    <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                    <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                    <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                    <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                    <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                    <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                    <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                    <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
-                  {ingredients.map((item, index) => {
-                    const bdd = Number(item.bddPercent) || 100;
-                    
-                    // Gross values
-                    const grossKecil = calcGross(Number(item.porsiKecilNet) || 0, bdd);
-                    const reqKecil = calcReqKg(grossKecil, targetCounts.porsiKecil);
+              {(() => {
+                let matrixSumTotalKg = 0;
+                let matrixSumBufferKg = 0;
+                let matrixSumTotalHarga = 0;
+                const totalSasaranSum = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
 
-                    const grossBesar = calcGross(Number(item.porsiBesarNet) || 0, bdd);
-                    const reqBesar = calcReqKg(grossBesar, targetCounts.porsiBesar);
-
-                    const grossBalita = calcGross(Number(item.balitaNet) || 0, bdd);
-                    const reqBalita = calcReqKg(grossBalita, targetCounts.balita);
-
-                    const grossBumil = calcGross(Number(item.bumilBusuiNet) || 0, bdd);
-                    const reqBumil = calcReqKg(grossBumil, targetCounts.bumilBusui);
-
-                    const totalKg = Number((reqKecil + reqBesar + reqBalita + reqBumil).toFixed(2));
-                    const bufferKg = Number((totalKg * 0.05).toFixed(2));
-                    const totalPlusBuffer = Number((totalKg + bufferKg).toFixed(2));
-
-                    return (
-                      <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                          {item.no}
-                        </td>
-                        <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
-                          {renderBahanPanganCell(item, index)}
-                        </td>
-                        <td className="py-2 px-2 text-center text-slate-600 border-r border-slate-200 dark:border-slate-800">
-                          {bdd}%
-                        </td>
-
-                        {/* Porsi Kecil */}
-                        <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiKecilNet}</td>
-                        <td className="py-2 px-1 text-center font-bold text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/10 border-r border-slate-200 dark:border-slate-800">{reqKecil.toFixed(2)}</td>
-
-                        {/* Porsi Besar */}
-                        <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiBesarNet}</td>
-                        <td className="py-2 px-1 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10 border-r border-slate-200 dark:border-slate-800">{reqBesar.toFixed(2)}</td>
-
-                        {/* Balita */}
-                        <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.balitaNet}</td>
-                        <td className="py-2 px-1 text-center font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/10 border-r border-slate-200 dark:border-slate-800">{reqBalita.toFixed(2)}</td>
-
-                        {/* Bumil */}
-                        <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.bumilBusuiNet}</td>
-                        <td className="py-2 px-1 text-center font-bold text-purple-700 dark:text-purple-400 bg-purple-50/30 dark:bg-purple-950/10 border-r border-slate-200 dark:border-slate-800">{reqBumil.toFixed(2)}</td>
-
-                        {/* Totals */}
-                        <td className="py-2 px-2 text-center font-black text-slate-900 dark:text-slate-100 bg-slate-100/60 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-800">
-                          {totalKg.toFixed(2)}
-                        </td>
-                        <td className="py-2 px-2 text-center text-teal-700 dark:text-teal-400 font-semibold border-r border-slate-200 dark:border-slate-800">
-                          {bufferKg.toFixed(2)}
-                        </td>
-                        <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                          {isReadOnly ? (
-                            item.pembulatan
-                          ) : (
-                            <input
-                              type="text"
-                              value={item.pembulatan}
-                              onChange={(e) => handleUpdateItem(index, 'pembulatan', e.target.value)}
-                              className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs"
-                            />
-                          )}
-                        </td>
-                        <td className="py-2 px-2 text-center font-semibold text-slate-600 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
-                          {masterBahan.find(b => b.namaBahan.toLowerCase() === item.bahanPangan.toLowerCase())?.satuanPembelian || item.satuan}
-                        </td>
-                        {!isReadOnly && (
-                          <td className="py-2 px-1 text-center">
-                            <button
-                              onClick={() => handleDeleteRow(index)}
-                              className="text-rose-500 hover:text-rose-700 p-1 rounded cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        )}
+                return (
+                  <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
+                    <thead>
+                      <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
+                        <th rowSpan={2} className="py-2 px-2 font-bold w-10 border-r border-slate-700">No</th>
+                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">Bahan Pangan (Master)</th>
+                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">BDD</th>
+                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-amber-950 text-amber-200">
+                          Porsi Kecil ({targetCounts.porsiKecil})
+                        </th>
+                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200">
+                          Porsi Besar ({targetCounts.porsiBesar})
+                        </th>
+                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-blue-950 text-blue-200">
+                          Balita ({targetCounts.balita})
+                        </th>
+                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-purple-950 text-purple-200">
+                          Bumil & Busui ({targetCounts.bumilBusui})
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-emerald-900 text-emerald-100">
+                          TOTAL (kg)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-teal-900 text-teal-100">
+                          Buffer 5%
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">
+                          Pembulatan
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">
+                          Satuan
+                        </th>
+                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">
+                          Harga Dasar (Rp)
+                        </th>
+                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">
+                          Total Harga (Rp)
+                        </th>
+                        {!isReadOnly && <th rowSpan={2} className="py-2 px-2 font-bold w-8">Aksi</th>}
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      <tr className="bg-slate-700 text-[10px] text-slate-200 dark:bg-slate-900 border-b border-slate-600 text-center">
+                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                      {ingredients.map((item, index) => {
+                        const bdd = Number(item.bddPercent) || 100;
+                        
+                        // Gross values
+                        const grossKecil = calcGross(Number(item.porsiKecilNet) || 0, bdd);
+                        const reqKecil = calcReqKg(grossKecil, targetCounts.porsiKecil);
+
+                        const grossBesar = calcGross(Number(item.porsiBesarNet) || 0, bdd);
+                        const reqBesar = calcReqKg(grossBesar, targetCounts.porsiBesar);
+
+                        const grossBalita = calcGross(Number(item.balitaNet) || 0, bdd);
+                        const reqBalita = calcReqKg(grossBalita, targetCounts.balita);
+
+                        const grossBumil = calcGross(Number(item.bumilBusuiNet) || 0, bdd);
+                        const reqBumil = calcReqKg(grossBumil, targetCounts.bumilBusui);
+
+                        const totalKg = Number((reqKecil + reqBesar + reqBalita + reqBumil).toFixed(2));
+                        const bufferKg = Number((totalKg * 0.05).toFixed(2));
+                        const totalPlusBuffer = Number((totalKg + bufferKg).toFixed(2));
+
+                        const itemHargaDasar = item.hargaPerKg !== undefined ? item.hargaPerKg : 0;
+                        const pNum = Number(item.pembulatan);
+                        const qtyCalc = (pNum > 0) ? pNum : totalPlusBuffer;
+                        const itemTotalHarga = Math.round(qtyCalc * itemHargaDasar);
+
+                        matrixSumTotalKg += totalKg;
+                        matrixSumBufferKg += bufferKg;
+                        matrixSumTotalHarga += itemTotalHarga;
+
+                        return (
+                          <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                            <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
+                              {item.no}
+                            </td>
+                            <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
+                              {renderBahanPanganCell(item, index)}
+                            </td>
+                            <td className="py-2 px-2 text-center text-slate-600 border-r border-slate-200 dark:border-slate-800">
+                              {bdd}%
+                            </td>
+
+                            {/* Porsi Kecil */}
+                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiKecilNet}</td>
+                            <td className="py-2 px-1 text-center font-bold text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/10 border-r border-slate-200 dark:border-slate-800">{reqKecil.toFixed(2)}</td>
+
+                            {/* Porsi Besar */}
+                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiBesarNet}</td>
+                            <td className="py-2 px-1 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10 border-r border-slate-200 dark:border-slate-800">{reqBesar.toFixed(2)}</td>
+
+                            {/* Balita */}
+                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.balitaNet}</td>
+                            <td className="py-2 px-1 text-center font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/10 border-r border-slate-200 dark:border-slate-800">{reqBalita.toFixed(2)}</td>
+
+                            {/* Bumil */}
+                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.bumilBusuiNet}</td>
+                            <td className="py-2 px-1 text-center font-bold text-purple-700 dark:text-purple-400 bg-purple-50/30 dark:bg-purple-950/10 border-r border-slate-200 dark:border-slate-800">{reqBumil.toFixed(2)}</td>
+
+                            {/* Totals */}
+                            <td className="py-2 px-2 text-center font-black text-slate-900 dark:text-slate-100 bg-slate-100/60 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-800">
+                              {totalKg.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2 text-center text-teal-700 dark:text-teal-400 font-semibold border-r border-slate-200 dark:border-slate-800">
+                              {bufferKg.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                              {isReadOnly ? (
+                                item.pembulatan
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={item.pembulatan}
+                                  onChange={(e) => handleUpdateItem(index, 'pembulatan', e.target.value)}
+                                  className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs"
+                                />
+                              )}
+                            </td>
+
+                            {/* Satuan Editable */}
+                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                              {isReadOnly ? (
+                                <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">
+                                  {item.satuan || 'Kg'}
+                                </span>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={item.satuan || 'Kg'}
+                                  onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
+                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                />
+                              )}
+                            </td>
+
+                            {/* Harga Dasar Editable */}
+                            <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
+                              {isReadOnly ? (
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">
+                                  {formatRupiah(itemHargaDasar)}
+                                </span>
+                              ) : (
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-[10px] text-slate-400">Rp</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="500"
+                                    value={itemHargaDasar}
+                                    onChange={(e) => handleUpdateItem(index, 'hargaPerKg', Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Total Harga */}
+                            <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                              {formatRupiah(itemTotalHarga)}
+                            </td>
+
+                            {!isReadOnly && (
+                              <td className="py-2 px-1 text-center">
+                                <button
+                                  onClick={() => handleDeleteRow(index)}
+                                  className="text-rose-500 hover:text-rose-700 p-1 rounded cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      {/* Baris Total Kebutuhan & Anggaran */}
+                      <tr className="bg-slate-100 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
+                        <td colSpan={11} className="py-2.5 px-3 text-right uppercase tracking-wider text-xs">
+                          Total Kebutuhan & Anggaran:
+                        </td>
+                        <td className="py-2.5 px-2 text-center text-xs font-black text-slate-900 dark:text-slate-100 bg-slate-200/60 dark:bg-slate-700/60">
+                          {matrixSumTotalKg.toFixed(2)} kg
+                        </td>
+                        <td className="py-2.5 px-2 text-center text-xs font-bold text-teal-700 dark:text-teal-400">
+                          {matrixSumBufferKg.toFixed(2)} kg
+                        </td>
+                        <td colSpan={2} className="py-2.5 px-2 text-center text-slate-400 text-[10px]">-</td>
+                        <td className="py-2.5 px-2 text-center text-slate-400 text-[10px]">-</td>
+                        <td className="py-2.5 px-3 text-right text-sm font-black text-emerald-800 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/60">
+                          {formatRupiah(matrixSumTotalHarga)}
+                        </td>
+                        {!isReadOnly && <td></td>}
+                      </tr>
+
+                      {/* Baris Rata-rata Biaya Per Sasaran */}
+                      <tr className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40 border-t border-emerald-200 dark:border-emerald-800 font-extrabold text-slate-800 dark:text-slate-100">
+                        <td colSpan={11} className="py-2.5 px-3 text-right text-xs">
+                          <div className="flex flex-col items-end">
+                            <span className="font-black text-emerald-900 dark:text-emerald-200 uppercase tracking-wide">
+                              Rata-rata Biaya Per Sasaran (Seluruh Porsi):
+                            </span>
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-normal">
+                              Rumus: Total Anggaran ({formatRupiah(matrixSumTotalHarga)}) ÷ {totalSasaranSum.toLocaleString('id-ID')} Total Sasaran Porsi
+                            </span>
+                          </div>
+                        </td>
+                        <td colSpan={5} className="py-2.5 px-3 text-right bg-emerald-100/70 dark:bg-emerald-900/50">
+                          <span className="text-sm font-black text-emerald-900 dark:text-emerald-100">
+                            {totalSasaranSum > 0 ? formatRupiah(Math.round(matrixSumTotalHarga / totalSasaranSum)) : 'Rp 0'}
+                            <span className="text-[10px] font-normal text-emerald-700 dark:text-emerald-300"> / sasaran</span>
+                          </span>
+                        </td>
+                        {!isReadOnly && <td></td>}
+                      </tr>
+                    </tfoot>
+                  </table>
+                );
+              })()}
             </div>
           )}
         </>

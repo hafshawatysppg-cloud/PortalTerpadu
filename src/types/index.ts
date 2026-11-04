@@ -540,6 +540,10 @@ export interface DailyBeneficiarySummary {
   portionBreakdown?: {
     porsiBesar: number;
     porsiKecil: number;
+    porsiBesarSekolah?: number;
+    porsiKecilSekolah?: number;
+    broadPorsiBesar?: number;
+    broadPorsiKecil?: number;
     porsiBalita?: number;
     porsiIbuHamil?: number;
     porsiIbuMenyusui?: number;

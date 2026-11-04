@@ -2355,6 +2355,17 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               )}
             </div>
             <div className="flex items-center gap-2">
+              {!isRabOpBarangLocked && (
+                <button
+                  type="button"
+                  onClick={handleTambahBarisOpBarang}
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                  title="Tambah barang operasional baru"
+                >
+                  <Plus className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Tambah Barang</span>
+                </button>
+              )}
               {isRabOpBarangLocked ? (
                 <button
                   type="button"
@@ -2407,81 +2418,124 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   <th className="py-3 px-3 text-right">Harga Satuan</th>
                   <th className="py-3 px-3 text-right">Total Anggaran</th>
                   <th className="py-3 px-3">Keterangan</th>
+                  {!isRabOpBarangLocked && <th className="py-3 px-3 text-center w-12">Aksi</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rabOperasionalBarang.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="py-2.5 px-3">
-                      {isRabOpBarangLocked ? (
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</span>
-                      ) : (
-                        <input
-                          type="text"
-                          value={item.namaBarang}
-                          placeholder="Nama barang operasional..."
-                          onChange={(e) => handleUpdateNamaOpBarang(item.id, e.target.value)}
-                          className="w-full text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
-                        />
-                      )}
+                {rabOperasionalBarang.length === 0 ? (
+                  <tr>
+                    <td colSpan={isRabOpBarangLocked ? 7 : 8} className="py-12 px-4 text-center">
+                      <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-sky-100 dark:bg-sky-950/60 border border-sky-300 dark:border-sky-800 text-sky-600 dark:text-sky-300 flex items-center justify-center shadow-xs">
+                          <Boxes className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            RAB Operasional Barang Belum Diatur
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            Data RAB Operasional Barang masih kosong karena belum diatur atau diisi oleh admin. Klik tombol di bawah untuk mulai menyusun daftar pengadaan barang operasional dapur.
+                          </p>
+                        </div>
+                        {!isRabOpBarangLocked && (
+                          <button
+                            type="button"
+                            onClick={handleTambahBarisOpBarang}
+                            className="px-4 py-2 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-sky-500/20 active:scale-95 transition-all"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>+ Tambah Barang Operasional</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-3 text-center">
-                      {isRabOpBarangLocked ? (
-                        <span className="font-bold text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs inline-block">
-                          {item.satuan}
-                        </span>
-                      ) : (
-                        <input
-                          type="text"
-                          value={item.satuan}
-                          placeholder="Satuan..."
-                          onChange={(e) => handleUpdateSatuanOpBarang(item.id, e.target.value)}
-                          className="w-24 text-center text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
-                        />
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      {isRabOpBarangLocked ? (
-                        <span className="font-black text-slate-900 dark:text-slate-100">
-                          {item.jumlah.toLocaleString('id-ID')}
-                        </span>
-                      ) : (
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={item.jumlah === 0 ? '' : item.jumlah}
-                          placeholder="0"
-                          onChange={(e) => handleUpdateJumlahOpBarang(item.id, parseFloat(e.target.value) || 0)}
-                          className="w-20 text-right text-xs font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs outline-hidden focus:ring-2 focus:ring-teal-500/20 inline-block"
-                        />
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      {isRabOpBarangLocked ? (
-                        <span className="font-medium">{formatRupiah(item.hargaSatuan)}</span>
-                      ) : (
-                        <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500/20">
-                          <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                  </tr>
+                ) : (
+                  rabOperasionalBarang.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                      <td className="py-2.5 px-3">
+                        {isRabOpBarangLocked ? (
+                          <span className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.namaBarang}
+                            placeholder="Nama barang operasional..."
+                            onChange={(e) => handleUpdateNamaOpBarang(item.id, e.target.value)}
+                            className="w-full text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
+                          />
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        {isRabOpBarangLocked ? (
+                          <span className="font-bold text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs inline-block">
+                            {item.satuan}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.satuan}
+                            placeholder="Satuan..."
+                            onChange={(e) => handleUpdateSatuanOpBarang(item.id, e.target.value)}
+                            className="w-24 text-center text-xs font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 outline-hidden shadow-2xs focus:ring-2 focus:ring-teal-500/20"
+                          />
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        {isRabOpBarangLocked ? (
+                          <span className="font-black text-slate-900 dark:text-slate-100">
+                            {item.jumlah.toLocaleString('id-ID')}
+                          </span>
+                        ) : (
                           <input
                             type="number"
                             min="0"
-                            step="500"
-                            value={item.hargaSatuan === 0 ? '' : item.hargaSatuan}
+                            step="1"
+                            value={item.jumlah === 0 ? '' : item.jumlah}
                             placeholder="0"
-                            onChange={(e) => handleUpdateHargaSatuanOpBarang(item.id, parseFloat(e.target.value) || 0)}
-                            className="w-24 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden"
+                            onChange={(e) => handleUpdateJumlahOpBarang(item.id, parseFloat(e.target.value) || 0)}
+                            className="w-20 text-right text-xs font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs outline-hidden focus:ring-2 focus:ring-teal-500/20 inline-block"
                           />
-                        </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        {isRabOpBarangLocked ? (
+                          <span className="font-medium">{formatRupiah(item.hargaSatuan)}</span>
+                        ) : (
+                          <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500/20">
+                            <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="500"
+                              value={item.hargaSatuan === 0 ? '' : item.hargaSatuan}
+                              placeholder="0"
+                              onChange={(e) => handleUpdateHargaSatuanOpBarang(item.id, parseFloat(e.target.value) || 0)}
+                              className="w-24 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden"
+                            />
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
+                        {formatRupiah(item.totalAnggaran)}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
+                      {!isRabOpBarangLocked && (
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleHapusBarisOpBarang(item.id)}
+                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 rounded-lg transition-all cursor-pointer"
+                            title="Hapus baris barang operasional"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
                       )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                      {formatRupiah(item.totalAnggaran)}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
-                  </tr>
-                ))}
+                    </tr>
+                  ))
+                )}
                 {/* Baris Total Op Barang */}
                 <tr className="bg-slate-50 dark:bg-slate-800/70 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
                   <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
@@ -2675,65 +2729,94 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="py-3.5 px-3 text-center font-bold text-slate-500">1</td>
-                      <td className="py-3.5 px-4 font-black text-slate-900 dark:text-slate-100">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-teal-600" />
-                          <span>
-                            {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', {
-                              weekday: 'long',
-                              day: 'numeric',
-                              month: 'long',
-                              year: 'numeric'
-                            })}
+                    {gajiKaryawan.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-12 px-4 text-center">
+                          <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                            <div className="w-12 h-12 rounded-2xl bg-teal-100 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 text-teal-600 dark:text-teal-300 flex items-center justify-center shadow-xs">
+                              <Users className="w-6 h-6" />
+                            </div>
+                            <div className="space-y-1">
+                              <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                                Data Gaji Karyawan Belum Diatur untuk Tanggal Ini ({selectedDate})
+                              </div>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                Rekap gaji karyawan masih kosong karena belum diatur atau disinkronkan dari menu Daftar Petugas. Klik tombol di bawah untuk menarik slip gaji harian petugas.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
+                              disabled={isSyncingPetugas}
+                              className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-500/20 active:scale-95 transition-all disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPetugas ? 'animate-spin' : ''}`} />
+                              <span>{isSyncingPetugas ? 'Menyinkronkan...' : '⚡ Sinkronkan Slip Petugas'}</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3.5 px-3 text-center font-bold text-slate-500">1</td>
+                        <td className="py-3.5 px-4 font-black text-slate-900 dark:text-slate-100">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-teal-600" />
+                            <span>
+                              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', {
+                                weekday: 'long',
+                                day: 'numeric',
+                                month: 'long',
+                                year: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-normal">
+                            ISO: {selectedDate}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            {gajiKaryawan.length} Karyawan Masuk
                           </span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-normal">
-                          ISO: {selectedDate}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          {gajiKaryawan.length} Karyawan Masuk
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 text-sm">
-                        {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-black text-teal-800 dark:text-teal-300 text-base">
-                        {formatRupiah(totalGajiKaryawan)}
-                      </td>
-                      <td className="py-3.5 px-3 text-center">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
-                          <Check className="w-3 h-3" />
-                          Lunas / Siap Dicairkan
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => generateSlipGajiExcel(gajiKaryawan, `Rekap Harian ${selectedDate}`)}
-                            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                            title="Export Excel Rekap Gaji Harian"
-                          >
-                            <FileSpreadsheet className="w-3.5 h-3.5" />
-                            <span>Excel</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
-                            className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
-                            title="Lihat rincian per karyawan"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Rincian</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 text-sm">
+                          {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-black text-teal-800 dark:text-teal-300 text-base">
+                          {formatRupiah(totalGajiKaryawan)}
+                        </td>
+                        <td className="py-3.5 px-3 text-center">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
+                            <Check className="w-3 h-3" />
+                            Lunas / Siap Dicairkan
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => generateSlipGajiExcel(gajiKaryawan, `Rekap Harian ${selectedDate}`)}
+                              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              title="Export Excel Rekap Gaji Harian"
+                            >
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <span>Excel</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
+                              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
+                              title="Lihat rincian per karyawan"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Rincian</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                   <tfoot className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500 text-xs">
                     <tr>
@@ -2774,7 +2857,35 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {gajiKaryawan.map((rec, idx) => (
+                  {gajiKaryawan.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                          <div className="w-12 h-12 rounded-2xl bg-teal-100 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 text-teal-600 dark:text-teal-300 flex items-center justify-center shadow-xs">
+                            <Users className="w-6 h-6" />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                              Rincian Petugas Belum Diatur
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Data rincian petugas masih kosong. Klik tombol di bawah untuk menyinkronkan slip gaji harian petugas dari menu Daftar Petugas.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
+                            disabled={isSyncingPetugas}
+                            className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-500/20 active:scale-95 transition-all disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPetugas ? 'animate-spin' : ''}`} />
+                            <span>{isSyncingPetugas ? 'Menyinkronkan...' : '⚡ Sinkronkan Slip Petugas'}</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    gajiKaryawan.map((rec, idx) => (
                     <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
                       <td className="py-2.5 px-3">
@@ -2823,7 +2934,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )))}
                   <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
                     <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
                       TOTAL PENGGAJIAN HARIAN PETUGAS (SINKRON SLIP PETUGAS):
@@ -2956,58 +3067,86 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {insentifPicLembaga.map((rec, idx) => {
-                    const tier = rec.tierInfo || hitungInsentifPicSekolah(rec.jumlahSasaran).tierLabel;
-                    return (
-                      <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900 dark:text-slate-100">{rec.namaPic}</div>
-                          <div className="text-[10px] text-slate-400">{rec.telepon || '-'} • NIK: {rec.nik}</div>
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
-                          {rec.lembaga}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-black text-slate-900 dark:text-slate-100">
-                          {rec.jumlahSasaran.toLocaleString('id-ID')} Siswa
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                            {tier}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-black text-teal-800 dark:text-teal-300 text-sm">
-                          {formatRupiah(rec.totalInsentif)}
-                        </td>
-                        <td className="py-2.5 px-2 text-center">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            {rec.statusBayar}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => generateKwitansiPdf(rec)}
-                              className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                              title="Cetak Kwitansi PDF"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>PDF</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedKwitansi(rec)}
-                              className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
-                              title="Lihat Rincian Kwitansi"
-                            >
-                              <Eye className="w-3 h-3" />
-                            </button>
+                  {insentifPicLembaga.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                          <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shadow-xs">
+                            <GraduationCap className="w-6 h-6" />
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <div className="space-y-1">
+                            <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                              Data Insentif PIC Sekolah Belum Diatur
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Admin belum mengatur atau mengisi data PIC Sekolah untuk tanggal ini. Klik tombol di bawah untuk menarik daftar sekolah dan sasaran penerima manfaat dari menu Penerima Manfaat.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSyncPicDariPenerimaManfaat(selectedDate, true)}
+                            className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>⚡ Sinkronkan Sasaran Sekolah</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    insentifPicLembaga.map((rec, idx) => {
+                      const tier = rec.tierInfo || hitungInsentifPicSekolah(rec.jumlahSasaran).tierLabel;
+                      return (
+                        <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-900 dark:text-slate-100">{rec.namaPic}</div>
+                            <div className="text-[10px] text-slate-400">{rec.telepon || '-'} • NIK: {rec.nik}</div>
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                            {rec.lembaga}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-black text-slate-900 dark:text-slate-100">
+                            {rec.jumlahSasaran.toLocaleString('id-ID')} Siswa
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              {tier}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-teal-800 dark:text-teal-300 text-sm">
+                            {formatRupiah(rec.totalInsentif)}
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              {rec.statusBayar}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => generateKwitansiPdf(rec)}
+                                className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                title="Cetak Kwitansi PDF"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>PDF</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedKwitansi(rec)}
+                                className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                title="Lihat Rincian Kwitansi"
+                              >
+                                <Eye className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                   <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
                     <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
                       TOTAL INSENTIF PIC SEKOLAH:
@@ -3023,61 +3162,85 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               </table>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {insentifPicLembaga.map(rec => {
-                const tier = rec.tierInfo || hitungInsentifPicSekolah(rec.jumlahSasaran).tierLabel;
-                return (
-                  <div
-                    key={rec.id}
-                    className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4.5 space-y-3 hover:border-teal-400 transition-all shadow-2xs"
+            insentifPicLembaga.length === 0 ? (
+              <div className="p-12 text-center border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30">
+                <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shadow-xs">
+                    <GraduationCap className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                    Kwitansi PIC Sekolah Belum Tersedia
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Data sekolah dan penerima manfaat belum diatur atau disinkronkan untuk tanggal {selectedDate}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleSyncPicDariPenerimaManfaat(selectedDate, true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
                   >
-                    <div className="flex items-start justify-between">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
-                        {rec.nomorKwitansi}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        {rec.statusBayar}
-                      </span>
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm text-slate-900 dark:text-slate-100">{rec.namaPic}</h3>
-                      <div className="text-xs text-teal-700 dark:text-teal-400 font-bold">{rec.lembaga}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Sasaran: {rec.jumlahSasaran} Siswa/Porsi</div>
-                    </div>
-                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
-                      <div className="flex justify-between items-center text-slate-500">
-                        <span>Skema Tier:</span>
-                        <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                          {tier}
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>⚡ Sinkronkan Sasaran Sekolah</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {insentifPicLembaga.map(rec => {
+                  const tier = rec.tierInfo || hitungInsentifPicSekolah(rec.jumlahSasaran).tierLabel;
+                  return (
+                    <div
+                      key={rec.id}
+                      className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4.5 space-y-3 hover:border-teal-400 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-start justify-between">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
+                          {rec.nomorKwitansi}
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          {rec.statusBayar}
                         </span>
                       </div>
-                      <div className="flex justify-between pt-1 border-t border-dashed border-slate-200 dark:border-slate-700 font-black text-teal-800 dark:text-teal-300">
-                        <span>Total Insentif:</span>
-                        <span className="text-sm">{formatRupiah(rec.totalInsentif)}</span>
+                      <div>
+                        <h3 className="font-black text-sm text-slate-900 dark:text-slate-100">{rec.namaPic}</h3>
+                        <div className="text-xs text-teal-700 dark:text-teal-400 font-bold">{rec.lembaga}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Sasaran: {rec.jumlahSasaran} Siswa/Porsi</div>
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+                        <div className="flex justify-between items-center text-slate-500">
+                          <span>Skema Tier:</span>
+                          <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                            {tier}
+                          </span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t border-dashed border-slate-200 dark:border-slate-700 font-black text-teal-800 dark:text-teal-300">
+                          <span>Total Insentif:</span>
+                          <span className="text-sm">{formatRupiah(rec.totalInsentif)}</span>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => generateKwitansiPdf(rec)}
+                          className="flex-1 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Cetak Kwitansi</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedKwitansi(rec)}
+                          className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Lihat</span>
+                        </button>
                       </div>
                     </div>
-                    <div className="pt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => generateKwitansiPdf(rec)}
-                        className="flex-1 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Cetak Kwitansi</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedKwitansi(rec)}
-                        className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Lihat</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
       )}
@@ -3193,58 +3356,84 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {insentifPicPosyandu.map((rec, idx) => {
-                    const tier = rec.tierInfo || hitungInsentifPicPosyandu(rec.jumlahSasaran).tierLabel;
-                    return (
-                      <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900 dark:text-slate-100">{rec.namaPic}</div>
-                          <div className="text-[10px] text-slate-400">{rec.telepon || '-'} • NIK: {rec.nik}</div>
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
-                          {rec.lembaga}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-black text-slate-900 dark:text-slate-100">
-                          {rec.jumlahSasaran.toLocaleString('id-ID')} Balita & Bumil
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                            {tier}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-black text-teal-800 dark:text-teal-300 text-sm">
-                          {formatRupiah(rec.totalInsentif)}
-                        </td>
-                        <td className="py-2.5 px-2 text-center">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            {rec.statusBayar}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => generateKwitansiPdf(rec)}
-                              className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                              title="Cetak Kwitansi PDF"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>PDF</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedKwitansi(rec)}
-                              className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
-                              title="Lihat Rincian Kwitansi"
-                            >
-                              <Eye className="w-3 h-3" />
-                            </button>
+                  {insentifPicPosyandu.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center">
+                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                          <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-300 flex items-center justify-center shadow-xs">
+                            <HeartPulse className="w-5 h-5" />
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            Belum Ada Data Insentif PIC Posyandu
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            RAB Insentif PIC Posyandu belum diatur untuk tanggal {selectedDate}. Klik tombol di bawah untuk menyinkronkan data kader dan sasaran dari menu Penerima Manfaat.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleSyncPicDariPenerimaManfaat(selectedDate, true)}
+                            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>⚡ Sinkronkan Sasaran Posyandu</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    insentifPicPosyandu.map((rec, idx) => {
+                      const tier = rec.tierInfo || hitungInsentifPicPosyandu(rec.jumlahSasaran).tierLabel;
+                      return (
+                        <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-900 dark:text-slate-100">{rec.namaPic}</div>
+                            <div className="text-[10px] text-slate-400">{rec.telepon || '-'} • NIK: {rec.nik}</div>
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                            {rec.lembaga}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-black text-slate-900 dark:text-slate-100">
+                            {rec.jumlahSasaran.toLocaleString('id-ID')} Balita & Bumil
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                              {tier}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-teal-800 dark:text-teal-300 text-sm">
+                            {formatRupiah(rec.totalInsentif)}
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              {rec.statusBayar}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => generateKwitansiPdf(rec)}
+                                className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                title="Cetak Kwitansi PDF"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>PDF</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedKwitansi(rec)}
+                                className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                title="Lihat Rincian Kwitansi"
+                              >
+                                <Eye className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                   <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
                     <td colSpan={5} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
                       TOTAL INSENTIF PIC POSYANDU:
@@ -3260,61 +3449,85 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               </table>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {insentifPicPosyandu.map(rec => {
-                const tier = rec.tierInfo || hitungInsentifPicPosyandu(rec.jumlahSasaran).tierLabel;
-                return (
-                  <div
-                    key={rec.id}
-                    className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4.5 space-y-3 hover:border-teal-400 transition-all shadow-2xs"
+            insentifPicPosyandu.length === 0 ? (
+              <div className="p-12 text-center border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30">
+                <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-300 flex items-center justify-center shadow-xs">
+                    <HeartPulse className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                    Kwitansi PIC Posyandu Belum Tersedia
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Data posyandu dan sasaran penerima manfaat belum diatur atau disinkronkan untuk tanggal {selectedDate}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleSyncPicDariPenerimaManfaat(selectedDate, true)}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
                   >
-                    <div className="flex items-start justify-between">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
-                        {rec.nomorKwitansi}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        {rec.statusBayar}
-                      </span>
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm text-slate-900 dark:text-slate-100">{rec.namaPic}</h3>
-                      <div className="text-xs text-rose-700 dark:text-rose-400 font-bold">{rec.lembaga}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Sasaran: {rec.jumlahSasaran} Balita & Ibu Hamil</div>
-                    </div>
-                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
-                      <div className="flex justify-between items-center text-slate-500">
-                        <span>Skema Tier:</span>
-                        <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
-                          {tier}
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>⚡ Sinkronkan Sasaran Posyandu</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {insentifPicPosyandu.map(rec => {
+                  const tier = rec.tierInfo || hitungInsentifPicPosyandu(rec.jumlahSasaran).tierLabel;
+                  return (
+                    <div
+                      key={rec.id}
+                      className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-4.5 space-y-3 hover:border-teal-400 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-start justify-between">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
+                          {rec.nomorKwitansi}
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          {rec.statusBayar}
                         </span>
                       </div>
-                      <div className="flex justify-between pt-1 border-t border-dashed border-slate-200 dark:border-slate-700 font-black text-teal-800 dark:text-teal-300">
-                        <span>Total Insentif:</span>
-                        <span className="text-sm">{formatRupiah(rec.totalInsentif)}</span>
+                      <div>
+                        <h3 className="font-black text-sm text-slate-900 dark:text-slate-100">{rec.namaPic}</h3>
+                        <div className="text-xs text-rose-700 dark:text-rose-400 font-bold">{rec.lembaga}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Sasaran: {rec.jumlahSasaran} Balita & Ibu Hamil</div>
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+                        <div className="flex justify-between items-center text-slate-500">
+                          <span>Skema Tier:</span>
+                          <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
+                            {tier}
+                          </span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t border-dashed border-slate-200 dark:border-slate-700 font-black text-teal-800 dark:text-teal-300">
+                          <span>Total Insentif:</span>
+                          <span className="text-sm">{formatRupiah(rec.totalInsentif)}</span>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => generateKwitansiPdf(rec)}
+                          className="flex-1 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Cetak Kwitansi</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedKwitansi(rec)}
+                          className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Lihat</span>
+                        </button>
                       </div>
                     </div>
-                    <div className="pt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => generateKwitansiPdf(rec)}
-                        className="flex-1 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Cetak Kwitansi</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedKwitansi(rec)}
-                        className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Lihat</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
       )}
@@ -3476,8 +3689,26 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {operasionalLainnya.length === 0 ? (
                   <tr>
-                    <td colSpan={isOperasionalLainnyaLocked ? 7 : 8} className="py-6 text-center text-slate-400">
-                      Belum ada transaksi operasional lainnya. Klik "Tambah Baris" untuk menambahkan data.
+                    <td colSpan={isOperasionalLainnyaLocked ? 7 : 8} className="py-12 text-center">
+                      <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                        <div className="w-10 h-10 rounded-2xl bg-teal-100 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 text-teal-600 dark:text-teal-300 flex items-center justify-center shadow-xs">
+                          <Coins className="w-5 h-5" />
+                        </div>
+                        <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                          Belum Ada Rincian Operasional Lainnya
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Pos Operasional Lainnya (utilitas listrik, air, lab uji berkala, dll.) belum diatur untuk tanggal {selectedDate}.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleTambahBarisOpLainnya}
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Tambah Baris Pengeluaran</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ) : (

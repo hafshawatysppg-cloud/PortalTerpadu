@@ -3531,6 +3531,8 @@ class EnterpriseDataStore {
 
     let porsiBesar = 0;
     let porsiKecil = 0;
+    let porsiBesarSekolah = 0;
+    let porsiKecilSekolah = 0;
 
     recs.forEach(r => {
       totalPenerima += r.totalPenerima;
@@ -3611,34 +3613,46 @@ class EnterpriseDataStore {
       const isSd = (upperGroup.includes('SD') || upperGroup.includes('MI')) && !isSmp && !isSma && !isPaud && !is3B;
 
       if (is3B) {
-        // Balita mendapat Porsi Kecil, Bumil/Busui dan Kader mendapat Porsi Besar
+        // Balita mendapat Porsi Kecil secara broad, Bumil/Busui dan Kader mendapat Porsi Besar secara broad
         porsiKecil += itemB;
         porsiBesar += (itemIh + itemIm + itemG);
+        // Non-overlapping 4-group breakdown: balita & bumilBusui dihitung pada grup masing-masing, kader masuk dewasa
+        porsiBesarSekolah += itemG;
       } else if (isPaud || klas === 'Porsi Kecil' || upperGroup.includes('KECIL')) {
         porsiKecil += itemS;
         porsiBesar += itemG;
+        porsiKecilSekolah += itemS;
+        porsiBesarSekolah += itemG;
       } else if (isSd) {
         const bd = loc?.breakdownKelas || loc?.kategoriBreakdown?.breakdownKelas;
+        let sdKecil = 0;
+        let sdBesar = 0;
         if (bd && (bd.kelas1 || bd.kelas2 || bd.kelas3 || bd.kelas4 || bd.kelas5 || bd.kelas6)) {
           const k13 = (Number(bd.kelas1) || 0) + (Number(bd.kelas2) || 0) + (Number(bd.kelas3) || 0);
           const k46 = (Number(bd.kelas4) || 0) + (Number(bd.kelas5) || 0) + (Number(bd.kelas6) || 0);
           const totK = k13 + k46;
           if (totK > 0 && itemS > 0) {
             const ratio = itemS / totK;
-            porsiKecil += Math.round(k13 * ratio);
-            porsiBesar += Math.round(k46 * ratio) + itemG;
+            sdKecil = Math.round(k13 * ratio);
+            sdBesar = Math.round(k46 * ratio) + itemG;
           } else {
-            porsiKecil += Math.ceil(itemS / 2);
-            porsiBesar += Math.floor(itemS / 2) + itemG;
+            sdKecil = Math.ceil(itemS / 2);
+            sdBesar = Math.floor(itemS / 2) + itemG;
           }
         } else {
-          porsiKecil += Math.ceil(itemS / 2);
-          porsiBesar += Math.floor(itemS / 2) + itemG;
+          sdKecil = Math.ceil(itemS / 2);
+          sdBesar = Math.floor(itemS / 2) + itemG;
         }
+        porsiKecil += sdKecil;
+        porsiBesar += sdBesar;
+        porsiKecilSekolah += sdKecil;
+        porsiBesarSekolah += sdBesar;
       } else if (isSmp || isSma) {
         porsiBesar += itemS + itemG;
+        porsiBesarSekolah += itemS + itemG;
       } else {
         porsiBesar += itemS + itemG;
+        porsiBesarSekolah += itemS + itemG;
       }
     });
 
@@ -3648,7 +3662,17 @@ class EnterpriseDataStore {
       totalSiswa = Math.max(0, totalSiswa + (totalPenerima - catSum));
     }
     
-    // Ensure Porsi Besar + Porsi Kecil exactly equals totalPenerima
+    // Enforce 100% exact match for 4-group portion breakdown:
+    // (Porsi Kecil Sekolah + Porsi Besar Sekolah + Balita + Bumil/Busui) === totalPenerima
+    const totalBumilBusui = totalIbuHamil + totalIbuMenyusui;
+    const fourGroupSum = porsiKecilSekolah + porsiBesarSekolah + totalBalita + totalBumilBusui;
+    if (fourGroupSum !== totalPenerima && totalPenerima > 0) {
+      porsiBesarSekolah = Math.max(0, porsiBesarSekolah + (totalPenerima - fourGroupSum));
+    }
+
+    // Ensure broad 2-group sum also strictly matches totalPenerima
+    porsiKecil = porsiKecilSekolah + totalBalita;
+    porsiBesar = porsiBesarSekolah + totalBumilBusui;
     const twoGroupSum = porsiBesar + porsiKecil;
     if (twoGroupSum !== totalPenerima && totalPenerima > 0) {
       porsiBesar = Math.max(0, porsiBesar + (totalPenerima - twoGroupSum));
@@ -3667,13 +3691,17 @@ class EnterpriseDataStore {
       totalSiswa,
       totalGuru,
       portionBreakdown: {
-        porsiBesar,
-        porsiKecil,
+        porsiBesar: porsiBesarSekolah,
+        porsiKecil: porsiKecilSekolah,
+        porsiBesarSekolah,
+        porsiKecilSekolah,
+        broadPorsiBesar: porsiBesar,
+        broadPorsiKecil: porsiKecil,
         porsiBalita: totalBalita,
         porsiIbuHamil: totalIbuHamil,
         porsiIbuMenyusui: totalIbuMenyusui,
         balita: totalBalita,
-        bumilBusui: totalIbuHamil + totalIbuMenyusui
+        bumilBusui: totalBumilBusui
       },
       statusLock: effectiveStatusLock,
       finalizedBy: lockInfo.finalizedBy,

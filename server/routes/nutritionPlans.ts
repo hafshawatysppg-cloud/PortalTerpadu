@@ -127,11 +127,29 @@ router.get('/sync-context', (req: Request, res: Response): void => {
 
   const hasBeneficiary = Boolean(summary.hasPlanning && summary.totalPenerima > 0);
 
+  let porsiKecil = pb.porsiKecil || 0;
+  let porsiBesar = pb.porsiBesar || 0;
+  const balita = pb.balita ?? summary.totalBalita ?? 0;
+  const bumilBusui = pb.bumilBusui ?? (summary.totalIbuHamil + summary.totalIbuMenyusui) ?? 0;
+
+  // Safeguard: if sum of 4 groups > totalPenerima (legacy overlapping detected), deduct balita & bumilBusui
+  const sum4 = porsiKecil + porsiBesar + balita + bumilBusui;
+  if (sum4 > summary.totalPenerima && summary.totalPenerima > 0) {
+    if (porsiKecil + porsiBesar === summary.totalPenerima) {
+      porsiKecil = Math.max(0, porsiKecil - balita);
+      porsiBesar = Math.max(0, porsiBesar - bumilBusui);
+    }
+    const rem = summary.totalPenerima - (porsiKecil + balita + bumilBusui);
+    porsiBesar = Math.max(0, rem);
+  } else if (sum4 < summary.totalPenerima && summary.totalPenerima > 0 && hasBeneficiary) {
+    porsiBesar += (summary.totalPenerima - sum4);
+  }
+
   const targetCounts = hasBeneficiary ? {
-    porsiKecil: pb.porsiKecil || 0,
-    porsiBesar: pb.porsiBesar || 0,
-    balita: pb.balita || 0,
-    bumilBusui: pb.bumilBusui || 0,
+    porsiKecil,
+    porsiBesar,
+    balita,
+    bumilBusui,
     total: summary.totalPenerima
   } : {
     porsiKecil: 0,
