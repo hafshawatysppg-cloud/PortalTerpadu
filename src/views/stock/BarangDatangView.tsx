@@ -117,6 +117,7 @@ const DAFTAR_SATUAN = [
 export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath, onNavigate }) => {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // Active sub-tab ('form' | 'data')
   const [activeTab, setActiveTab] = useState<'form' | 'data'>(() => {
@@ -188,6 +189,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
   const [editPetugas, setEditPetugas] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
+  const editCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // Modal Print Preview & Cetak Resmi BGN
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
@@ -494,9 +496,9 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
   // Helper untuk mendapatkan judul jenis formulir
   const getJudulFormulir = () => {
-    if (filterJenis === 'Operasional') return 'FORMULIR KEDATANGAN OPERASIONAL';
-    if (filterJenis === 'Semua') return 'FORMULIR KEDATANGAN BAHAN BAKU & OPERASIONAL';
-    return 'FORMULIR KEDATANGAN BAHAN BAKU';
+    if (filterJenis === 'Operasional') return 'FORMULIR PEMERIKSAAN OPERASIONAL';
+    if (filterJenis === 'Semua') return 'FORMULIR PEMERIKSAAN BAHAN BAKU & OPERASIONAL';
+    return 'FORMULIR PEMERIKSAAN BAHAN BAKU';
   };
 
   const getLabelJenis = () => {
@@ -519,12 +521,20 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         </div>
       ` : `<div style="color:#94a3b8;font-size:10px;text-align:center;">-</div>`;
 
+      const kualitas = item.kualitasProduk || 'Baik';
+      const kualitasBadge = kualitas === 'Jelek'
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:#ffe4e6;color:#be123c;border:1px solid #fecdd3;">Jelek</span>`
+        : kualitas === 'Lumayan'
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:#fef3c7;color:#b45309;border:1px solid #fde68a;">Lumayan</span>`
+        : `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;">Baik</span>`;
+
       return `
         <tr style="page-break-inside:avoid;">
           <td style="border:1px solid #000;padding:6px 4px;text-align:center;font-size:11px;vertical-align:middle;">${idx + 1}</td>
           <td style="border:1px solid #000;padding:6px 8px;font-size:11px;font-weight:600;vertical-align:middle;">${item.namaBarang}</td>
           <td style="border:1px solid #000;padding:6px 6px;text-align:center;font-size:11px;font-weight:600;vertical-align:middle;">${Number(item.jumlahMasuk).toLocaleString('id-ID')}</td>
           <td style="border:1px solid #000;padding:6px 6px;text-align:center;font-size:11px;vertical-align:middle;">${item.satuan}</td>
+          <td style="border:1px solid #000;padding:6px 4px;text-align:center;font-size:11px;vertical-align:middle;">${kualitasBadge}</td>
           <td style="border:1px solid #000;padding:4px;text-align:center;vertical-align:middle;">${fotoHtml}</td>
           <td style="border:1px solid #000;padding:6px 8px;font-size:11px;vertical-align:middle;">${item.keterangan || ''}</td>
         </tr>
@@ -716,12 +726,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         <table class="content-table">
           <thead>
             <tr>
-              <th style="width: 35px;">NO</th>
-              <th style="width: 200px;">NAMA BARANG</th>
-              <th style="width: 80px;">JUMLAH<br/>MASUK</th>
-              <th style="width: 70px;">SATUAN</th>
-              <th style="width: 190px;">DOKUMENTASI</th>
-              <th style="width: 85px;">KET</th>
+              <th style="width: 32px;">NO</th>
+              <th style="width: 185px;">NAMA BARANG</th>
+              <th style="width: 75px;">JUMLAH<br/>MASUK</th>
+              <th style="width: 65px;">SATUAN</th>
+              <th style="width: 80px;">KUALITAS<br/>PRODUK</th>
+              <th style="width: 175px;">DOKUMENTASI</th>
+              <th style="width: 75px;">KET</th>
             </tr>
           </thead>
           <tbody>
@@ -854,12 +865,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       doc.text(labelJenis, 84, 50.5, { align: 'center' });
 
       // 4. Tabel Data Barang Masuk
-      const tableHead = [['NO', 'NAMA BARANG', 'JUMLAH\nMASUK', 'SATUAN', 'DOKUMENTASI', 'KET']];
+      const tableHead = [['NO', 'NAMA BARANG', 'JUMLAH\nMASUK', 'SATUAN', 'KUALITAS\nPRODUK', 'DOKUMENTASI', 'KET']];
       const tableBody = filteredItems.map((item, idx) => [
         String(idx + 1),
         item.namaBarang,
         Number(item.jumlahMasuk).toLocaleString('id-ID'),
         item.satuan,
+        item.kualitasProduk || 'Baik',
         '', // Diisi oleh hook didDrawCell jika ada foto
         item.keterangan || ''
       ]);
@@ -888,20 +900,33 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         },
         columnStyles: {
           0: { halign: 'center', cellWidth: 10 },
-          1: { halign: 'left', cellWidth: 50, fontStyle: 'bold' },
-          2: { halign: 'center', cellWidth: 22, fontStyle: 'bold' },
-          3: { halign: 'center', cellWidth: 18 },
-          4: { halign: 'center', cellWidth: 56, minCellHeight: 34 },
-          5: { halign: 'left', cellWidth: 26 }
+          1: { halign: 'left', cellWidth: 46, fontStyle: 'bold' },
+          2: { halign: 'center', cellWidth: 20, fontStyle: 'bold' },
+          3: { halign: 'center', cellWidth: 16 },
+          4: { halign: 'center', cellWidth: 22, fontStyle: 'bold' },
+          5: { halign: 'center', cellWidth: 48, minCellHeight: 34 },
+          6: { halign: 'left', cellWidth: 20 }
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.column.index === 4) {
+            const val = String(data.cell.raw);
+            if (val === 'Baik') {
+              data.cell.styles.textColor = [21, 128, 61]; // emerald-700
+            } else if (val === 'Lumayan') {
+              data.cell.styles.textColor = [180, 83, 9]; // amber-700
+            } else if (val === 'Jelek') {
+              data.cell.styles.textColor = [190, 18, 60]; // rose-700
+            }
+          }
         },
         didDrawCell: (data) => {
-          if (data.section === 'body' && data.column.index === 4) {
+          if (data.section === 'body' && data.column.index === 5) {
             const rowIndex = data.row.index;
             const photoB64 = preloadedPhotos[rowIndex];
             if (photoB64) {
               try {
-                const imgW = 46;
-                const imgH = 30;
+                const imgW = 42;
+                const imgH = 28;
                 const posX = data.cell.x + (data.cell.width - imgW) / 2;
                 const posY = data.cell.y + (data.cell.height - imgH) / 2;
                 doc.addImage(photoB64, 'JPEG', posX, posY, imgW, imgH);
@@ -929,8 +954,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         drawSignatures(doc, lastY + 8, namaPJ);
       }
 
-      doc.save(`Formulir_Kedatangan_Barang_${filterTanggal}.pdf`);
-      setSuccessToast(`PDF Formulir Kedatangan Barang tanggal ${filterTanggal} berhasil diunduh!`);
+      doc.save(`Formulir_Pemeriksaan_Bahan_Baku_Operasional_${filterTanggal}.pdf`);
+      setSuccessToast(`PDF Formulir Pemeriksaan Bahan Baku & Operasional tanggal ${filterTanggal} berhasil diunduh!`);
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       setErrorToast('Gagal membuat dokumen PDF: ' + (err?.message || 'Error tidak diketahui'));
@@ -1522,14 +1547,25 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
                   {/* Area Upload & Dropzone */}
                   <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-4 bg-slate-50/50 dark:bg-slate-800/30">
+                    {/* Input file galeri (default: tanpa capture agar membuka galeri di HP) */}
                     <input
                       ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-upload-input"
+                    />
+
+                    {/* Input file kamera langsung jika diinginkan */}
+                    <input
+                      ref={cameraInputRef}
                       type="file"
                       accept="image/*"
                       capture="environment"
                       onChange={handleFileUpload}
                       className="hidden"
-                      id="file-upload-input"
+                      id="camera-upload-input"
                     />
 
                     {dokumentasiUrl ? (
@@ -1546,6 +1582,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                               onClick={() => {
                                 setDokumentasiUrl('');
                                 if (fileInputRef.current) fileInputRef.current.value = '';
+                                if (cameraInputRef.current) cameraInputRef.current.value = '';
                               }}
                               className="p-1.5 text-rose-300 hover:text-rose-100 hover:bg-rose-600/50 rounded-md transition"
                               title="Hapus foto"
@@ -1555,38 +1592,62 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs text-slate-500">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                           <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
                             <CheckCircle2 className="w-4 h-4" /> Foto dokumentasi siap dilampirkan
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="font-bold text-sky-600 dark:text-sky-400 hover:underline"
-                          >
-                            Ganti Foto
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="font-bold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                              title="Buka galeri foto HP/Laptop"
+                            >
+                              <ImageIcon className="w-3.5 h-3.5" />
+                              <span>Buka Galeri</span>
+                            </button>
+                            <span className="text-slate-300 dark:text-slate-600">|</span>
+                            <button
+                              type="button"
+                              onClick={() => cameraInputRef.current?.click()}
+                              className="font-bold text-slate-600 dark:text-slate-300 hover:underline flex items-center gap-1 cursor-pointer"
+                              title="Buka kamera langsung"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Ambil Kamera</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ) : (
                       <div className="py-6 flex flex-col items-center justify-center text-center">
                         <div className="w-12 h-12 rounded-2xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-3 shadow-inner">
-                          <Camera className="w-6 h-6" />
+                          <ImageIcon className="w-6 h-6" />
                         </div>
                         <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
-                          Ambil Foto dari Kamera atau Pilih File
+                          Unggah Foto dari Galeri atau Ambil dari Kamera
                         </p>
                         <p className="text-xs text-slate-400 max-w-xs mb-4">
                           Dukung foto format JPG, PNG, WebP (maksimal ukuran 5MB).
                         </p>
-                        <div className="flex flex-wrap gap-2 justify-center">
+                        <div className="flex flex-wrap gap-2.5 justify-center">
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-md shadow-sky-600/20 transition"
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-md shadow-sky-600/20 active:scale-95 transition cursor-pointer"
+                            title="Buka galeri foto di perangkat HP atau komputer"
                           >
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Unggah Foto Dokumentasi</span>
+                            <ImageIcon className="w-4 h-4" />
+                            <span>Unggah Foto dari Galeri</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => cameraInputRef.current?.click()}
+                            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                            title="Buka kamera secara langsung"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Buka Kamera Langsung</span>
                           </button>
                         </div>
 
@@ -2629,27 +2690,53 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <button
                         type="button"
                         onClick={() => editFileInputRef.current?.click()}
                         className="text-xs text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                        title="Buka galeri foto HP/Laptop"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>Pilih dari Galeri</span>
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-600">|</span>
+                      <button
+                        type="button"
+                        onClick={() => editCameraInputRef.current?.click()}
+                        className="text-xs text-slate-600 dark:text-slate-300 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                        title="Ambil foto dari kamera"
                       >
                         <Camera className="w-3.5 h-3.5" />
-                        <span>Ganti Foto Dokumentasi</span>
+                        <span>Buka Kamera</span>
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div
-                    onClick={() => editFileInputRef.current?.click()}
-                    className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-500 rounded-2xl p-4 text-center cursor-pointer transition bg-slate-50 dark:bg-slate-800/40"
-                  >
-                    <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1" />
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Klik untuk mengunggah foto dokumentasi baru
+                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-4 text-center bg-slate-50 dark:bg-slate-800/40">
+                    <ImageIcon className="w-6 h-6 text-slate-400 mx-auto mb-1" />
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                      Unggah foto dokumentasi baru
                     </p>
-                    <p className="text-[10px] text-slate-400">PNG, JPG, WEBP (Maks 5MB)</p>
+                    <div className="flex justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => editFileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>Buka Galeri</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editCameraInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs hover:bg-slate-300 dark:hover:bg-slate-600 cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Kamera</span>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2">PNG, JPG, WEBP (Maks 5MB)</p>
                   </div>
                 )}
 
@@ -2657,6 +2744,14 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                   ref={editFileInputRef}
                   type="file"
                   accept="image/*"
+                  onChange={handleEditFileUpload}
+                  className="hidden"
+                />
+                <input
+                  ref={editCameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
                   onChange={handleEditFileUpload}
                   className="hidden"
                 />
@@ -2822,6 +2917,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                     JUMLAH<br />MASUK
                   </th>
                   <th className="border border-slate-950 py-2 px-1 text-center w-20 font-bold uppercase">SATUAN</th>
+                  <th className="border border-slate-950 py-2 px-1 text-center w-24 font-bold uppercase">KUALITAS PRODUK</th>
                   <th className="border border-slate-950 py-2 px-2 text-center w-48 font-bold uppercase">DOKUMENTASI</th>
                   <th className="border border-slate-950 py-2 px-2 text-left w-24 font-bold uppercase">KET</th>
                 </tr>
@@ -2840,6 +2936,17 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                     </td>
                     <td className="border border-slate-950 py-2 px-1 text-center align-middle font-medium">
                       {item.satuan}
+                    </td>
+                    <td className="border border-slate-950 py-2 px-1 text-center align-middle">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        item.kualitasProduk === 'Jelek'
+                          ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                          : item.kualitasProduk === 'Lumayan'
+                          ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                          : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        {item.kualitasProduk || 'Baik'}
+                      </span>
                     </td>
                     <td className="border border-slate-950 p-2 align-middle text-center">
                       {item.dokumentasiUrl ? (
@@ -2949,6 +3056,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                 JUMLAH<br />MASUK
               </th>
               <th className="border border-slate-950 py-2 px-1 text-center w-20 font-bold uppercase">SATUAN</th>
+              <th className="border border-slate-950 py-2 px-1 text-center w-24 font-bold uppercase">KUALITAS PRODUK</th>
               <th className="border border-slate-950 py-2 px-2 text-center w-48 font-bold uppercase">DOKUMENTASI</th>
               <th className="border border-slate-950 py-2 px-2 text-left w-24 font-bold uppercase">KET</th>
             </tr>
@@ -2967,6 +3075,9 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                 </td>
                 <td className="border border-slate-950 py-2 px-1 text-center align-middle">
                   {item.satuan}
+                </td>
+                <td className="border border-slate-950 py-2 px-1 text-center align-middle font-bold text-[11px]">
+                  {item.kualitasProduk || 'Baik'}
                 </td>
                 <td className="border border-slate-950 p-2 align-middle text-center">
                   {item.dokumentasiUrl ? (
