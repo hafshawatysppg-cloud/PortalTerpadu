@@ -181,7 +181,7 @@ const BAST_PRINT_CSS = `
 /**
  * Renders the HTML markup for a single BAST sheet
  */
-export function renderBastSheet(bast: BastDocument, showSignature: boolean = true): string {
+export function renderBastSheet(bast: BastDocument, _showSignature: boolean = false): string {
   const cleanDate = bast.hariTanggalFormatted.includes(',')
     ? bast.hariTanggalFormatted.split(',')[1].trim()
     : bast.hariTanggalFormatted;
@@ -190,9 +190,8 @@ export function renderBastSheet(bast: BastDocument, showSignature: boolean = tru
     ? bast.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
     : '…………… WIB';
 
-  const signatureSvg = showSignature
-    ? getSriRohayuSignatureSvg()
-    : '<div style="height: 48px;"></div>';
+  // Digital signature has been removed for manual physical signature & stamp
+  const signatureSpace = '<div style="height: 54px;"></div>';
 
   const npsnBadge = bast.npsn
     ? ` <span style="font-size: 9pt; font-weight: normal; color: #1e293b;">(NPSN: ${bast.npsn})</span>`
@@ -256,7 +255,7 @@ export function renderBastSheet(bast: BastDocument, showSignature: boolean = tru
             <div class="mengetahui-box">
               <div>
                 <div class="mengetahui-title">Mengetahui:</div>
-                ${signatureSvg}
+                ${signatureSpace}
               </div>
               <div>
                 <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
@@ -330,7 +329,7 @@ export function renderBastSheet(bast: BastDocument, showSignature: boolean = tru
             <div class="mengetahui-box">
               <div>
                 <div class="mengetahui-title">Mengetahui:</div>
-                ${signatureSvg}
+                ${signatureSpace}
               </div>
               <div>
                 <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
@@ -348,7 +347,7 @@ export function renderBastSheet(bast: BastDocument, showSignature: boolean = tru
 /**
  * Generates an isolated, pristine HTML document for direct browser printing of a single BAST.
  */
-export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean = true): string {
+export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean = false): string {
   return `<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -368,7 +367,7 @@ export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean
  * Generates an isolated HTML document containing all provided BAST documents,
  * each partitioned on its own exact A4 page using CSS page breaks.
  */
-export function generateMultipleBastPrintHtml(basts: BastDocument[], showSignature: boolean = true): string {
+export function generateMultipleBastPrintHtml(basts: BastDocument[], showSignature: boolean = false): string {
   const sheets = basts.map(b => renderBastSheet(b, showSignature)).join('\n');
   const title = basts.length > 0 ? `BAST Kolektif (${basts.length} Dokumen - ${basts[0].tanggal})` : 'Cetak Kolektif BAST';
 
@@ -390,7 +389,7 @@ export function generateMultipleBastPrintHtml(basts: BastDocument[], showSignatu
 /**
  * Triggers the browser's native print dialog immediately using a hidden iframe for a single BAST.
  */
-export function printBastDocumentDirectly(bast: BastDocument, showSignature: boolean = true): void {
+export function printBastDocumentDirectly(bast: BastDocument, showSignature: boolean = false): void {
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -433,7 +432,7 @@ export function printBastDocumentDirectly(bast: BastDocument, showSignature: boo
 /**
  * Triggers the browser's native print dialog immediately to print ALL provided BAST documents sequentially.
  */
-export function printAllBastDocumentsDirectly(basts: BastDocument[], showSignature: boolean = true): void {
+export function printAllBastDocumentsDirectly(basts: BastDocument[], showSignature: boolean = false): void {
   if (!basts || basts.length === 0) return;
 
   const iframe = document.createElement('iframe');

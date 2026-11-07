@@ -32,31 +32,6 @@ import { BastDocument, BastStatus } from '../../types';
 import { downloadBastDocx } from '../../utils/bastDocxGenerator';
 import { printBastDocumentDirectly, printAllBastDocumentsDirectly } from '../../utils/bastPrintHelper';
 
-// Authentic stylized cursive signature for Sri Rohayu, S.Pd. matching PDF template
-const SriRohayuSignature: React.FC<{ className?: string }> = ({ className = 'h-14 w-auto' }) => (
-  <svg viewBox="0 0 160 65" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path
-      d="M32 46 C27 40, 20 26, 25 12 C28 3, 37 5, 41 15 C44 24, 42 36, 40 50 C39 56, 41 58, 45 52 C49 46, 53 34, 56 24 C58 18, 61 18, 62 25 C63 33, 61 46, 64 50 C66 53, 70 43, 74 34 C77 26, 82 24, 84 31 C86 38, 84 48, 88 51 C91 53, 95 44, 99 36 C103 28, 108 28, 111 34 C114 40, 113 48, 117 50 C121 52, 127 42, 133 33 C137 27, 141 30, 140 36 C139 44, 133 52, 125 56 C117 60, 101 61, 84 62 C64 63, 44 62, 24 61 C17 61, 13 60, 11 60"
-      stroke="#134e4a"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M37 17 C48 19, 68 20, 88 19 M76 11 C75 21, 74 33, 74 44"
-      stroke="#134e4a"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-    />
-    <path
-      d="M100 17 C106 13, 116 11, 120 17 C122 21, 118 29, 114 36"
-      stroke="#134e4a"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
 interface BastSubViewProps {
   initialDate?: string;
   onShowToast: (text: string, type?: 'success' | 'error') => void;
@@ -81,7 +56,6 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
   const [bastList, setBastList] = useState<BastDocument[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [showDigitalSignature, setShowDigitalSignature] = useState<boolean>(true);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -411,7 +385,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     const target = doc || previewDoc;
     if (!target) return;
     onShowToast(`Membuka kotak dialog cetak ${target.nomorBast}...`, 'success');
-    printBastDocumentDirectly(target, showDigitalSignature);
+    printBastDocumentDirectly(target);
   };
 
   // Print All BAST Documents simultaneously (Batch Print Out All)
@@ -421,7 +395,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
       return;
     }
     onShowToast(`Membuka kotak dialog cetak untuk seluruh ${filteredBast.length} dokumen BAST sekaligus...`, 'success');
-    printAllBastDocumentsDirectly(filteredBast, showDigitalSignature);
+    printAllBastDocumentsDirectly(filteredBast);
   };
 
   // Download Word (.docx)
@@ -1108,15 +1082,6 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
 
               {/* Action Buttons in Modal Header */}
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 rounded-xl text-xs text-slate-300 cursor-pointer select-none border border-slate-700/60">
-                  <input
-                    type="checkbox"
-                    checked={showDigitalSignature}
-                    onChange={(e) => setShowDigitalSignature(e.target.checked)}
-                    className="rounded text-emerald-500 focus:ring-0 cursor-pointer"
-                  />
-                  <span>Tanda Tangan Digital</span>
-                </label>
 
                 <button
                   onClick={() => handleDownloadWord(previewDoc)}
@@ -1287,13 +1252,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                           <div className="col-span-5 border border-black p-2.5 rounded-none text-[10pt] min-h-[142px] flex flex-col justify-between">
                             <div>
                               <div>Mengetahui:</div>
-                              {showDigitalSignature ? (
-                                <div className="my-0.5 -ml-1">
-                                  <SriRohayuSignature className="h-12 w-auto" />
-                                </div>
-                              ) : (
-                                <div className="h-12"></div>
-                              )}
+                              <div className="h-14"></div>
                             </div>
                             <div>
                               <div className="font-bold underline leading-tight">
@@ -1412,13 +1371,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                           <div className="col-span-5 border border-black p-2.5 rounded-none text-[10pt] min-h-[142px] flex flex-col justify-between">
                             <div>
                               <div>Mengetahui:</div>
-                              {showDigitalSignature ? (
-                                <div className="my-0.5 -ml-1">
-                                  <SriRohayuSignature className="h-12 w-auto" />
-                                </div>
-                              ) : (
-                                <div className="h-12"></div>
-                              )}
+                              <div className="h-14"></div>
                             </div>
                             <div>
                               <div className="font-bold underline leading-tight">
