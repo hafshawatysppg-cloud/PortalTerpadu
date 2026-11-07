@@ -101,7 +101,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   };
 
   // Tanggal aktif terintegrasi dengan Penerima Manfaat & Food Cost
-  const [selectedDate, setSelectedDate] = useState<string>('2026-11-01');
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sppg_akuntan_selected_date') || '2026-11-01';
+    } catch {
+      return '2026-11-01';
+    }
+  });
   const [isLoadingBeneficiary, setIsLoadingBeneficiary] = useState<boolean>(false);
   const [beneficiaryInfo, setBeneficiaryInfo] = useState<{
     porsiBesar: number;
@@ -746,8 +752,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
     const val = isNaN(newHarga) || newHarga < 0 ? 0 : newHarga;
     setRabBahanBaku(prev => {
+      let targetName = '';
       const updated = prev.map(item => {
         if (item.id === itemId) {
+          targetName = item.namaBarang;
           const p = Number(item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg || 1));
           return {
             ...item,
@@ -758,6 +766,41 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         return item;
       });
       localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
+      localStorage.setItem(`sppg_akuntan_rab_bb_${selectedDate}`, JSON.stringify(updated));
+
+      // Simpan ke map harga untuk sinkronisasi otomatis ke Food Cost
+      if (targetName) {
+        try {
+          const cleanKey = targetName.toLowerCase().trim();
+          const savedPrices = localStorage.getItem('sppg_akuntan_saved_prices');
+          const pMap = savedPrices ? JSON.parse(savedPrices) : {};
+          pMap[cleanKey] = val;
+          localStorage.setItem('sppg_akuntan_saved_prices', JSON.stringify(pMap));
+
+          // Sync langsung ke sppg_nutrition_plans jika ada untuk tanggal ini
+          const localPlans = localStorage.getItem('sppg_nutrition_plans');
+          if (localPlans) {
+            const plans = JSON.parse(localPlans);
+            let planChanged = false;
+            const updatedPlans = plans.map((p: any) => {
+              if (p.tanggalPelaksanaan === selectedDate && Array.isArray(p.ingredientsData)) {
+                p.ingredientsData = p.ingredientsData.map((ing: any) => {
+                  if ((ing.bahanPangan || '').toLowerCase().trim() === cleanKey) {
+                    planChanged = true;
+                    return { ...ing, hargaPerKg: val };
+                  }
+                  return ing;
+                });
+              }
+              return p;
+            });
+            if (planChanged) {
+              localStorage.setItem('sppg_nutrition_plans', JSON.stringify(updatedPlans));
+            }
+          }
+        } catch (_) {}
+      }
+
       return updated;
     });
   };
@@ -1665,7 +1708,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedDate(val);
+                  try {
+                    localStorage.setItem('sppg_akuntan_selected_date', val);
+                  } catch (_) {}
+                }}
                 className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
                 title="Pilih tanggal untuk sinkronisasi Penerima Manfaat & Food Cost"
               />

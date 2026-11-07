@@ -18,8 +18,20 @@ import {
   ChefHat,
   RefreshCw,
   Users,
-  Radio
+  Radio,
+  Coins,
+  DollarSign,
+  TrendingUp,
+  Calendar,
+  CheckCircle2
 } from 'lucide-react';
+import { 
+  getHargaDasarFromRab, 
+  syncHargaDasarToRab,
+  getActiveRabFilterDate,
+  syncAllIngredientsWithRabDate,
+  PriceSyncSourceMode
+} from '../../utils/rabFoodCostHelper';
 
 interface MultiGroupWorksheetTableProps {
   ingredients: MultiGroupIngredientItem[];
@@ -66,6 +78,39 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
   const [selectedGroupTab, setSelectedGroupTab] = useState<TargetGroupKey>('all');
   const [manualEditIndices, setManualEditIndices] = useState<{ [key: number]: boolean }>({});
 
+  // Mode sinkronisasi sumber harga RAB: pelaksanaan atau filter RAB akuntan
+  const [priceSyncMode, setPriceSyncMode] = useState<PriceSyncSourceMode>('pelaksanaan');
+  const [syncNotification, setSyncNotification] = useState<string | null>(null);
+
+  // Ambil tanggal filter aktif di menu RAB Akuntan
+  const rabFilterDate = getActiveRabFilterDate();
+
+  // Tanggal acuan aktif untuk menarik data harga dari RAB
+  const effectivePriceDate = React.useMemo(() => {
+    if (priceSyncMode === 'filter_rab' && rabFilterDate) return rabFilterDate;
+    return tanggalPelaksanaan || rabFilterDate || '2026-11-01';
+  }, [priceSyncMode, rabFilterDate, tanggalPelaksanaan]);
+
+  // Handler sinkronisasi ulang seluruh harga dasar dari RAB untuk tanggal terpilih
+  const handleSyncAllPricesFromRab = (targetDateToUse?: string) => {
+    const dateToUse = targetDateToUse || effectivePriceDate;
+    const { updatedIngredients, filledCount, emptyCount } = syncAllIngredientsWithRabDate(ingredients, dateToUse);
+    onChangeIngredients(updatedIngredients);
+    setSyncNotification(`Berhasil menyinkronkan ${ingredients.length} harga dasar dari RAB tanggal ${dateToUse} (${filledCount} terisi, ${emptyCount} kosong).`);
+    setTimeout(() => setSyncNotification(null), 4000);
+  };
+
+  // Auto-sync harga dasar saat effectivePriceDate berubah
+  React.useEffect(() => {
+    if (effectivePriceDate && ingredients.length > 0) {
+      const { updatedIngredients } = syncAllIngredientsWithRabDate(ingredients, effectivePriceDate);
+      const hasChanged = updatedIngredients.some((u, idx) => (u.hargaPerKg || 0) !== (ingredients[idx]?.hargaPerKg || 0));
+      if (hasChanged) {
+        onChangeIngredients(updatedIngredients);
+      }
+    }
+  }, [effectivePriceDate]);
+
   // Group master bahan by kategori for easy selection
   const masterByCategory = React.useMemo(() => {
     const map: { [cat: string]: MasterBahanPangan[] } = {};
@@ -94,17 +139,21 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
     const matchedMaster = masterBahan.find(b => b.namaBahan.toLowerCase() === selectedName.toLowerCase());
     const updated = [...ingredients];
     if (matchedMaster) {
+      // Sesuai aturan: Sambungkan data dengan RAB Bahan Baku. Jika belum terisi di RAB maka kosong (0)
+      const rabPrice = getHargaDasarFromRab(matchedMaster.namaBahan, effectivePriceDate);
       updated[index] = {
         ...updated[index],
         bahanPangan: matchedMaster.namaBahan,
         bddPercent: matchedMaster.bddDefault || 100,
         satuan: matchedMaster.satuanPembelian || 'Kg',
-        hargaPerKg: matchedMaster.hargaDasarPerKg || 0
+        hargaPerKg: rabPrice || 0
       };
     } else {
+      const rabPrice = getHargaDasarFromRab(selectedName, effectivePriceDate);
       updated[index] = {
         ...updated[index],
-        bahanPangan: selectedName
+        bahanPangan: selectedName,
+        hargaPerKg: rabPrice || 0
       };
     }
     onChangeIngredients(updated);
@@ -118,9 +167,12 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
     const newNo = ingredients.length + 1;
     // Pick the first available master item or placeholder
     const firstMaster = masterBahan.length > 0 ? masterBahan[0] : null;
+    const initialName = firstMaster ? firstMaster.namaBahan : 'Pilih Bahan Pangan';
+    const rabPrice = getHargaDasarFromRab(initialName, effectivePriceDate);
+
     const newItem: MultiGroupIngredientItem = {
       no: newNo,
-      bahanPangan: firstMaster ? firstMaster.namaBahan : 'Pilih Bahan Pangan',
+      bahanPangan: initialName,
       porsiKecilNet: 25,
       porsiBesarNet: 50,
       balitaNet: 25,
@@ -128,7 +180,7 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
       bddPercent: firstMaster?.bddDefault || 100,
       satuan: firstMaster?.satuanPembelian || 'Kg',
       pembulatan: 1,
-      hargaPerKg: firstMaster?.hargaDasarPerKg || 15000
+      hargaPerKg: rabPrice || 0 // Kosong jika di RAB Bahan Baku belum terisi
     };
     onChangeIngredients([...ingredients, newItem]);
   };
@@ -182,6 +234,93 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
       color: 'text-purple-700 bg-purple-50 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800' 
     }
   ];
+
+  // Kalkulasi Metrik Biaya Per Sasaran untuk informasi di bagian atas sesuai porsi masing-masing (Permintaan User #3)
+  const portionMetrics = React.useMemo(() => {
+    let totalKgKecil = 0;
+    let totalHargaKecil = 0;
+    let totalKgBesar = 0;
+    let totalHargaBesar = 0;
+    let totalKgBalita = 0;
+    let totalHargaBalita = 0;
+    let totalKgBumil = 0;
+    let totalHargaBumil = 0;
+
+    ingredients.forEach((item) => {
+      const bdd = Number(item.bddPercent) || 100;
+      // Harga dasar tersinkronisasi sesuai tanggal aktif
+      const hargaDasar = Number(item.hargaPerKg) || 0;
+
+      // Porsi Kecil
+      const grossKecil = calcGross(Number(item.porsiKecilNet) || 0, bdd);
+      const reqKecil = calcReqKg(grossKecil, targetCounts.porsiKecil);
+      totalKgKecil += reqKecil;
+      if (hargaDasar > 0) totalHargaKecil += Math.round(reqKecil * hargaDasar);
+
+      // Porsi Besar
+      const grossBesar = calcGross(Number(item.porsiBesarNet) || 0, bdd);
+      const reqBesar = calcReqKg(grossBesar, targetCounts.porsiBesar);
+      totalKgBesar += reqBesar;
+      if (hargaDasar > 0) totalHargaBesar += Math.round(reqBesar * hargaDasar);
+
+      // Balita
+      const grossBalita = calcGross(Number(item.balitaNet) || 0, bdd);
+      const reqBalita = calcReqKg(grossBalita, targetCounts.balita);
+      totalKgBalita += reqBalita;
+      if (hargaDasar > 0) totalHargaBalita += Math.round(reqBalita * hargaDasar);
+
+      // Bumil & Busui
+      const grossBumil = calcGross(Number(item.bumilBusuiNet) || 0, bdd);
+      const reqBumil = calcReqKg(grossBumil, targetCounts.bumilBusui);
+      totalKgBumil += reqBumil;
+      if (hargaDasar > 0) totalHargaBumil += Math.round(reqBumil * hargaDasar);
+    });
+
+    const perSasaranKecil = targetCounts.porsiKecil > 0 ? Math.round(totalHargaKecil / targetCounts.porsiKecil) : 0;
+    const perSasaranBesar = targetCounts.porsiBesar > 0 ? Math.round(totalHargaBesar / targetCounts.porsiBesar) : 0;
+    const perSasaranBalita = targetCounts.balita > 0 ? Math.round(totalHargaBalita / targetCounts.balita) : 0;
+    const perSasaranBumil = targetCounts.bumilBusui > 0 ? Math.round(totalHargaBumil / targetCounts.bumilBusui) : 0;
+
+    const grandTotalKg = totalKgKecil + totalKgBesar + totalKgBalita + totalKgBumil;
+    const grandTotalBufferKg = Number((grandTotalKg * 0.05).toFixed(2));
+    const grandTotalPlusBufferKg = Number((grandTotalKg + grandTotalBufferKg).toFixed(2));
+    const grandTotalHarga = totalHargaKecil + totalHargaBesar + totalHargaBalita + totalHargaBumil;
+    const totalSasaranSum = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
+    const rataRataPerSasaran = totalSasaranSum > 0 ? Math.round(grandTotalHarga / totalSasaranSum) : 0;
+
+    return {
+      porsiKecil: {
+        totalKg: Number(totalKgKecil.toFixed(2)),
+        totalHarga: totalHargaKecil,
+        perSasaran: perSasaranKecil,
+        count: targetCounts.porsiKecil
+      },
+      porsiBesar: {
+        totalKg: Number(totalKgBesar.toFixed(2)),
+        totalHarga: totalHargaBesar,
+        perSasaran: perSasaranBesar,
+        count: targetCounts.porsiBesar
+      },
+      balita: {
+        totalKg: Number(totalKgBalita.toFixed(2)),
+        totalHarga: totalHargaBalita,
+        perSasaran: perSasaranBalita,
+        count: targetCounts.balita
+      },
+      bumilBusui: {
+        totalKg: Number(totalKgBumil.toFixed(2)),
+        totalHarga: totalHargaBumil,
+        perSasaran: perSasaranBumil,
+        count: targetCounts.bumilBusui
+      },
+      grandTotalKg: Number(grandTotalKg.toFixed(2)),
+      grandTotalBufferKg,
+      grandTotalPlusBufferKg,
+      grandTotalHarga,
+      totalSasaranSum,
+      rataRataPerSasaran
+    };
+  }, [ingredients, targetCounts, tanggalPelaksanaan]);
 
   // Render Bahan Pangan Dropdown Cell
   const renderBahanPanganCell = (item: MultiGroupIngredientItem, index: number) => {
@@ -374,40 +513,160 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
           );
         })()}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {groupConfig.map(grp => (
-            <div key={grp.key} className="bg-white dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200">{grp.label}</span>
-                  <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${grp.color}`}>Aktif</span>
+        {/* Informasi Total Biaya Per Sasaran di Atas Sesuai Porsi Masing-masing (Permintaan User #3) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {groupConfig.map(grp => {
+            const m = portionMetrics[grp.key];
+            return (
+              <div key={grp.key} className="bg-white dark:bg-slate-800/90 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xs flex flex-col justify-between space-y-2.5 hover:border-emerald-400 transition-all">
+                <div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-black text-slate-900 dark:text-slate-100">{grp.label}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${grp.color}`}>
+                      {grp.count.toLocaleString('id-ID')} PM
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1" title={grp.sublabel}>
+                    {grp.sublabel}
+                  </p>
                 </div>
-                <p className="text-[9px] text-slate-400 dark:text-slate-400 mt-0.5 line-clamp-1" title={grp.sublabel}>
-                  {grp.sublabel}
-                </p>
+
+                {/* Panel Metrik Total Bahan & Total Biaya Per Sasaran */}
+                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 font-medium">Total Bahan:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">{m.totalKg} kg</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 font-medium">Total Harga Bahan:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                      {m.totalHarga > 0 ? formatRupiah(m.totalHarga) : 'Rp 0'}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-1">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider font-extrabold text-teal-800 dark:text-teal-300 block">
+                        Biaya Per Sasaran:
+                      </span>
+                      <span className="text-[8px] text-slate-400">
+                        {m.count > 0 ? `(${formatRupiah(m.totalHarga)} ÷ ${m.count} PM)` : 'PM Kosong'}
+                      </span>
+                    </div>
+                    <div className="text-xs font-black text-teal-800 dark:text-teal-200 bg-teal-100 dark:bg-teal-950/80 px-2.5 py-1 rounded-lg border border-teal-300 dark:border-teal-700 shrink-0">
+                      {m.totalHarga > 0 && m.count > 0 ? formatRupiah(m.perSasaran) : 'Rp 0'}
+                      <span className="text-[9px] font-normal text-teal-600 dark:text-teal-400">/PM</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-500 font-medium">Sasaran:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    readOnly={isReadOnly || Boolean(beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0)}
+                    value={targetCounts[grp.key]}
+                    onChange={(e) => onChangeTargetCounts({
+                      ...targetCounts,
+                      [grp.key]: Number(e.target.value) || 0
+                    })}
+                    className={`w-full px-2 py-1 rounded-lg text-xs font-bold text-center focus:ring-1 focus:ring-emerald-500 focus:outline-none ${
+                      beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0
+                        ? 'bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 cursor-default'
+                        : 'bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'
+                    }`}
+                    title={beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? "Tersinkronisasi otomatis dari Data Penerima Manfaat Harian" : "Jumlah sasaran"}
+                  />
+                  <span className="text-[10px] text-slate-500 font-medium shrink-0">jiwa</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="0"
-                  readOnly={isReadOnly || Boolean(beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0)}
-                  value={targetCounts[grp.key]}
-                  onChange={(e) => onChangeTargetCounts({
-                    ...targetCounts,
-                    [grp.key]: Number(e.target.value) || 0
-                  })}
-                  className={`w-full px-2 py-1 rounded-lg text-xs font-bold focus:ring-1 focus:ring-emerald-500 focus:outline-none ${
-                    beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0
-                      ? 'bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 cursor-default'
-                      : 'bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'
-                  }`}
-                  title={beneficiaryLiveInfo && beneficiaryLiveInfo.totalPenerima > 0 ? "Tersinkronisasi otomatis dari Data Penerima Manfaat Harian" : "Jumlah sasaran"}
-                />
-                <span className="text-[10px] text-slate-500 font-medium">jiwa</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      </div>
+
+      {/* Control Panel: Sinkronisasi Harga Dasar dengan Tanggal Pembuatan / Filter Tanggal RAB */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-teal-50/80 via-emerald-50/70 to-slate-50 dark:from-teal-950/40 dark:via-emerald-950/30 dark:to-slate-900 border border-teal-200/80 dark:border-teal-800/60 shadow-2xs space-y-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-teal-600 text-white rounded-lg shadow-2xs">
+              <Coins className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-teal-950 dark:text-teal-100 uppercase tracking-wide">
+                  Sinkronisasi Harga Dasar dari RAB Bahan Baku
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 border border-teal-300 dark:border-teal-700">
+                  Acuan Aktif: {effectivePriceDate}
+                </span>
+              </div>
+              <p className="text-[11px] text-teal-700 dark:text-teal-300">
+                Harga dasar terhubung langsung dengan RAB. Jika di RAB belum terisi pada tanggal ini, harga dasar akan kosong.
+              </p>
+            </div>
+          </div>
+
+          {/* Opsi Pilihan Tanggal Sumber Sinkronisasi */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Sinkronkan ke:</span>
+            
+            {/* Tombol Opsi: Tanggal Pelaksanaan */}
+            <button
+              type="button"
+              onClick={() => {
+                setPriceSyncMode('pelaksanaan');
+                handleSyncAllPricesFromRab(tanggalPelaksanaan);
+              }}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                priceSyncMode === 'pelaksanaan'
+                  ? 'bg-teal-700 text-white border-teal-800 shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+              title={`Sinkronkan harga dengan RAB tanggal pelaksanaan (${tanggalPelaksanaan || '-'})`}
+            >
+              <Calendar className="w-3 h-3" />
+              <span>Tgl Pelaksanaan ({tanggalPelaksanaan || '-'})</span>
+            </button>
+
+            {/* Tombol Opsi: Filter Tanggal RAB Akuntan */}
+            <button
+              type="button"
+              onClick={() => {
+                setPriceSyncMode('filter_rab');
+                handleSyncAllPricesFromRab(rabFilterDate);
+              }}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                priceSyncMode === 'filter_rab'
+                  ? 'bg-teal-700 text-white border-teal-800 shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+              title={`Sinkronkan harga dengan filter tanggal aktif di RAB Akuntan (${rabFilterDate})`}
+            >
+              <TrendingUp className="w-3 h-3" />
+              <span>Filter RAB Akuntan ({rabFilterDate})</span>
+            </button>
+
+            {/* Tombol Aksi Langsung Tarik Ulang */}
+            <button
+              type="button"
+              onClick={() => handleSyncAllPricesFromRab(effectivePriceDate)}
+              className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl text-[11px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
+              title="Tarik & sinkronkan ulang seluruh harga dasar dari RAB"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>⚡ Sinkronkan Harga</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Notifikasi info hasil sinkronisasi harga */}
+        {syncNotification && (
+          <div className="px-3 py-1.5 rounded-lg bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-900 dark:text-teal-100 text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+            <span>{syncNotification}</span>
+          </div>
+        )}
       </div>
 
       {/* Tabs Switcher & Actions */}
@@ -482,436 +741,548 @@ export const MultiGroupWorksheetTable: React.FC<MultiGroupWorksheetTableProps> =
         </div>
       ) : (
         <>
-          {/* SINGLE GROUP TABLE VIEW (Exact Format with Satuan, Harga Dasar, Total Harga, and Total Per Sasaran Footer) */}
+          {/* SINGLE GROUP TABLE VIEW (Format Bersih dengan Informasi Biaya Per Sasaran di Atas & Harga Terhubung ke RAB) */}
           {selectedGroupTab !== 'all' && (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="space-y-3">
+              {/* Active Tab Portion Executive Summary Banner (Permintaan User #3: Informasi Total Biaya Per Sasaran di Atas) */}
               {(() => {
                 const currentGrp = groupConfig.find(g => g.key === selectedGroupTab)!;
-                const netKey = (
-                  selectedGroupTab === 'porsiKecil' ? 'porsiKecilNet' :
-                  selectedGroupTab === 'porsiBesar' ? 'porsiBesarNet' :
-                  selectedGroupTab === 'balita' ? 'balitaNet' : 'bumilBusuiNet'
-                ) as keyof MultiGroupIngredientItem;
-
-                let sumKg = 0;
-                let sumHarga = 0;
-
+                const m = portionMetrics[selectedGroupTab];
                 return (
-                  <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
-                    <thead>
-                      <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
-                        <th className="py-2.5 px-2 font-bold w-10 border-r border-slate-700">1<br/><span className="text-[10px] font-normal">No</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">2<br/><span className="text-[10px] font-normal">Bahan Pangan (Master Data)</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">3<br/><span className="text-[10px] font-normal">Kelompok Sasaran</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">4<br/><span className="text-[10px] font-normal">Berat Bersih (gr)</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">5<br/><span className="text-[10px] font-normal">PERSEN BDD</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">6<br/><span className="text-[10px] font-normal">Berat Kotor (gr)</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700">7<br/><span className="text-[10px] font-normal">Jumlah Sasaran</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-emerald-900/90 text-emerald-100">8<br/><span className="text-[10px] font-normal">Kebutuhan (kg)</span></th>
-                        <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">9<br/><span className="text-[10px] font-normal">Satuan</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">10<br/><span className="text-[10px] font-normal">Harga Dasar (Rp)</span></th>
-                        <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">11<br/><span className="text-[10px] font-normal">Total Harga (Rp)</span></th>
-                        {!isReadOnly && <th className="py-2.5 px-2 font-bold w-10">Aksi</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
-                      {ingredients.map((item, index) => {
-                        const netVal = Number(item[netKey]) || 0;
-                        const bddVal = Number(item.bddPercent) || 100;
-                        const grossVal = calcGross(netVal, bddVal);
-                        const reqKg = calcReqKg(grossVal, currentGrp.count);
-                        const itemHargaDasar = item.hargaPerKg !== undefined ? item.hargaPerKg : 0;
-                        const itemTotalHarga = Math.round(reqKg * itemHargaDasar);
-                        sumKg += reqKg;
-                        sumHarga += itemTotalHarga;
-
-                        return (
-                          <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                              {item.no}
-                            </td>
-                            <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
-                              {renderBahanPanganCell(item, index)}
-                            </td>
-                            <td className="py-2 px-2 text-center font-bold text-[11px] border-r border-slate-200 dark:border-slate-800">
-                              <span className={`px-2 py-0.5 rounded text-[10px] ${currentGrp.color}`}>
-                                {currentGrp.label}
-                              </span>
-                            </td>
-                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                netVal
-                              ) : (
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  value={netVal}
-                                  onChange={(e) => handleUpdateItem(index, netKey, Number(e.target.value) || 0)}
-                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
-                                />
-                              )}
-                            </td>
-                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                `${bddVal}%`
-                              ) : (
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="100"
-                                  value={bddVal}
-                                  onChange={(e) => handleUpdateItem(index, 'bddPercent', Number(e.target.value) || 100)}
-                                  className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
-                                />
-                              )}
-                            </td>
-                            <td className="py-2 px-2 text-center font-semibold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
-                              {grossVal.toFixed(2)}
-                            </td>
-                            <td className="py-2 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">
-                              {currentGrp.count.toLocaleString('id-ID')}
-                            </td>
-                            <td className="py-2 px-2 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
-                              {reqKg.toFixed(2)}
-                            </td>
-                            {/* Satuan Editable */}
-                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{item.satuan || 'Kg'}</span>
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={item.satuan || 'Kg'}
-                                  onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
-                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                                />
-                              )}
-                            </td>
-                            {/* Harga Dasar Editable */}
-                            <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">{formatRupiah(itemHargaDasar)}</span>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1">
-                                  <span className="text-[10px] text-slate-400">Rp</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="500"
-                                    value={itemHargaDasar}
-                                    onChange={(e) => handleUpdateItem(index, 'hargaPerKg', Math.max(0, Number(e.target.value) || 0))}
-                                    className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                                  />
-                                </div>
-                              )}
-                            </td>
-                            {/* Total Harga */}
-                            <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
-                              {formatRupiah(itemTotalHarga)}
-                            </td>
-                            {!isReadOnly && (
-                              <td className="py-2 px-2 text-center">
-                                <button
-                                  onClick={() => handleDeleteRow(index)}
-                                  className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
-                                  title="Hapus baris"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      {/* Baris Total Kebutuhan Bahan & Total Harga */}
-                      <tr className="bg-slate-100 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={7} className="py-2.5 px-4 text-right uppercase tracking-wider text-xs">
-                          Total Kebutuhan Bahan ({currentGrp.label}):
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-xs font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/60">
-                          {sumKg.toFixed(2)} kg
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-xs text-slate-400 font-semibold">-</td>
-                        <td className="py-2.5 px-3 text-right uppercase tracking-wider text-xs text-slate-700 dark:text-slate-300">
-                          Total Harga:
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60">
-                          {formatRupiah(sumHarga)}
-                        </td>
-                        {!isReadOnly && <td></td>}
-                      </tr>
-
-                      {/* Baris Khusus: Total Harga di Setiap Porsi dan Total Per Sasaran */}
-                      <tr className="bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-100/80 dark:from-teal-950/60 dark:via-emerald-950/50 dark:to-teal-900/60 border-t border-teal-200 dark:border-teal-800 font-extrabold text-teal-950 dark:text-teal-100">
-                        <td colSpan={7} className="py-3 px-4 text-right">
-                          <div className="flex flex-col items-end">
-                            <span className="text-xs uppercase tracking-wider font-black text-teal-900 dark:text-teal-200">
-                              Total Per Sasaran ({currentGrp.label}):
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-100/70 dark:from-teal-950/70 dark:via-emerald-950/50 dark:to-teal-900/60 border-2 border-teal-300 dark:border-teal-700 shadow-sm space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-200/80 dark:border-teal-800/80 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-teal-600 text-white rounded-xl shadow-xs">
+                          <Coins className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-teal-950 dark:text-teal-100">
+                              Informasi Total Biaya Per Sasaran: {currentGrp.label}
                             </span>
-                            <span className="text-[10px] text-teal-700 dark:text-teal-300 font-normal">
-                              Rumus: Total Harga ({formatRupiah(sumHarga)}) ÷ {currentGrp.count.toLocaleString('id-ID')} Penerima Manfaat ({currentGrp.label})
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${currentGrp.color}`}>
+                              {m.count.toLocaleString('id-ID')} PM
                             </span>
                           </div>
-                        </td>
-                        <td colSpan={2} className="py-3 px-2 text-center border-l border-teal-200 dark:border-teal-800">
-                          <div className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold uppercase">Total Sasaran (PM)</div>
-                          <div className="text-xs font-black text-slate-900 dark:text-slate-100">{currentGrp.count.toLocaleString('id-ID')} Jiwa</div>
-                        </td>
-                        <td colSpan={2} className="py-3 px-3 text-right border-l border-teal-200 dark:border-teal-800 bg-emerald-100/70 dark:bg-emerald-900/50">
-                          <div className="text-[9px] text-emerald-800 dark:text-emerald-300 font-bold uppercase">Total Biaya Per Sasaran</div>
-                          <div className="text-sm font-black text-emerald-900 dark:text-emerald-100">
-                            {currentGrp.count > 0 ? formatRupiah(Math.round(sumHarga / currentGrp.count)) : 'Rp 0'}
-                            <span className="text-[10px] font-normal text-emerald-700 dark:text-emerald-300"> / sasaran</span>
+                          <p className="text-[11px] text-teal-800 dark:text-teal-300 mt-0.5 font-medium">
+                            {currentGrp.sublabel} &bull; Standar Porsi Khusus Food Cost SPPG
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <span className="text-[10px] uppercase font-bold text-teal-800 dark:text-teal-300 block">Total Biaya Per Sasaran:</span>
+                          <div className="text-lg sm:text-xl font-black text-emerald-900 dark:text-emerald-100 flex items-baseline gap-1 justify-end">
+                            <span>{m.totalHarga > 0 && m.count > 0 ? formatRupiah(m.perSasaran) : 'Rp 0'}</span>
+                            <span className="text-xs font-normal text-teal-700 dark:text-teal-300">/ sasaran</span>
                           </div>
-                        </td>
-                        {!isReadOnly && <td></td>}
-                      </tr>
-                    </tfoot>
-                  </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-teal-200/60 dark:border-teal-800/60">
+                        <span className="text-[10px] text-slate-500 font-medium block">Jumlah Sasaran (PM):</span>
+                        <span className="font-black text-slate-900 dark:text-slate-100 text-xs sm:text-sm">{m.count.toLocaleString('id-ID')} Jiwa</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-teal-200/60 dark:border-teal-800/60">
+                        <span className="text-[10px] text-slate-500 font-medium block">Total Kebutuhan Bahan:</span>
+                        <span className="font-black text-slate-900 dark:text-slate-100 text-xs sm:text-sm">{m.totalKg} kg</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-teal-200/60 dark:border-teal-800/60">
+                        <span className="text-[10px] text-slate-500 font-medium block">Total Biaya Bahan ({currentGrp.label}):</span>
+                        <span className="font-black text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">
+                          {m.totalHarga > 0 ? formatRupiah(m.totalHarga) : 'Rp 0 (Belum diisi di RAB)'}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-teal-100/80 dark:bg-teal-950/80 border border-teal-300 dark:border-teal-700">
+                        <span className="text-[10px] text-teal-800 dark:text-teal-300 font-bold block">Rumus Perhitungan:</span>
+                        <span className="font-extrabold text-[11px] text-teal-950 dark:text-teal-100 leading-tight block truncate" title={`Total Harga (${formatRupiah(m.totalHarga)}) ÷ ${m.count.toLocaleString('id-ID')} PM`}>
+                          {formatRupiah(m.totalHarga)} ÷ {m.count.toLocaleString('id-ID')} PM
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 );
               })()}
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                {(() => {
+                  const currentGrp = groupConfig.find(g => g.key === selectedGroupTab)!;
+                  const netKey = (
+                    selectedGroupTab === 'porsiKecil' ? 'porsiKecilNet' :
+                    selectedGroupTab === 'porsiBesar' ? 'porsiBesarNet' :
+                    selectedGroupTab === 'balita' ? 'balitaNet' : 'bumilBusuiNet'
+                  ) as keyof MultiGroupIngredientItem;
+
+                  let sumKg = 0;
+                  let sumHarga = 0;
+
+                  return (
+                    <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
+                      <thead>
+                        <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
+                          <th className="py-2.5 px-2 font-bold w-10 border-r border-slate-700">1<br/><span className="text-[10px] font-normal">No</span></th>
+                          <th className="py-2.5 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">2<br/><span className="text-[10px] font-normal">Bahan Pangan (Master Data)</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700">3<br/><span className="text-[10px] font-normal">Kelompok Sasaran</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700">4<br/><span className="text-[10px] font-normal">Berat Bersih (gr)</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700">5<br/><span className="text-[10px] font-normal">PERSEN BDD</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700">6<br/><span className="text-[10px] font-normal">Berat Kotor (gr)</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700">7<br/><span className="text-[10px] font-normal">Jumlah Sasaran</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-emerald-900/90 text-emerald-100">8<br/><span className="text-[10px] font-normal">Kebutuhan (kg)</span></th>
+                          <th className="py-2.5 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">9<br/><span className="text-[10px] font-normal">Satuan</span></th>
+                          <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">10<br/><span className="text-[10px] font-normal">Harga Dasar (Rp)</span></th>
+                          <th className="py-2.5 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">11<br/><span className="text-[10px] font-normal">Total Harga (Rp)</span></th>
+                          {!isReadOnly && <th className="py-2.5 px-2 font-bold w-10">Aksi</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                        {ingredients.map((item, index) => {
+                          const netVal = Number(item[netKey]) || 0;
+                          const bddVal = Number(item.bddPercent) || 100;
+                          const grossVal = calcGross(netVal, bddVal);
+                          const reqKg = calcReqKg(grossVal, currentGrp.count);
+
+                          // Harga dasar tersinkronisasi dari RAB sesuai acuan tanggal aktif
+                          const itemHargaDasar = Number(item.hargaPerKg) || 0;
+                          const itemTotalHarga = itemHargaDasar > 0 ? Math.round(reqKg * itemHargaDasar) : 0;
+                          sumKg += reqKg;
+                          sumHarga += itemTotalHarga;
+
+                          return (
+                            <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                              <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
+                                {item.no}
+                              </td>
+                              <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
+                                {renderBahanPanganCell(item, index)}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-[11px] border-r border-slate-200 dark:border-slate-800">
+                                <span className={`px-2 py-0.5 rounded text-[10px] ${currentGrp.color}`}>
+                                  {currentGrp.label}
+                                </span>
+                              </td>
+                              <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                                {isReadOnly ? (
+                                  netVal
+                                ) : (
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    value={netVal}
+                                    onChange={(e) => handleUpdateItem(index, netKey, Number(e.target.value) || 0)}
+                                    className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
+                                  />
+                                )}
+                              </td>
+                              <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                                {isReadOnly ? (
+                                  `${bddVal}%`
+                                ) : (
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="100"
+                                    value={bddVal}
+                                    onChange={(e) => handleUpdateItem(index, 'bddPercent', Number(e.target.value) || 100)}
+                                    className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-semibold text-slate-900 dark:text-slate-100 text-xs"
+                                  />
+                                )}
+                              </td>
+                              <td className="py-2 px-2 text-center font-semibold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
+                                {grossVal.toFixed(2)}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">
+                                {currentGrp.count.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                                {reqKg.toFixed(2)}
+                              </td>
+                              {/* Satuan Editable */}
+                              <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                                {isReadOnly ? (
+                                  <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{item.satuan || 'Kg'}</span>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={item.satuan || 'Kg'}
+                                    onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
+                                    className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                  />
+                                )}
+                              </td>
+                              {/* Harga Dasar Editable: Terhubung ke RAB Bahan Baku, Kosong jika belum terisi */}
+                              <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
+                                {isReadOnly ? (
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">
+                                    {itemHargaDasar > 0 ? formatRupiah(itemHargaDasar) : '-'}
+                                  </span>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <span className="text-[10px] text-slate-400">Rp</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="500"
+                                      placeholder="Kosong"
+                                      value={itemHargaDasar > 0 ? itemHargaDasar : ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0);
+                                        handleUpdateItem(index, 'hargaPerKg', val);
+                                        syncHargaDasarToRab(item.bahanPangan, val, [effectivePriceDate, tanggalPelaksanaan || ''].filter(Boolean));
+                                      }}
+                                      className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none placeholder:text-slate-400 placeholder:italic"
+                                      title={itemHargaDasar > 0 ? `Harga satuan tersinkron ke RAB (${effectivePriceDate}): ${formatRupiah(itemHargaDasar)}` : `Harga belum terisi di RAB Bahan Baku tanggal ${effectivePriceDate}`}
+                                    />
+                                  </div>
+                                )}
+                              </td>
+                              {/* Total Harga */}
+                              <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                                {itemTotalHarga > 0 ? formatRupiah(itemTotalHarga) : '-'}
+                              </td>
+                              {!isReadOnly && (
+                                <td className="py-2 px-2 text-center">
+                                  <button
+                                    onClick={() => handleDeleteRow(index)}
+                                    className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
+                                    title="Hapus baris"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
           {/* ALL GROUPS COMBINED MATRIX VIEW */}
           {selectedGroupTab === 'all' && (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              {(() => {
-                let matrixSumTotalKg = 0;
-                let matrixSumBufferKg = 0;
-                let matrixSumTotalHarga = 0;
-                const totalSasaranSum = targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui;
+            <div className="space-y-4">
+              {/* Ringkasan Total Biaya Persasaran di Atas Tabel Sesuai Porsi Masing-Masing */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50/90 via-emerald-50/80 to-blue-50/80 dark:from-teal-950/40 dark:via-emerald-950/40 dark:to-blue-950/40 border border-teal-200 dark:border-teal-800/60 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-3 border-b border-teal-200/60 dark:border-teal-800/60 gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-teal-600 text-white rounded-lg">
+                      <TrendingUp className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-teal-950 dark:text-teal-100 uppercase tracking-wide">
+                        Informasi Total Biaya Per Sasaran (Sesuai Porsi Masing-Masing)
+                      </h4>
+                      <p className="text-[11px] text-teal-700 dark:text-teal-300">
+                        Harga dasar terhubung langsung dengan RAB Bahan Baku. Rumus: <span className="font-semibold underline">Total Harga Porsi ÷ Jumlah Sasaran PM</span>.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold text-teal-800 dark:text-teal-300 block">Total Seluruh Sasaran:</span>
+                    <span className="text-base sm:text-lg font-black text-emerald-900 dark:text-emerald-100">
+                      {(targetCounts.porsiKecil + targetCounts.porsiBesar + targetCounts.balita + targetCounts.bumilBusui).toLocaleString('id-ID')} PM
+                    </span>
+                  </div>
+                </div>
 
-                return (
-                  <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
-                    <thead>
-                      <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
-                        <th rowSpan={2} className="py-2 px-2 font-bold w-10 border-r border-slate-700">No</th>
-                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">Bahan Pangan (Master)</th>
-                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">BDD</th>
-                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-amber-950 text-amber-200">
-                          Porsi Kecil ({targetCounts.porsiKecil})
-                        </th>
-                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200">
-                          Porsi Besar ({targetCounts.porsiBesar})
-                        </th>
-                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-blue-950 text-blue-200">
-                          Balita ({targetCounts.balita})
-                        </th>
-                        <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-purple-950 text-purple-200">
-                          Bumil & Busui ({targetCounts.bumilBusui})
-                        </th>
-                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-emerald-900 text-emerald-100">
-                          TOTAL (kg)
-                        </th>
-                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-teal-900 text-teal-100">
-                          Buffer 5%
-                        </th>
-                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">
-                          Pembulatan
-                        </th>
-                        <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">
-                          Satuan
-                        </th>
-                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">
-                          Harga Dasar (Rp)
-                        </th>
-                        <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">
-                          Total Harga (Rp)
-                        </th>
-                        {!isReadOnly && <th rowSpan={2} className="py-2 px-2 font-bold w-8">Aksi</th>}
-                      </tr>
-                      <tr className="bg-slate-700 text-[10px] text-slate-200 dark:bg-slate-900 border-b border-slate-600 text-center">
-                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                        <th className="py-1 px-1 border-r border-slate-700">gr</th>
-                        <th className="py-1 px-1 border-r border-slate-700">kg</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
-                      {ingredients.map((item, index) => {
-                        const bdd = Number(item.bddPercent) || 100;
-                        
-                        // Gross values
-                        const grossKecil = calcGross(Number(item.porsiKecilNet) || 0, bdd);
-                        const reqKecil = calcReqKg(grossKecil, targetCounts.porsiKecil);
+                {/* 4 Kartu Biaya Per Sasaran */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Porsi Kecil */}
+                  <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-900/50 shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded-full">
+                        Porsi Kecil ({targetCounts.porsiKecil} PM)
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {portionMetrics.porsiKecil.totalKg} kg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Biaya Per Sasaran:</span>
+                      <div className="text-base font-black text-amber-900 dark:text-amber-200">
+                        {portionMetrics.porsiKecil.totalHarga > 0 && targetCounts.porsiKecil > 0 ? formatRupiah(portionMetrics.porsiKecil.perSasaran) : 'Rp 0'}
+                        <span className="text-[10px] font-normal text-slate-500"> / PM</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 flex justify-between">
+                      <span>Total Anggaran:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {portionMetrics.porsiKecil.totalHarga > 0 ? formatRupiah(portionMetrics.porsiKecil.totalHarga) : '-'}
+                      </span>
+                    </div>
+                  </div>
 
-                        const grossBesar = calcGross(Number(item.porsiBesarNet) || 0, bdd);
-                        const reqBesar = calcReqKg(grossBesar, targetCounts.porsiBesar);
+                  {/* Porsi Besar */}
+                  <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-emerald-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full">
+                        Porsi Besar ({targetCounts.porsiBesar} PM)
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {portionMetrics.porsiBesar.totalKg} kg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Biaya Per Sasaran:</span>
+                      <div className="text-base font-black text-emerald-900 dark:text-emerald-200">
+                        {portionMetrics.porsiBesar.totalHarga > 0 && targetCounts.porsiBesar > 0 ? formatRupiah(portionMetrics.porsiBesar.perSasaran) : 'Rp 0'}
+                        <span className="text-[10px] font-normal text-slate-500"> / PM</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 flex justify-between">
+                      <span>Total Anggaran:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {portionMetrics.porsiBesar.totalHarga > 0 ? formatRupiah(portionMetrics.porsiBesar.totalHarga) : '-'}
+                      </span>
+                    </div>
+                  </div>
 
-                        const grossBalita = calcGross(Number(item.balitaNet) || 0, bdd);
-                        const reqBalita = calcReqKg(grossBalita, targetCounts.balita);
+                  {/* Balita */}
+                  <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-blue-200 dark:border-blue-900/50 shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/80 px-2 py-0.5 rounded-full">
+                        Balita ({targetCounts.balita} PM)
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {portionMetrics.balita.totalKg} kg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Biaya Per Sasaran:</span>
+                      <div className="text-base font-black text-blue-900 dark:text-blue-200">
+                        {portionMetrics.balita.totalHarga > 0 && targetCounts.balita > 0 ? formatRupiah(portionMetrics.balita.perSasaran) : 'Rp 0'}
+                        <span className="text-[10px] font-normal text-slate-500"> / PM</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 flex justify-between">
+                      <span>Total Anggaran:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {portionMetrics.balita.totalHarga > 0 ? formatRupiah(portionMetrics.balita.totalHarga) : '-'}
+                      </span>
+                    </div>
+                  </div>
 
-                        const grossBumil = calcGross(Number(item.bumilBusuiNet) || 0, bdd);
-                        const reqBumil = calcReqKg(grossBumil, targetCounts.bumilBusui);
+                  {/* Bumil & Busui */}
+                  <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-purple-200 dark:border-purple-900/50 shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 px-2 py-0.5 rounded-full">
+                        Bumil & Busui ({targetCounts.bumilBusui} PM)
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {portionMetrics.bumilBusui.totalKg} kg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Biaya Per Sasaran:</span>
+                      <div className="text-base font-black text-purple-900 dark:text-purple-200">
+                        {portionMetrics.bumilBusui.totalHarga > 0 && targetCounts.bumilBusui > 0 ? formatRupiah(portionMetrics.bumilBusui.perSasaran) : 'Rp 0'}
+                        <span className="text-[10px] font-normal text-slate-500"> / PM</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 flex justify-between">
+                      <span>Total Anggaran:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {portionMetrics.bumilBusui.totalHarga > 0 ? formatRupiah(portionMetrics.bumilBusui.totalHarga) : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                        const totalKg = Number((reqKecil + reqBesar + reqBalita + reqBumil).toFixed(2));
-                        const bufferKg = Number((totalKg * 0.05).toFixed(2));
-                        const totalPlusBuffer = Number((totalKg + bufferKg).toFixed(2));
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <table className="w-full text-left text-xs border-collapse bg-white dark:bg-slate-900">
+                  <thead>
+                    <tr className="bg-slate-800 text-white dark:bg-slate-950 border-b border-slate-700 text-center">
+                      <th rowSpan={2} className="py-2 px-2 font-bold w-10 border-r border-slate-700">No</th>
+                      <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 text-left min-w-[200px]">Bahan Pangan (Master)</th>
+                      <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">BDD</th>
+                      <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-amber-950 text-amber-200">
+                        Porsi Kecil ({targetCounts.porsiKecil})
+                      </th>
+                      <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200">
+                        Porsi Besar ({targetCounts.porsiBesar})
+                      </th>
+                      <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-blue-950 text-blue-200">
+                        Balita ({targetCounts.balita})
+                      </th>
+                      <th colSpan={2} className="py-1 px-2 font-bold border-r border-slate-700 bg-purple-950 text-purple-200">
+                        Bumil & Busui ({targetCounts.bumilBusui})
+                      </th>
+                      <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-emerald-900 text-emerald-100">
+                        TOTAL (kg)
+                      </th>
+                      <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-teal-900 text-teal-100">
+                        Buffer 5%
+                      </th>
+                      <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700">
+                        Pembulatan
+                      </th>
+                      <th rowSpan={2} className="py-2 px-2 font-bold border-r border-slate-700 bg-slate-900 text-slate-200">
+                        Satuan
+                      </th>
+                      <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-teal-900 text-teal-100 text-right">
+                        Harga Dasar (Rp)
+                      </th>
+                      <th rowSpan={2} className="py-2 px-3 font-bold border-r border-slate-700 bg-emerald-950 text-emerald-200 text-right">
+                        Total Harga (Rp)
+                      </th>
+                      {!isReadOnly && <th rowSpan={2} className="py-2 px-2 font-bold w-8">Aksi</th>}
+                    </tr>
+                    <tr className="bg-slate-700 text-[10px] text-slate-200 dark:bg-slate-900 border-b border-slate-600 text-center">
+                      <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                      <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                      <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                      <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                      <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                      <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                      <th className="py-1 px-1 border-r border-slate-700">gr</th>
+                      <th className="py-1 px-1 border-r border-slate-700">kg</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                    {ingredients.map((item, index) => {
+                      const bdd = Number(item.bddPercent) || 100;
+                      
+                      // Gross values
+                      const grossKecil = calcGross(Number(item.porsiKecilNet) || 0, bdd);
+                      const reqKecil = calcReqKg(grossKecil, targetCounts.porsiKecil);
 
-                        const itemHargaDasar = item.hargaPerKg !== undefined ? item.hargaPerKg : 0;
-                        const pNum = Number(item.pembulatan);
-                        const qtyCalc = (pNum > 0) ? pNum : totalPlusBuffer;
-                        const itemTotalHarga = Math.round(qtyCalc * itemHargaDasar);
+                      const grossBesar = calcGross(Number(item.porsiBesarNet) || 0, bdd);
+                      const reqBesar = calcReqKg(grossBesar, targetCounts.porsiBesar);
 
-                        matrixSumTotalKg += totalKg;
-                        matrixSumBufferKg += bufferKg;
-                        matrixSumTotalHarga += itemTotalHarga;
+                      const grossBalita = calcGross(Number(item.balitaNet) || 0, bdd);
+                      const reqBalita = calcReqKg(grossBalita, targetCounts.balita);
 
-                        return (
-                          <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                              {item.no}
-                            </td>
-                            <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
-                              {renderBahanPanganCell(item, index)}
-                            </td>
-                            <td className="py-2 px-2 text-center text-slate-600 border-r border-slate-200 dark:border-slate-800">
-                              {bdd}%
-                            </td>
+                      const grossBumil = calcGross(Number(item.bumilBusuiNet) || 0, bdd);
+                      const reqBumil = calcReqKg(grossBumil, targetCounts.bumilBusui);
 
-                            {/* Porsi Kecil */}
-                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiKecilNet}</td>
-                            <td className="py-2 px-1 text-center font-bold text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/10 border-r border-slate-200 dark:border-slate-800">{reqKecil.toFixed(2)}</td>
+                      const totalKg = Number((reqKecil + reqBesar + reqBalita + reqBumil).toFixed(2));
+                      const bufferKg = Number((totalKg * 0.05).toFixed(2));
+                      const totalPlusBuffer = Number((totalKg + bufferKg).toFixed(2));
 
-                            {/* Porsi Besar */}
-                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiBesarNet}</td>
-                            <td className="py-2 px-1 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10 border-r border-slate-200 dark:border-slate-800">{reqBesar.toFixed(2)}</td>
+                      // Harga dasar tersinkronisasi dari RAB sesuai acuan tanggal aktif
+                      const itemHargaDasar = Number(item.hargaPerKg) || 0;
+                      const pNum = Number(item.pembulatan);
+                      const qtyCalc = (pNum > 0) ? pNum : totalPlusBuffer;
+                      const itemTotalHarga = itemHargaDasar > 0 ? Math.round(qtyCalc * itemHargaDasar) : 0;
 
-                            {/* Balita */}
-                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.balitaNet}</td>
-                            <td className="py-2 px-1 text-center font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/10 border-r border-slate-200 dark:border-slate-800">{reqBalita.toFixed(2)}</td>
+                      return (
+                        <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-2 px-2 text-center font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
+                            {item.no}
+                          </td>
+                          <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
+                            {renderBahanPanganCell(item, index)}
+                          </td>
+                          <td className="py-2 px-2 text-center text-slate-600 border-r border-slate-200 dark:border-slate-800">
+                            {bdd}%
+                          </td>
 
-                            {/* Bumil */}
-                            <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.bumilBusuiNet}</td>
-                            <td className="py-2 px-1 text-center font-bold text-purple-700 dark:text-purple-400 bg-purple-50/30 dark:bg-purple-950/10 border-r border-slate-200 dark:border-slate-800">{reqBumil.toFixed(2)}</td>
+                          {/* Porsi Kecil */}
+                          <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiKecilNet}</td>
+                          <td className="py-2 px-1 text-center font-bold text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/10 border-r border-slate-200 dark:border-slate-800">{reqKecil.toFixed(2)}</td>
 
-                            {/* Totals */}
-                            <td className="py-2 px-2 text-center font-black text-slate-900 dark:text-slate-100 bg-slate-100/60 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-800">
-                              {totalKg.toFixed(2)}
-                            </td>
-                            <td className="py-2 px-2 text-center text-teal-700 dark:text-teal-400 font-semibold border-r border-slate-200 dark:border-slate-800">
-                              {bufferKg.toFixed(2)}
-                            </td>
-                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                item.pembulatan
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={item.pembulatan}
-                                  onChange={(e) => handleUpdateItem(index, 'pembulatan', e.target.value)}
-                                  className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs"
-                                />
-                              )}
-                            </td>
+                          {/* Porsi Besar */}
+                          <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.porsiBesarNet}</td>
+                          <td className="py-2 px-1 text-center font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10 border-r border-slate-200 dark:border-slate-800">{reqBesar.toFixed(2)}</td>
 
-                            {/* Satuan Editable */}
-                            <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">
-                                  {item.satuan || 'Kg'}
-                                </span>
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={item.satuan || 'Kg'}
-                                  onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
-                                  className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                                />
-                              )}
-                            </td>
+                          {/* Balita */}
+                          <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.balitaNet}</td>
+                          <td className="py-2 px-1 text-center font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/10 border-r border-slate-200 dark:border-slate-800">{reqBalita.toFixed(2)}</td>
 
-                            {/* Harga Dasar Editable */}
-                            <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
-                              {isReadOnly ? (
-                                <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">
-                                  {formatRupiah(itemHargaDasar)}
-                                </span>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1">
-                                  <span className="text-[10px] text-slate-400">Rp</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="500"
-                                    value={itemHargaDasar}
-                                    onChange={(e) => handleUpdateItem(index, 'hargaPerKg', Math.max(0, Number(e.target.value) || 0))}
-                                    className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                                  />
-                                </div>
-                              )}
-                            </td>
+                          {/* Bumil */}
+                          <td className="py-2 px-1 text-center font-mono border-r border-slate-200 dark:border-slate-800">{item.bumilBusuiNet}</td>
+                          <td className="py-2 px-1 text-center font-bold text-purple-700 dark:text-purple-400 bg-purple-50/30 dark:bg-purple-950/10 border-r border-slate-200 dark:border-slate-800">{reqBumil.toFixed(2)}</td>
 
-                            {/* Total Harga */}
-                            <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
-                              {formatRupiah(itemTotalHarga)}
-                            </td>
-
-                            {!isReadOnly && (
-                              <td className="py-2 px-1 text-center">
-                                <button
-                                  onClick={() => handleDeleteRow(index)}
-                                  className="text-rose-500 hover:text-rose-700 p-1 rounded cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
+                          {/* Totals */}
+                          <td className="py-2 px-2 text-center font-black text-slate-900 dark:text-slate-100 bg-slate-100/60 dark:bg-slate-800/60 border-r border-slate-200 dark:border-slate-800">
+                            {totalKg.toFixed(2)}
+                          </td>
+                          <td className="py-2 px-2 text-center text-teal-700 dark:text-teal-400 font-semibold border-r border-slate-200 dark:border-slate-800">
+                            {bufferKg.toFixed(2)}
+                          </td>
+                          <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                            {isReadOnly ? (
+                              item.pembulatan
+                            ) : (
+                              <input
+                                type="text"
+                                value={item.pembulatan}
+                                onChange={(e) => handleUpdateItem(index, 'pembulatan', e.target.value)}
+                                className="w-14 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs"
+                              />
                             )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      {/* Baris Total Kebutuhan & Anggaran */}
-                      <tr className="bg-slate-100 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-slate-100 border-t-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={11} className="py-2.5 px-3 text-right uppercase tracking-wider text-xs">
-                          Total Kebutuhan & Anggaran:
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-xs font-black text-slate-900 dark:text-slate-100 bg-slate-200/60 dark:bg-slate-700/60">
-                          {matrixSumTotalKg.toFixed(2)} kg
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-xs font-bold text-teal-700 dark:text-teal-400">
-                          {matrixSumBufferKg.toFixed(2)} kg
-                        </td>
-                        <td colSpan={2} className="py-2.5 px-2 text-center text-slate-400 text-[10px]">-</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400 text-[10px]">-</td>
-                        <td className="py-2.5 px-3 text-right text-sm font-black text-emerald-800 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/60">
-                          {formatRupiah(matrixSumTotalHarga)}
-                        </td>
-                        {!isReadOnly && <td></td>}
-                      </tr>
+                          </td>
 
-                      {/* Baris Rata-rata Biaya Per Sasaran */}
-                      <tr className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40 border-t border-emerald-200 dark:border-emerald-800 font-extrabold text-slate-800 dark:text-slate-100">
-                        <td colSpan={11} className="py-2.5 px-3 text-right text-xs">
-                          <div className="flex flex-col items-end">
-                            <span className="font-black text-emerald-900 dark:text-emerald-200 uppercase tracking-wide">
-                              Rata-rata Biaya Per Sasaran (Seluruh Porsi):
-                            </span>
-                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-normal">
-                              Rumus: Total Anggaran ({formatRupiah(matrixSumTotalHarga)}) ÷ {totalSasaranSum.toLocaleString('id-ID')} Total Sasaran Porsi
-                            </span>
-                          </div>
-                        </td>
-                        <td colSpan={5} className="py-2.5 px-3 text-right bg-emerald-100/70 dark:bg-emerald-900/50">
-                          <span className="text-sm font-black text-emerald-900 dark:text-emerald-100">
-                            {totalSasaranSum > 0 ? formatRupiah(Math.round(matrixSumTotalHarga / totalSasaranSum)) : 'Rp 0'}
-                            <span className="text-[10px] font-normal text-emerald-700 dark:text-emerald-300"> / sasaran</span>
-                          </span>
-                        </td>
-                        {!isReadOnly && <td></td>}
-                      </tr>
-                    </tfoot>
-                  </table>
-                );
-              })()}
+                          {/* Satuan Editable */}
+                          <td className="py-2 px-2 text-center border-r border-slate-200 dark:border-slate-800">
+                            {isReadOnly ? (
+                              <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">
+                                {item.satuan || 'Kg'}
+                              </span>
+                            ) : (
+                              <input
+                                type="text"
+                                value={item.satuan || 'Kg'}
+                                onChange={(e) => handleUpdateItem(index, 'satuan', e.target.value)}
+                                className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                              />
+                            )}
+                          </td>
+
+                          {/* Harga Dasar Editable: Terhubung ke RAB Bahan Baku, Kosong jika belum terisi */}
+                          <td className="py-2 px-2 text-right border-r border-slate-200 dark:border-slate-800">
+                            {isReadOnly ? (
+                              <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs font-mono">
+                                {itemHargaDasar > 0 ? formatRupiah(itemHargaDasar) : '-'}
+                              </span>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-[10px] text-slate-400">Rp</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="500"
+                                  placeholder="Kosong"
+                                  value={itemHargaDasar > 0 ? itemHargaDasar : ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0);
+                                    handleUpdateItem(index, 'hargaPerKg', val);
+                                    syncHargaDasarToRab(item.bahanPangan, val, [effectivePriceDate, tanggalPelaksanaan || ''].filter(Boolean));
+                                  }}
+                                  className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 font-mono font-bold text-slate-900 dark:text-slate-100 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none placeholder:text-slate-400 placeholder:italic"
+                                  title={itemHargaDasar > 0 ? `Harga satuan tersinkron ke RAB (${effectivePriceDate}): ${formatRupiah(itemHargaDasar)}` : `Harga belum terisi di RAB Bahan Baku tanggal ${effectivePriceDate}`}
+                                />
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Total Harga */}
+                          <td className="py-2 px-3 text-right font-black text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 border-r border-slate-200 dark:border-slate-800">
+                            {itemTotalHarga > 0 ? formatRupiah(itemTotalHarga) : '-'}
+                          </td>
+
+                          {!isReadOnly && (
+                            <td className="py-2 px-1 text-center">
+                              <button
+                                onClick={() => handleDeleteRow(index)}
+                                className="text-rose-500 hover:text-rose-700 p-1 rounded cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </>
