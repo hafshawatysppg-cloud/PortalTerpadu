@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { BastDocument, BastStatus } from '../../types';
 import { downloadBastDocx } from '../../utils/bastDocxGenerator';
-import { printBastDocumentDirectly } from '../../utils/bastPrintHelper';
+import { printBastDocumentDirectly, printAllBastDocumentsDirectly } from '../../utils/bastPrintHelper';
 
 // Authentic stylized cursive signature for Sri Rohayu, S.Pd. matching PDF template
 const SriRohayuSignature: React.FC<{ className?: string }> = ({ className = 'h-14 w-auto' }) => (
@@ -173,6 +173,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     let telp = '';
     let porsi = 0;
     let alamat = '';
+    let npsn = '';
 
     for (const grp of groupsMaster) {
       if (grp.lembagaList) {
@@ -182,6 +183,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           telp = found.nomorKontak || found.picKontak || grp.nomorKontak || grp.picKontak || '';
           porsi = found.total || 0;
           alamat = found.alamat || grp.alamat || '';
+          npsn = found.npsn || '';
           break;
         }
       }
@@ -195,6 +197,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     setFormData(prev => ({
       ...prev,
       namaSekolah: namaLembaga,
+      npsn: npsn || prev.npsn || '',
       namaPic: pic || prev.namaPic || '',
       telponPic: telp || prev.telponPic || '',
       alamatSekolah: alamat || prev.alamatSekolah || '',
@@ -411,6 +414,16 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     printBastDocumentDirectly(target, showDigitalSignature);
   };
 
+  // Print All BAST Documents simultaneously (Batch Print Out All)
+  const handlePrintAll = () => {
+    if (filteredBast.length === 0) {
+      onShowToast('Tidak ada dokumen BAST yang siap dicetak untuk filter saat ini', 'error');
+      return;
+    }
+    onShowToast(`Membuka kotak dialog cetak untuk seluruh ${filteredBast.length} dokumen BAST sekaligus...`, 'success');
+    printAllBastDocumentsDirectly(filteredBast, showDigitalSignature);
+  };
+
   // Download Word (.docx)
   const handleDownloadWord = async (doc: BastDocument) => {
     try {
@@ -505,7 +518,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           </button>
         </div>
 
-        {/* Action Buttons: Auto Generate, Manual Create & Number Config */}
+        {/* Action Buttons: Auto Generate, Manual Create, Print All & Number Config */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -526,6 +539,17 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           >
             <Sparkles className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
             <span>{isGenerating ? 'Memproses...' : '⚡ Generate BAST Otomatis'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePrintAll}
+            disabled={filteredBast.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-2xl shadow-sm shadow-blue-600/25 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            title="Cetak seluruh dokumen BAST sekaligus (Semua Lembaga)"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print Out All</span>
           </button>
 
           <button
@@ -652,8 +676,18 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
           {filteredBast.length > 0 && (
             <div className="flex items-center gap-2">
               <button
+                type="button"
+                onClick={handlePrintAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition-all cursor-pointer border border-blue-200"
+                title="Cetak seluruh dokumen BAST sekaligus"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Out All ({filteredBast.length})</span>
+              </button>
+
+              <button
                 onClick={() => handleGenerateBatch(true)}
-                className="text-xs font-semibold text-slate-500 hover:text-emerald-600 flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-emerald-50 transition-all"
+                className="text-xs font-semibold text-slate-500 hover:text-emerald-600 flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-emerald-50 transition-all cursor-pointer"
                 title="Generate ulang seluruh data BAST tanggal ini"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -905,9 +939,14 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
 
                       {/* 3. Sekolah / Lembaga */}
                       <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
                           <span className="font-bold text-slate-800">{doc.namaSekolah}</span>
+                          {doc.npsn && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                              NPSN: {doc.npsn}
+                            </span>
+                          )}
                         </div>
                         {doc.alamatSekolah && (
                           <div className="text-[11px] text-slate-400 pl-6 truncate max-w-xs">
@@ -1224,6 +1263,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                             <div className="flex items-baseline">
                               <span className="w-44 font-bold">Diterima Oleh Lembaga:</span>
                               <strong className="font-bold uppercase">{previewDoc.namaSekolah}</strong>
+                              {previewDoc.npsn && (
+                                <span className="text-[9.5pt] font-normal text-slate-700 ml-1.5">(NPSN: {previewDoc.npsn})</span>
+                              )}
                             </div>
                             <div className="flex items-baseline">
                               <span className="w-44">PIC</span>
@@ -1316,6 +1358,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                               Yang Menyerahkan (diisi oleh Lembaga):
                             </span>
                             <strong className="font-bold uppercase">{previewDoc.namaSekolah}</strong>
+                            {previewDoc.npsn && (
+                              <span className="text-[9.5pt] font-normal text-slate-700 ml-1.5">(NPSN: {previewDoc.npsn})</span>
+                            )}
                           </div>
                           <div className="flex items-baseline">
                             <span className="w-72">PIC</span>
@@ -1508,14 +1553,27 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                     </button>
                   )}
                 </div>
-                <input
-                  type="text"
-                  list="sekolah-lembaga-datalist"
-                  value={formData.namaSekolah || ''}
-                  placeholder="Contoh: TK ZAINUL HASAN, SMP ZAINUL HASAN 1 GENGGONG, dll."
-                  onChange={(e) => handleSelectLembaga(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:border-emerald-500"
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="sm:col-span-2">
+                    <input
+                      type="text"
+                      list="sekolah-lembaga-datalist"
+                      value={formData.namaSekolah || ''}
+                      placeholder="Contoh: TK ZAINUL HASAN, SMP ZAINUL HASAN 1 GENGGONG, dll."
+                      onChange={(e) => handleSelectLembaga(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="text"
+                      value={formData.npsn || ''}
+                      placeholder="NPSN (e.g. 20512345)"
+                      onChange={(e) => setFormData({ ...formData, npsn: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
                 <datalist id="sekolah-lembaga-datalist">
                   {groupsMaster.flatMap(g => (g.lembagaList || []).map((l: any) => l.namaInstansi || l.nama)).filter(Boolean).map((name, i) => (
                     <option key={i} value={name} />

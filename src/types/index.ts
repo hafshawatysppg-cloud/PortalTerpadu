@@ -434,6 +434,7 @@ export interface BeneficiaryGroup {
   lembagaList?: Array<{
     id?: string;
     namaInstansi: string;
+    npsn?: string;
     alamat?: string;
     picNama?: string;
     nomorKontak?: string;
@@ -455,6 +456,7 @@ export interface BeneficiaryLocation {
   groupId: string;
   groupNama: string;
   namaInstansi: string; // e.g. SD Zainul Hasan Genggong, MA Model Hafshawaty
+  npsn?: string;
   alamat?: string;
   kontak?: string;
   picNama?: string;
@@ -1161,6 +1163,7 @@ export interface BastDocument {
   // School / Lembaga
   instansiId: string;
   namaSekolah: string; // e.g. 'TK ZAINUL HASAN'
+  npsn?: string; // e.g. '20512345'
   alamatSekolah?: string;
   namaPic: string; // e.g. 'Lulut Biyadillah'
   telponPic: string; // e.g. '085234834095'

@@ -1483,14 +1483,15 @@ router.post('/bast/:id/regenerate', async (req: Request, res: Response): Promise
       return r.locationId === existing.instansiId || clean.toLowerCase() === existing.namaSekolah.trim().toLowerCase();
     });
 
+    const loc = dbStore.beneficiaryLocations.find(l => l.id === existing.instansiId || l.namaInstansi.trim().toLowerCase() === existing.namaSekolah.trim().toLowerCase());
     let newCount = matching.reduce((sum, r) => sum + (Number(r.totalPenerima) || 0), 0);
     if (newCount === 0) {
-      const loc = dbStore.beneficiaryLocations.find(l => l.id === existing.instansiId || l.namaInstansi.trim().toLowerCase() === existing.namaSekolah.trim().toLowerCase());
       newCount = loc?.defaultJumlah || existing.jumlahPaketMakanan;
     }
 
     const updated = dbStore.saveBastDocument({
       ...existing,
+      npsn: existing.npsn || loc?.npsn || '',
       jumlahPaketMakanan: newCount,
       jumlahAlatMakan: newCount,
       updatedAt: new Date().toISOString()

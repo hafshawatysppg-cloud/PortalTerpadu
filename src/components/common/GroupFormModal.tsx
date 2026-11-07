@@ -640,6 +640,80 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     setEditingGroup({ ...editingGroup, lembagaList: list });
   };
 
+  // Update a single class gender target (Laki-laki / Perempuan)
+  const handleClassGenderValueChange = (
+    lembagaIdx: number,
+    classKey: string,
+    gender: 'l' | 'p',
+    rawVal: string
+  ) => {
+    const num = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...(editingGroup.lembagaList || [])];
+    const item = { ...list[lembagaIdx] };
+    const itemCat = item.kategoriLembaga || currentCategory;
+    const itemConf = getKategoriConfig(itemCat);
+
+    const bd = { ...(item.breakdownKelas || {}) };
+    const genderKey = `${classKey}_${gender}`;
+    bd[genderKey] = num;
+
+    const otherGender = gender === 'l' ? 'p' : 'l';
+    const otherGenderKey = `${classKey}_${otherGender}`;
+    const otherVal = bd[otherGenderKey] !== undefined
+      ? (Number(bd[otherGenderKey]) || 0)
+      : (bd[classKey] ? Math.max(0, (Number(bd[classKey]) || 0) - num) : 0);
+    bd[otherGenderKey] = otherVal;
+
+    const classTotal = (gender === 'l' ? num : otherVal) + (gender === 'p' ? num : otherVal);
+    bd[classKey] = classTotal;
+    item.breakdownKelas = bd;
+
+    // Recalculate class sum across all classes
+    const sumClasses = itemConf.classes.reduce((sum, c) => {
+      const cL = bd[`${c.key}_l`] !== undefined ? (Number(bd[`${c.key}_l`]) || 0) : 0;
+      const cP = bd[`${c.key}_p`] !== undefined ? (Number(bd[`${c.key}_p`]) || 0) : 0;
+      const cTot = (bd[`${c.key}_l`] !== undefined || bd[`${c.key}_p`] !== undefined) ? (cL + cP) : (Number(bd[c.key]) || 0);
+      return sum + cTot;
+    }, 0);
+
+    const g = Number(item.targetGuru) || 0;
+
+    const is3B = itemConf.targetCategory === '3B' || itemConf.id.includes('3B');
+    if (is3B) {
+      handle3BValueChange(lembagaIdx, classKey, rawVal);
+      return;
+    } else if (itemConf.targetCategory === 'Balita') {
+      item.targetBalita = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBumilBusui = 0;
+    } else if (itemConf.targetCategory === 'Ibu Hamil') {
+      item.targetBumilBusui = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBalita = 0;
+    } else {
+      item.targetSiswa = sumClasses;
+      item.targetBalita = 0;
+      item.targetBumilBusui = 0;
+    }
+
+    item.total = sumClasses + g;
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: itemCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: item.total
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setEditingGroup({ ...editingGroup, lembagaList: list });
+  };
+
   // Update a single class target
   const handleClassValueChange = (lembagaIdx: number, classKey: string, rawVal: string) => {
     const num = Math.max(0, parseInt(rawVal, 10) || 0);
@@ -648,7 +722,12 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     const itemCat = item.kategoriLembaga || currentCategory;
     const itemConf = getKategoriConfig(itemCat);
 
-    const bd = { ...(item.breakdownKelas || {}), [classKey]: num };
+    const bd = {
+      ...(item.breakdownKelas || {}),
+      [classKey]: num,
+      [`${classKey}_l`]: Math.ceil(num / 2),
+      [`${classKey}_p`]: Math.floor(num / 2)
+    };
     item.breakdownKelas = bd;
 
     // Recalculate class sum
@@ -1084,11 +1163,25 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                   const itemBd = item.breakdownKelas || {};
                   const is3BItem = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
 
-                  // Class sum for this item
-                  const sumClassesThisItem = itemConf.classes.reduce(
-                    (sum, cls) => sum + (Number(itemBd[cls.key]) || 0),
-                    0
-                  );
+                  // Class sum for this item (supports both gender-split and legacy single class numbers)
+                  const sumClassesThisItem = itemConf.classes.reduce((sum, cls) => {
+                    const cL = itemBd[`${cls.key}_l`] !== undefined ? (Number(itemBd[`${cls.key}_l`]) || 0) : 0;
+                    const cP = itemBd[`${cls.key}_p`] !== undefined ? (Number(itemBd[`${cls.key}_p`]) || 0) : 0;
+                    const cTot = (itemBd[`${cls.key}_l`] !== undefined || itemBd[`${cls.key}_p`] !== undefined)
+                      ? (cL + cP)
+                      : (Number(itemBd[cls.key]) || 0);
+                    return sum + cTot;
+                  }, 0);
+
+                  const totClassL = itemConf.classes.reduce((sum, cls) => {
+                    const l = itemBd[`${cls.key}_l`] !== undefined ? (Number(itemBd[`${cls.key}_l`]) || 0) : (itemBd[cls.key] ? Math.ceil(itemBd[cls.key] / 2) : 0);
+                    return sum + l;
+                  }, 0);
+
+                  const totClassP = itemConf.classes.reduce((sum, cls) => {
+                    const p = itemBd[`${cls.key}_p`] !== undefined ? (Number(itemBd[`${cls.key}_p`]) || 0) : (itemBd[cls.key] ? Math.floor(itemBd[cls.key] / 2) : 0);
+                    return sum + p;
+                  }, 0);
                   const numGuruThisItem = Number(item.targetGuru) || 0;
 
                   // 3B Specific Demography Calculations
@@ -1148,7 +1241,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                           <span className="w-6 h-6 rounded-lg bg-slate-900 text-white font-extrabold text-[11px] flex items-center justify-center shrink-0">
                             #{idx + 1}
                           </span>
-                          <div className="flex-1 max-w-md">
+                          <div className="flex-1 max-w-lg flex items-center gap-2">
                             <input
                               type="text"
                               value={item.namaInstansi || ''}
@@ -1158,9 +1251,23 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                                 setEditingGroup({ ...editingGroup, lembagaList: list });
                               }}
                               placeholder={`Nama Lembaga #${idx + 1} (e.g. ${itemConf.shortName} Negeri 1)`}
-                              className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                              className="flex-1 min-w-[170px] px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                               required
                             />
+                            <div className="w-36 shrink-0 relative">
+                              <input
+                                type="text"
+                                value={item.npsn || ''}
+                                onChange={(e) => {
+                                  const list = [...(editingGroup.lembagaList || [])];
+                                  list[idx] = { ...list[idx], npsn: e.target.value };
+                                  setEditingGroup({ ...editingGroup, lembagaList: list });
+                                }}
+                                placeholder="NPSN Sekolah"
+                                title="Nomor Pokok Sekolah Nasional (NPSN)"
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-blue-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              />
+                            </div>
                           </div>
                         </div>
 
@@ -1481,38 +1588,47 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                       ) : (
                         /* STANDARD BREAKDOWN DEMOGRAFI PENERIMA FOR SCHOOLS / OTHER CATEGORIES */
                         <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                            <div className="flex items-center gap-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                                BREAKDOWN DEMOGRAFI PENERIMA
+                                DETAIL SASARAN KELAS & GENDER (L / P)
                               </span>
                               <span className="text-xs font-bold text-slate-700">
                                 {itemConf.label}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-extrabold text-slate-500">
-                                Subtotal {itemConf.mainTargetLabel}:
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-extrabold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 flex items-center gap-1">
+                                <span>👦</span> L: <strong className="font-black">{totClassL}</strong>
                               </span>
-                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-300">
-                                {sumClassesThisItem} {itemConf.mainTargetLabel}
+                              <span className="text-[11px] font-extrabold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200 flex items-center gap-1">
+                                <span>👧</span> P: <strong className="font-black">{totClassP}</strong>
+                              </span>
+                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                                Total: {sumClassesThisItem} {itemConf.mainTargetLabel}
                               </span>
                             </div>
                           </div>
 
-                          {/* GRID OF CLASS INPUTS */}
+                          {/* GRID OF CLASS INPUTS WITH GENDER BREAKDOWN (LAKI-LAKI & PEREMPUAN) */}
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
                             {itemConf.classes.map((cls) => {
-                              const val = itemBd[cls.key] !== undefined ? itemBd[cls.key] : 0;
+                              const valL = itemBd[`${cls.key}_l`] !== undefined
+                                ? itemBd[`${cls.key}_l`]
+                                : (itemBd[cls.key] ? Math.ceil(itemBd[cls.key] / 2) : 0);
+                              const valP = itemBd[`${cls.key}_p`] !== undefined
+                                ? itemBd[`${cls.key}_p`]
+                                : (itemBd[cls.key] ? Math.floor(itemBd[cls.key] / 2) : 0);
+                              const classTotal = (Number(valL) || 0) + (Number(valP) || 0);
 
                               return (
                                 <div
                                   key={cls.key}
-                                  className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all flex flex-col justify-between"
+                                  className="bg-slate-50/90 p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-slate-50 transition-all flex flex-col justify-between shadow-2xs"
                                 >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <label className="text-[11px] font-extrabold text-slate-800">
+                                  <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200/60">
+                                    <label className="text-[11px] font-black text-slate-800">
                                       {cls.label}
                                     </label>
                                     {cls.portionTier && (
@@ -1527,22 +1643,45 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                                     )}
                                   </div>
 
-                                  <div className="relative">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={val === 0 ? '' : val}
-                                      onChange={(e) => handleClassValueChange(idx, cls.key, e.target.value)}
-                                      placeholder="0"
-                                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-extrabold text-slate-900 text-center focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                                    />
+                                  {/* Inputs L (Laki-laki) & P (Perempuan) */}
+                                  <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                                    <div>
+                                      <span className="block text-[9px] font-extrabold text-blue-700 text-center mb-0.5">
+                                        👦 L
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={valL === 0 ? '' : valL}
+                                        onChange={(e) => handleClassGenderValueChange(idx, cls.key, 'l', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full px-1 py-1 bg-white border border-blue-200 focus:border-blue-500 rounded-lg text-xs font-black text-blue-900 text-center focus:ring-1 focus:ring-blue-400 shadow-2xs"
+                                        title={`Jumlah Siswa Laki-laki ${cls.label}`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <span className="block text-[9px] font-extrabold text-rose-700 text-center mb-0.5">
+                                        👧 P
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={valP === 0 ? '' : valP}
+                                        onChange={(e) => handleClassGenderValueChange(idx, cls.key, 'p', e.target.value)}
+                                        placeholder="0"
+                                        className="w-full px-1 py-1 bg-white border border-rose-200 focus:border-rose-500 rounded-lg text-xs font-black text-rose-900 text-center focus:ring-1 focus:ring-rose-400 shadow-2xs"
+                                        title={`Jumlah Siswi Perempuan ${cls.label}`}
+                                      />
+                                    </div>
                                   </div>
 
-                                  {cls.ageRange && (
-                                    <span className="text-[9px] text-slate-400 mt-1 text-center block">
-                                      {cls.ageRange}
+                                  {/* Subtotal Footer */}
+                                  <div className="pt-1 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400 font-medium">Total:</span>
+                                    <span className="font-black text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                      {classTotal}
                                     </span>
-                                  )}
+                                  </div>
                                 </div>
                               );
                             })}

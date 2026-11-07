@@ -30,10 +30,158 @@ export function getSriRohayuSignatureSvg(): string {
 }
 
 /**
- * Generates an isolated, pristine HTML document for direct browser printing.
- * Guarantees zero blank pages, perfect A4 margins, and generous signature spacing.
+ * Common CSS for BAST printable sheets
  */
-export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean = true): string {
+const BAST_PRINT_CSS = `
+  @page {
+    size: A4 portrait;
+    margin: 8mm 12mm 8mm 12mm;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    color: #000000;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 10.5pt;
+    line-height: 1.25;
+  }
+  .sheet {
+    width: 100%;
+    max-width: 190mm;
+    margin: 0 auto;
+    page-break-after: always;
+    break-after: page;
+  }
+  .sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .section {
+    margin-bottom: 14px;
+  }
+  .header-box {
+    position: relative;
+    min-height: 54px;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .header-logo {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+  }
+  .header-title-1 {
+    font-size: 12.5pt;
+    font-weight: bold;
+    text-decoration: underline;
+    text-transform: uppercase;
+    margin: 0;
+    line-height: 1.2;
+  }
+  .header-title-2 {
+    font-size: 11.5pt;
+    font-weight: bold;
+    text-decoration: underline;
+    text-transform: uppercase;
+    margin: 2px 0 0 0;
+    line-height: 1.2;
+  }
+  .header-nomor {
+    font-size: 10.5pt;
+    margin: 2px 0 0 0;
+  }
+  .narrative-p {
+    text-align: justify;
+    margin: 6px 0 8px 0;
+    line-height: 1.35;
+    font-size: 10.5pt;
+  }
+  .row-info {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 2px;
+    font-size: 10.5pt;
+  }
+  .col-label-1 {
+    width: 155px;
+    flex-shrink: 0;
+  }
+  .col-label-2 {
+    width: 250px;
+    flex-shrink: 0;
+  }
+  .col-label-3 {
+    width: 135px;
+    flex-shrink: 0;
+  }
+  .signature-space {
+    height: 65px;
+  }
+  .signature-name {
+    font-weight: bold;
+  }
+  .signature-line {
+    width: 220px;
+    border-bottom: 1px solid #000000;
+    margin-top: 3px;
+  }
+  .signatures-bottom-grid {
+    display: table;
+    width: 100%;
+    margin-top: 4px;
+  }
+  .grid-cell-left {
+    display: table-cell;
+    width: 65%;
+    vertical-align: top;
+    padding-right: 12px;
+  }
+  .grid-cell-right {
+    display: table-cell;
+    width: 35%;
+    vertical-align: top;
+  }
+  .mengetahui-box {
+    border: 1px solid #000000;
+    padding: 8px 10px;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 9.5pt;
+  }
+  .mengetahui-title {
+    font-size: 10pt;
+    margin-bottom: 2px;
+  }
+  .mengetahui-name {
+    font-size: 10pt;
+    font-weight: bold;
+    text-decoration: underline;
+    line-height: 1.2;
+  }
+  .mengetahui-job {
+    font-size: 9pt;
+    line-height: 1.2;
+  }
+  .section-gap {
+    height: 12px;
+  }
+`;
+
+/**
+ * Renders the HTML markup for a single BAST sheet
+ */
+export function renderBastSheet(bast: BastDocument, showSignature: boolean = true): string {
   const cleanDate = bast.hariTanggalFormatted.includes(',')
     ? bast.hariTanggalFormatted.split(',')[1].trim()
     : bast.hariTanggalFormatted;
@@ -46,302 +194,201 @@ export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean
     ? getSriRohayuSignatureSvg()
     : '<div style="height: 48px;"></div>';
 
+  const npsnBadge = bast.npsn
+    ? ` <span style="font-size: 9pt; font-weight: normal; color: #1e293b;">(NPSN: ${bast.npsn})</span>`
+    : '';
+
+  return `
+    <div class="sheet">
+      <!-- ========================================================= -->
+      <!-- BAGIAN A: BERITA ACARA PENERIMAAN PAKET MAKANAN         -->
+      <!-- ========================================================= -->
+      <div class="section">
+        <div class="header-box">
+          <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
+          <div class="header-title-1">BERITA ACARA PENERIMAAN PAKET MAKANAN</div>
+          <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
+          <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
+        </div>
+
+        <div class="narrative-p">
+          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : <strong>${bast.jumlahPaketMakanan}</strong> dalam keadaan baik dan layak dikonsumsi dari ${bast.namaSppg}.
+        </div>
+
+        <!-- Yang Menyerahkan (Atas) -->
+        <div>
+          <div class="row-info">
+            <div class="col-label-1">Yang Menyerahkan</div>
+            <div>: <strong>${bast.namaTimDistribusi}</strong></div>
+          </div>
+          <div class="row-info">
+            <div class="col-label-1">Nomor Telpon</div>
+            <div>: <strong>${bast.telponPetugasDistribusi || '085212581665'}</strong></div>
+          </div>
+          <!-- Generous signature space -->
+          <div class="signature-space"></div>
+          <div class="signature-name">(${bast.namaPetugasDistribusi || 'Abdus Salam'} )</div>
+          <div class="signature-line"></div>
+        </div>
+
+        <!-- Grid Bawah: Kiri Diterima Lembaga, Kanan Mengetahui -->
+        <div class="signatures-bottom-grid">
+          <div class="grid-cell-left">
+            <div class="row-info">
+              <div class="col-label-1"><strong>Diterima Oleh Lembaga:</strong></div>
+              <div><strong style="text-transform: uppercase;">${bast.namaSekolah}</strong>${npsnBadge}</div>
+            </div>
+            <div class="row-info">
+              <div class="col-label-1">PIC</div>
+              <div>: ${bast.namaPic || 'Lulut Biyadillah'}</div>
+            </div>
+            <div class="row-info">
+              <div class="col-label-1">Nomor Telpon</div>
+              <div>: ${bast.telponPic || '085234834095'}</div>
+            </div>
+            <!-- Generous signature space -->
+            <div class="signature-space"></div>
+            <div class="signature-name">( ${bast.namaPic || 'Lulut Biyadillah'} )</div>
+            <div class="signature-line"></div>
+          </div>
+
+          <div class="grid-cell-right">
+            <div class="mengetahui-box">
+              <div>
+                <div class="mengetahui-title">Mengetahui:</div>
+                ${signatureSvg}
+              </div>
+              <div>
+                <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
+                <div class="mengetahui-job">Kepala SPPG Probolinggo</div>
+                <div class="mengetahui-job">Krejengan Temenggungan</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-gap"></div>
+
+      <!-- ========================================================= -->
+      <!-- BAGIAN B: BERITA ACARA PENYERAHAN ALAT MAKAN             -->
+      <!-- ========================================================= -->
+      <div class="section">
+        <div class="header-box">
+          <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
+          <div class="header-title-1">BERITA ACARA PENYERAHAN ALAT MAKAN</div>
+          <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
+          <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
+        </div>
+
+        <div class="narrative-p">
+          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Kembali Alat Makan Sejumlah : <strong>${bast.jumlahAlatMakan || bast.jumlahPaketMakanan}</strong> Paket Alat Makan Bergizi Dari ${bast.namaSppg}.
+        </div>
+
+        <!-- Yang Menyerahkan (diisi oleh Lembaga) (Atas) -->
+        <div>
+          <div class="row-info">
+            <div class="col-label-2"><strong>Yang Menyerahkan (diisi oleh Lembaga):</strong></div>
+            <div><strong style="text-transform: uppercase;">${bast.namaSekolah}</strong>${npsnBadge}</div>
+          </div>
+          <div class="row-info">
+            <div class="col-label-2">PIC</div>
+            <div>: ${bast.namaPic || 'Lulut Biyadillah'}</div>
+          </div>
+          <div class="row-info">
+            <div class="col-label-2">Nomor Telpon</div>
+            <div>: ${bast.telponPic || '085234834095'}</div>
+          </div>
+          <!-- Generous signature space -->
+          <div class="signature-space"></div>
+          <div class="signature-name">(${bast.namaPic || 'Lulut Biyadillah'})</div>
+          <div class="signature-line"></div>
+        </div>
+
+        <!-- Grid Bawah: Kiri Diterima Tim Distribusi, Kanan Mengetahui -->
+        <div class="signatures-bottom-grid">
+          <div class="grid-cell-left">
+            <div class="row-info">
+              <div class="col-label-3">Diterima Oleh</div>
+              <div>: <strong>Tim Distribusi</strong></div>
+            </div>
+            <div class="row-info">
+              <div class="col-label-3"></div>
+              <div><strong>SPPG Hafshawaty 001 Genggong</strong></div>
+            </div>
+            <div class="row-info">
+              <div class="col-label-3">Nomor Telpon</div>
+              <div>: <strong>${bast.telponPetugasDistribusi || '085212581665'}</strong></div>
+            </div>
+            <!-- Generous signature space -->
+            <div class="signature-space"></div>
+            <div class="signature-name">(${bast.namaPetugasDistribusi || 'Abdus Salam'})</div>
+            <div class="signature-line"></div>
+          </div>
+
+          <div class="grid-cell-right">
+            <div class="mengetahui-box">
+              <div>
+                <div class="mengetahui-title">Mengetahui:</div>
+                ${signatureSvg}
+              </div>
+              <div>
+                <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
+                <div class="mengetahui-job">Kepala SPPG Probolinggo</div>
+                <div class="mengetahui-job">Krejengan Temenggungan</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Generates an isolated, pristine HTML document for direct browser printing of a single BAST.
+ */
+export function generateBastPrintHtml(bast: BastDocument, showSignature: boolean = true): string {
   return `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <title>BAST - ${bast.namaSekolah} (${bast.nomorBast})</title>
   <style>
-    @page {
-      size: A4 portrait;
-      margin: 8mm 12mm 8mm 12mm;
-    }
-    * {
-      box-sizing: border-box;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-    }
-    body {
-      margin: 0;
-      padding: 0;
-      background: #ffffff;
-      color: #000000;
-      font-family: 'Times New Roman', Times, serif;
-      font-size: 10.5pt;
-      line-height: 1.25;
-    }
-    .sheet {
-      width: 100%;
-      max-width: 190mm;
-      margin: 0 auto;
-    }
-    .section {
-      margin-bottom: 14px;
-    }
-    .header-box {
-      position: relative;
-      min-height: 54px;
-      text-align: center;
-      margin-bottom: 6px;
-    }
-    .header-logo {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 52px;
-      height: 52px;
-      object-fit: contain;
-    }
-    .header-title-1 {
-      font-size: 12.5pt;
-      font-weight: bold;
-      text-decoration: underline;
-      text-transform: uppercase;
-      margin: 0;
-      line-height: 1.2;
-    }
-    .header-title-2 {
-      font-size: 11.5pt;
-      font-weight: bold;
-      text-decoration: underline;
-      text-transform: uppercase;
-      margin: 2px 0 0 0;
-      line-height: 1.2;
-    }
-    .header-nomor {
-      font-size: 10.5pt;
-      margin: 2px 0 0 0;
-    }
-    .narrative-p {
-      text-align: justify;
-      margin: 6px 0 8px 0;
-      line-height: 1.35;
-      font-size: 10.5pt;
-    }
-    .row-info {
-      display: flex;
-      align-items: baseline;
-      margin-bottom: 2px;
-      font-size: 10.5pt;
-    }
-    .col-label-1 {
-      width: 155px;
-      flex-shrink: 0;
-    }
-    .col-label-2 {
-      width: 250px;
-      flex-shrink: 0;
-    }
-    .col-label-3 {
-      width: 135px;
-      flex-shrink: 0;
-    }
-    .signature-space {
-      height: 65px;
-    }
-    .signature-name {
-      font-weight: bold;
-    }
-    .signature-line {
-      width: 220px;
-      border-bottom: 1px solid #000000;
-      margin-top: 3px;
-    }
-    .signatures-bottom-grid {
-      display: table;
-      width: 100%;
-      margin-top: 4px;
-    }
-    .grid-cell-left {
-      display: table-cell;
-      width: 65%;
-      vertical-align: top;
-      padding-right: 12px;
-    }
-    .grid-cell-right {
-      display: table-cell;
-      width: 35%;
-      vertical-align: top;
-    }
-    .mengetahui-box {
-      border: 1px solid #000000;
-      padding: 8px 10px;
-      min-height: 140px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      font-size: 9.5pt;
-    }
-    .mengetahui-title {
-      font-size: 10pt;
-      margin-bottom: 2px;
-    }
-    .mengetahui-name {
-      font-size: 10pt;
-      font-weight: bold;
-      text-decoration: underline;
-      line-height: 1.2;
-    }
-    .mengetahui-job {
-      font-size: 9pt;
-      line-height: 1.2;
-    }
-    .section-gap {
-      height: 12px;
-    }
+    ${BAST_PRINT_CSS}
   </style>
 </head>
 <body>
-  <div class="sheet">
-    <!-- ========================================================= -->
-    <!-- BAGIAN A: BERITA ACARA PENERIMAAN PAKET MAKANAN         -->
-    <!-- ========================================================= -->
-    <div class="section">
-      <div class="header-box">
-        <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
-        <div class="header-title-1">BERITA ACARA PENERIMAAN PAKET MAKANAN</div>
-        <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
-        <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
-      </div>
-
-      <div class="narrative-p">
-        Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : <strong>${bast.jumlahPaketMakanan}</strong> dalam keadaan baik dan layak dikonsumsi dari ${bast.namaSppg}.
-      </div>
-
-      <!-- Yang Menyerahkan (Atas) -->
-      <div>
-        <div class="row-info">
-          <div class="col-label-1">Yang Menyerahkan</div>
-          <div>: <strong>${bast.namaTimDistribusi}</strong></div>
-        </div>
-        <div class="row-info">
-          <div class="col-label-1">Nomor Telpon</div>
-          <div>: <strong>${bast.telponPetugasDistribusi || '085212581665'}</strong></div>
-        </div>
-        <!-- Generous signature space -->
-        <div class="signature-space"></div>
-        <div class="signature-name">(${bast.namaPetugasDistribusi || 'Abdus Salam'} )</div>
-        <div class="signature-line"></div>
-      </div>
-
-      <!-- Grid Bawah: Kiri Diterima Lembaga, Kanan Mengetahui -->
-      <div class="signatures-bottom-grid">
-        <div class="grid-cell-left">
-          <div class="row-info">
-            <div class="col-label-1"><strong>Diterima Oleh Lembaga:</strong></div>
-            <div><strong style="text-transform: uppercase;">${bast.namaSekolah}</strong></div>
-          </div>
-          <div class="row-info">
-            <div class="col-label-1">PIC</div>
-            <div>: ${bast.namaPic || 'Lulut Biyadillah'}</div>
-          </div>
-          <div class="row-info">
-            <div class="col-label-1">Nomor Telpon</div>
-            <div>: ${bast.telponPic || '085234834095'}</div>
-          </div>
-          <!-- Generous signature space -->
-          <div class="signature-space"></div>
-          <div class="signature-name">( ${bast.namaPic || 'Lulut Biyadillah'} )</div>
-          <div class="signature-line"></div>
-        </div>
-
-        <div class="grid-cell-right">
-          <div class="mengetahui-box">
-            <div>
-              <div class="mengetahui-title">Mengetahui:</div>
-              ${signatureSvg}
-            </div>
-            <div>
-              <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
-              <div class="mengetahui-job">Kepala SPPG Probolinggo</div>
-              <div class="mengetahui-job">Krejengan Temenggungan</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="section-gap"></div>
-
-    <!-- ========================================================= -->
-    <!-- BAGIAN B: BERITA ACARA PENYERAHAN ALAT MAKAN             -->
-    <!-- ========================================================= -->
-    <div class="section">
-      <div class="header-box">
-        <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
-        <div class="header-title-1">BERITA ACARA PENYERAHAN ALAT MAKAN</div>
-        <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
-        <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
-      </div>
-
-      <div class="narrative-p">
-        Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Kembali Alat Makan Sejumlah : <strong>${bast.jumlahAlatMakan || bast.jumlahPaketMakanan}</strong> Paket Alat Makan Bergizi Dari ${bast.namaSppg}.
-      </div>
-
-      <!-- Yang Menyerahkan (diisi oleh Lembaga) (Atas) -->
-      <div>
-        <div class="row-info">
-          <div class="col-label-2"><strong>Yang Menyerahkan (diisi oleh Lembaga):</strong></div>
-          <div><strong style="text-transform: uppercase;">${bast.namaSekolah}</strong></div>
-        </div>
-        <div class="row-info">
-          <div class="col-label-2">PIC</div>
-          <div>: ${bast.namaPic || 'Lulut Biyadillah'}</div>
-        </div>
-        <div class="row-info">
-          <div class="col-label-2">Nomor Telpon</div>
-          <div>: ${bast.telponPic || '085234834095'}</div>
-        </div>
-        <!-- Generous signature space -->
-        <div class="signature-space"></div>
-        <div class="signature-name">(${bast.namaPic || 'Lulut Biyadillah'})</div>
-        <div class="signature-line"></div>
-      </div>
-
-      <!-- Grid Bawah: Kiri Diterima Tim Distribusi, Kanan Mengetahui -->
-      <div class="signatures-bottom-grid">
-        <div class="grid-cell-left">
-          <div class="row-info">
-            <div class="col-label-3">Diterima Oleh</div>
-            <div>: <strong>Tim Distribusi</strong></div>
-          </div>
-          <div class="row-info">
-            <div class="col-label-3"></div>
-            <div><strong>SPPG Hafshawaty 001 Genggong</strong></div>
-          </div>
-          <div class="row-info">
-            <div class="col-label-3">Nomor Telpon</div>
-            <div>: <strong>${bast.telponPetugasDistribusi || '085212581665'}</strong></div>
-        </div>
-          <!-- Generous signature space -->
-          <div class="signature-space"></div>
-          <div class="signature-name">(${bast.namaPetugasDistribusi || 'Abdus Salam'})</div>
-          <div class="signature-line"></div>
-        </div>
-
-        <div class="grid-cell-right">
-          <div class="mengetahui-box">
-            <div>
-              <div class="mengetahui-title">Mengetahui:</div>
-              ${signatureSvg}
-            </div>
-            <div>
-              <div class="mengetahui-name">${bast.namaKepalaSppg || 'Sri Rohayu, S.Pd.'}</div>
-              <div class="mengetahui-job">Kepala SPPG Probolinggo</div>
-              <div class="mengetahui-job">Krejengan Temenggungan</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  ${renderBastSheet(bast, showSignature)}
 </body>
 </html>`;
 }
 
 /**
- * Triggers the browser's native print dialog immediately using a hidden iframe.
- * Never prints blank pages, eliminates overflow bugs, and works from anywhere.
+ * Generates an isolated HTML document containing all provided BAST documents,
+ * each partitioned on its own exact A4 page using CSS page breaks.
+ */
+export function generateMultipleBastPrintHtml(basts: BastDocument[], showSignature: boolean = true): string {
+  const sheets = basts.map(b => renderBastSheet(b, showSignature)).join('\n');
+  const title = basts.length > 0 ? `BAST Kolektif (${basts.length} Dokumen - ${basts[0].tanggal})` : 'Cetak Kolektif BAST';
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    ${BAST_PRINT_CSS}
+  </style>
+</head>
+<body>
+  ${sheets}
+</body>
+</html>`;
+}
+
+/**
+ * Triggers the browser's native print dialog immediately using a hidden iframe for a single BAST.
  */
 export function printBastDocumentDirectly(bast: BastDocument, showSignature: boolean = true): void {
   const iframe = document.createElement('iframe');
@@ -381,4 +428,49 @@ export function printBastDocumentDirectly(bast: BastDocument, showSignature: boo
       } catch (_) {}
     }, 2000);
   }, 250);
+}
+
+/**
+ * Triggers the browser's native print dialog immediately to print ALL provided BAST documents sequentially.
+ */
+export function printAllBastDocumentsDirectly(basts: BastDocument[], showSignature: boolean = true): void {
+  if (!basts || basts.length === 0) return;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  document.body.appendChild(iframe);
+
+  const html = generateMultipleBastPrintHtml(basts, showSignature);
+  const frameDoc = iframe.contentWindow?.document;
+  if (!frameDoc) {
+    window.print();
+    return;
+  }
+
+  frameDoc.open();
+  frameDoc.write(html);
+  frameDoc.close();
+
+  setTimeout(() => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (err) {
+      console.warn('Direct iframe print all error, falling back to window.print():', err);
+      window.print();
+    }
+
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe);
+      } catch (_) {}
+    }, 3500);
+  }, 350);
 }

@@ -157,7 +157,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
                         spacing: { before: 0, after: 20 },
                         children: [
                           new TextRun({ text: 'Diterima Oleh Lembaga: ', bold: true, font: 'Times New Roman', size: 21 }),
-                          new TextRun({ text: bast.namaSekolah, bold: true, font: 'Times New Roman', size: 21 }),
+                          new TextRun({ text: bast.npsn ? `${bast.namaSekolah} (NPSN: ${bast.npsn})` : bast.namaSekolah, bold: true, font: 'Times New Roman', size: 21 }),
                         ],
                       }),
                       new Paragraph({
@@ -320,7 +320,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
             spacing: { before: 40, after: 20 },
             children: [
               new TextRun({ text: 'Yang Menyerahkan (diisi oleh Lembaga): ', bold: true, font: 'Times New Roman', size: 21 }),
-              new TextRun({ text: bast.namaSekolah, bold: true, font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: bast.npsn ? `${bast.namaSekolah} (NPSN: ${bast.npsn})` : bast.namaSekolah, bold: true, font: 'Times New Roman', size: 21 }),
             ],
           }),
           new Paragraph({

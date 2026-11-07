@@ -4581,6 +4581,7 @@ class EnterpriseDataStore {
       // Resolve PIC from BeneficiaryGroups (Pengaturan Kelompok) first, then loc, then existingDoc
       let foundPicNama = '';
       let foundTelponPic = '';
+      let foundNpsn = '';
 
       // 1. Search in beneficiaryGroups lembagaList
       for (const grp of this.beneficiaryGroups) {
@@ -4592,6 +4593,7 @@ class EnterpriseDataStore {
           if (matchedL) {
             if (matchedL.picNama) foundPicNama = matchedL.picNama;
             if (matchedL.nomorKontak || matchedL.picKontak) foundTelponPic = matchedL.nomorKontak || matchedL.picKontak || '';
+            if (matchedL.npsn) foundNpsn = matchedL.npsn;
             break;
           }
         }
@@ -4612,9 +4614,11 @@ class EnterpriseDataStore {
       // 3. Search in beneficiaryLocations
       if (!foundPicNama && loc?.picNama) foundPicNama = loc.picNama;
       if (!foundTelponPic && (loc?.picTelepon || loc?.kontak)) foundTelponPic = loc?.picTelepon || loc?.kontak || '';
+      if (!foundNpsn && loc?.npsn) foundNpsn = loc.npsn;
 
       const namaPic = foundPicNama || (existingDoc?.namaPic || (isTemplateSample ? 'Lulut Biyadillah' : ''));
       const telponPic = foundTelponPic || (existingDoc?.telponPic || (isTemplateSample ? '085234834095' : ''));
+      const npsn = foundNpsn || loc?.npsn || existingDoc?.npsn || '';
       const isDataLengkap = Boolean(namaPic && namaPic.trim() && telponPic && telponPic.trim());
 
       const id = existingDoc ? existingDoc.id : `BAST-${tanggal.replace(/-/g, '')}-${String(idx + 1).padStart(3, '0')}`;
@@ -4628,6 +4632,7 @@ class EnterpriseDataStore {
         waktuPenerimaan: existingDoc?.waktuPenerimaan || '07:30 WIB',
         instansiId: schoolData.instansiId,
         namaSekolah: schoolData.namaSekolah,
+        npsn,
         alamatSekolah: loc?.alamat || existingDoc?.alamatSekolah || 'Jl. Raya Genggong, Pajarakan, Probolinggo',
         namaPic,
         telponPic,

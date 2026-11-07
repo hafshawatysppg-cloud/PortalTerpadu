@@ -1581,6 +1581,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           groupId: groupId,
           groupNama: groupNama,
           namaInstansi: item.namaInstansi,
+          npsn: item.npsn || '',
+          picNama: item.picNama || '',
+          picTelepon: item.nomorKontak || item.picKontak || '',
           kategoriLembaga: item.kategoriLembaga || groupCat,
           klasifikasiPorsi: item.klasifikasiPorsi,
           breakdownKelas: item.breakdownKelas || {},
@@ -3828,9 +3831,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             return (
                               <tr key={loc.id || idx} className="hover:bg-white transition-all">
                                 <td className="px-4 py-2.5 font-bold text-slate-800">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                     <span>{loc.namaInstansi || loc.nama}</span>
+                                    {loc.npsn && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                        NPSN: {loc.npsn}
+                                      </span>
+                                    )}
                                     {(loc.kategoriLembaga || grp.kategoriLembaga) && (
                                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                                         {loc.kategoriLembaga || grp.kategoriLembaga}
@@ -3844,10 +3852,24 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                                   ) : (
                                     <>
                                       <div className="font-semibold text-slate-700">{s}</div>
+                                      {(() => {
+                                        const locL = Object.entries(locBd).filter(([k]) => k.endsWith('_l')).reduce((sum, [_, v]) => sum + (Number(v) || 0), 0);
+                                        const locP = Object.entries(locBd).filter(([k]) => k.endsWith('_p')).reduce((sum, [_, v]) => sum + (Number(v) || 0), 0);
+                                        if (locL > 0 || locP > 0) {
+                                          return (
+                                            <div className="text-[9px] font-bold text-slate-500 flex items-center justify-center gap-1.5 mt-0.5">
+                                              <span className="text-blue-700">L: {locL}</span>
+                                              <span>•</span>
+                                              <span className="text-rose-700">P: {locP}</span>
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                       {loc.breakdownKelas && Object.keys(loc.breakdownKelas).length > 0 && (
                                         <div className="text-[9px] text-slate-400 font-medium truncate max-w-[160px] mx-auto" title={Object.entries(loc.breakdownKelas).map(([k, v]) => `${k}: ${v}`).join(', ')}>
-                                          {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).slice(0, 3).map(([k, v]) => `${k.replace('kelas', 'K')}: ${v}`).join(' ')}
-                                          {Object.entries(loc.breakdownKelas).filter(([_, v]) => Number(v) > 0).length > 3 ? '...' : ''}
+                                          {Object.entries(loc.breakdownKelas).filter(([k, v]) => !k.endsWith('_l') && !k.endsWith('_p') && Number(v) > 0).slice(0, 3).map(([k, v]) => `${k.replace('kelas', 'K')}: ${v}`).join(' ')}
+                                          {Object.entries(loc.breakdownKelas).filter(([k, v]) => !k.endsWith('_l') && !k.endsWith('_p') && Number(v) > 0).length > 3 ? '...' : ''}
                                         </div>
                                       )}
                                     </>
@@ -4090,16 +4112,28 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
             </div>
 
             <form onSubmit={handleSaveLocation} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Nama Instansi *</label>
-                <input
-                  type="text"
-                  value={editingLocation.namaInstansi || ''}
-                  onChange={(e) => setEditingLocation({ ...editingLocation, namaInstansi: e.target.value })}
-                  placeholder="e.g. SD Zainul Hasan Genggong"
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Nama Instansi *</label>
+                  <input
+                    type="text"
+                    value={editingLocation.namaInstansi || ''}
+                    onChange={(e) => setEditingLocation({ ...editingLocation, namaInstansi: e.target.value })}
+                    placeholder="e.g. SD Zainul Hasan Genggong"
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">NPSN Sekolah</label>
+                  <input
+                    type="text"
+                    value={editingLocation.npsn || ''}
+                    onChange={(e) => setEditingLocation({ ...editingLocation, npsn: e.target.value })}
+                    placeholder="e.g. 20512345"
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm font-bold text-blue-900"
+                  />
+                </div>
               </div>
 
               <div>
