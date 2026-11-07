@@ -114,6 +114,73 @@ const DAFTAR_SATUAN = [
   'Botol'
 ];
 
+/**
+ * Kompresi dan optimasi foto secara client-side menggunakan HTML5 Canvas.
+ * Mencegah payload raksasa (misal 10MB - 50MB dari kamera HP) yang menyebabkan transmisi lambat,
+ * sehingga data langsung terkirim dan tersimpan dalam hitungan milidetik (~150KB - 300KB).
+ */
+function compressImage(file: File, maxWidth = 1280, maxHeight = 1280, quality = 0.82): Promise<string> {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/') || file.type.includes('svg')) {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string) || '');
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const rawResult = (e.target?.result as string) || '';
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawResult);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          let finalDataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          // Jika masih > 400KB, kurangi kualitas bertahap
+          while (finalDataUrl.length * 0.75 > 400 * 1024 && quality > 0.4) {
+            quality -= 0.12;
+            finalDataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+
+          resolve(finalDataUrl);
+        } catch {
+          resolve(rawResult);
+        }
+      };
+      img.onerror = () => resolve(rawResult);
+      img.src = rawResult;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
 export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath, onNavigate }) => {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -161,6 +228,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
   const [keterangan, setKeterangan] = useState<string>('');
   const [petugas, setPetugas] = useState<string>(user?.nama || user?.username || 'Petugas Logistik');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState<boolean>(false);
 
   // Filters State for 'data' tab
   const [filterTanggal, setFilterTanggal] = useState<string>('');
@@ -244,8 +312,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     }
   }, [errorToast]);
 
-  // Handle Foto Upload (FileReader to base64)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Foto Upload (dengan kompresi otomatis)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -255,21 +323,30 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (loadEvt) => {
-      const base64 = loadEvt.target?.result as string;
-      setDokumentasiUrl(base64);
-      setSuccessToast('Foto dokumentasi berhasil dimuat');
-    };
-    reader.onerror = () => {
+    setIsCompressingPhoto(true);
+    try {
+      const compressed = await compressImage(file);
+      if (!compressed) {
+        throw new Error('Gagal membaca file gambar');
+      }
+      setDokumentasiUrl(compressed);
+      setSuccessToast('Foto dokumentasi berhasil dimuat dan siap disimpan!');
+    } catch (err) {
+      console.error('Error membaca foto:', err);
       setErrorToast('Gagal membaca file gambar');
-    };
-    reader.readAsDataURL(file);
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
   // Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isCompressingPhoto) {
+      setErrorToast('Foto sedang dioptimalkan, silakan tunggu 1-2 detik lalu klik simpan kembali.');
+      return;
+    }
 
     if (!namaBarang.trim()) {
       setErrorToast('Nama barang wajib diisi');
@@ -316,9 +393,14 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         throw new Error(json?.message || 'Gagal menyimpan barang datang');
       }
 
+      // 1. Langsung masukkan data ke state lokal agar seketika tampil di tabel tanpa lag!
+      if (json.data) {
+        setItems(prev => [json.data, ...prev.filter(it => it.id !== json.data.id)]);
+      }
+
       setSuccessToast(`Berhasil menyimpan kedatangan ${jenisBarang}: ${namaBarang} (${jmlNum} ${effectiveSatuan}, Kualitas: ${kualitasProduk})!`);
 
-      // Reset Form (keep tanggal as today)
+      // 2. Bersihkan input formulir
       setNamaBarang('');
       setJumlahMasuk('');
       setKualitasProduk('Baik');
@@ -327,11 +409,14 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+      if (cameraInputRef.current) {
+        cameraInputRef.current.value = '';
+      }
 
-      // Re-fetch data
-      await fetchItems();
+      // 3. Sinkronkan ulang data di latar belakang
+      fetchItems().catch(() => {});
     } catch (err: any) {
-      console.error(err);
+      console.error('Error saat simpan barang datang:', err);
       setErrorToast(err?.message || 'Terjadi kesalahan sistem saat menyimpan data');
     } finally {
       setSubmitting(false);
@@ -383,8 +468,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     setEditModalOpen(true);
   };
 
-  // Handle Edit File Upload
-  const handleEditFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Edit File Upload (dengan kompresi otomatis)
+  const handleEditFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -393,14 +478,20 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setEditDokumentasiUrl(reader.result);
-        setSuccessToast('Foto dokumentasi baru berhasil dipilih');
+    setIsCompressingPhoto(true);
+    try {
+      const compressed = await compressImage(file);
+      if (!compressed) {
+        throw new Error('Gagal memproses file foto');
       }
-    };
-    reader.readAsDataURL(file);
+      setEditDokumentasiUrl(compressed);
+      setSuccessToast('Foto dokumentasi baru berhasil dipilih dan dioptimalkan!');
+    } catch (err) {
+      console.error('Error proses foto edit:', err);
+      setErrorToast('Gagal memproses file foto');
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
   // Save Edit Changes
@@ -1568,6 +1659,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                       id="camera-upload-input"
                     />
 
+                    {isCompressingPhoto && (
+                      <div className="mb-3 p-3 bg-sky-50 dark:bg-sky-950/50 rounded-xl border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-semibold flex items-center justify-center gap-2 animate-pulse">
+                        <RefreshCw className="w-4 h-4 animate-spin text-sky-600 dark:text-sky-400" />
+                        <span>Sedang mengoptimalkan resolusi foto secara otomatis...</span>
+                      </div>
+                    )}
+
                     {dokumentasiUrl ? (
                       <div className="space-y-3">
                         <div className="relative rounded-xl overflow-hidden max-h-64 bg-slate-950 flex items-center justify-center border border-slate-200 dark:border-slate-700">
@@ -1716,16 +1814,21 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                     * Pastikan data jumlah dan foto dokumentasi telah sesuai sebelum disimpan.
                   </span>
 
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                     <button
                       type="submit"
-                      disabled={submitting}
-                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-extrabold text-sm shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50"
+                      disabled={submitting || isCompressingPhoto}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-extrabold text-sm shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 cursor-pointer"
                     >
                       {submitting ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Menyimpan...</span>
+                          <span>Menyimpan Data...</span>
+                        </>
+                      ) : isCompressingPhoto ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Mengoptimalkan Foto...</span>
                         </>
                       ) : (
                         <>
@@ -1733,6 +1836,16 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                           <span>Simpan Kedatangan Barang</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => switchTab('data')}
+                      className="inline-flex items-center gap-2 px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 font-bold text-xs transition cursor-pointer"
+                      title="Lihat semua riwayat kedatangan barang"
+                    >
+                      <TableProperties className="w-4 h-4 text-sky-600" />
+                      <span className="hidden sm:inline">Lihat Data Masuk ({items.length})</span>
                     </button>
                   </div>
                 </div>

@@ -164,11 +164,16 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       createdBy: petugas?.trim() || 'Petugas Logistik'
     });
 
-    // Realtime Cloud Firestore Synchronization
-    await syncSaveDoc('barangDatang', newItem.id, newItem, {
+    // Realtime Cloud Firestore Synchronization (Non-blocking background sync)
+    const firestoreData = { ...newItem };
+    if (firestoreData.dokumentasiUrl && firestoreData.dokumentasiUrl.length > 500000) {
+      // Ensure document does not exceed Firestore's 1MB limit
+      firestoreData.dokumentasiUrl = firestoreData.dokumentasiUrl.slice(0, 500000);
+    }
+    syncSaveDoc('barangDatang', newItem.id, firestoreData, {
       name: newItem.petugas,
       userId: 'API-USER'
-    });
+    }).catch((err) => console.warn('Background sync to Firestore warning:', err?.message || err));
 
     // Log Activity & Notification
     dbStore.addLog(
@@ -215,11 +220,15 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Realtime Cloud Firestore Synchronization
-    await syncSaveDoc('barangDatang', id, updated, {
+    // Realtime Cloud Firestore Synchronization (Non-blocking background sync)
+    const firestoreData = { ...updated };
+    if (firestoreData.dokumentasiUrl && firestoreData.dokumentasiUrl.length > 500000) {
+      firestoreData.dokumentasiUrl = firestoreData.dokumentasiUrl.slice(0, 500000);
+    }
+    syncSaveDoc('barangDatang', id, firestoreData, {
       name: updated.petugas || 'Petugas Logistik',
       userId: 'API-USER'
-    });
+    }).catch((err) => console.warn('Background update sync to Firestore warning:', err?.message || err));
 
     res.json({
       success: true,
@@ -242,8 +251,10 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Realtime Cloud Firestore Deletion
-    await syncDeleteDoc('barangDatang', id);
+    // Realtime Cloud Firestore Deletion (Non-blocking)
+    syncDeleteDoc('barangDatang', id).catch((err) =>
+      console.warn('Background delete from Firestore warning:', err?.message || err)
+    );
 
     res.json({
       success: true,
