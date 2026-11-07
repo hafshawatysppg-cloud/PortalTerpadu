@@ -1176,7 +1176,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                               }}
                             />
                           </div>
-                          <div className="text-center">
+                          <div className="text-center px-14">
                             <h2 className="text-[13pt] font-bold underline uppercase tracking-wide leading-tight">
                               BERITA ACARA PENERIMAAN PAKET MAKANAN
                             </h2>
@@ -1285,7 +1285,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                               }}
                             />
                           </div>
-                          <div className="text-center">
+                          <div className="text-center px-14">
                             <h2 className="text-[13pt] font-bold underline uppercase tracking-wide leading-tight">
                               BERITA ACARA PENYERAHAN ALAT MAKAN
                             </h2>

@@ -70,6 +70,7 @@ const BAST_PRINT_CSS = `
     min-height: 54px;
     text-align: center;
     margin-bottom: 6px;
+    padding: 0 54px;
   }
   .header-logo {
     position: absolute;
@@ -204,7 +205,7 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
       <!-- ========================================================= -->
       <div class="section">
         <div class="header-box">
-          <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
+          <img src="/badan-gizi-nasional-seeklogo.png" alt="Logo Badan Gizi Nasional" class="header-logo" onerror="this.style.display='none'" />
           <div class="header-title-1">BERITA ACARA PENERIMAAN PAKET MAKANAN</div>
           <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
           <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
@@ -274,7 +275,7 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
       <!-- ========================================================= -->
       <div class="section">
         <div class="header-box">
-          <img src="/badan_gizi_logo.jpg" alt="Logo Badan Gizi" class="header-logo" onerror="this.style.display='none'" />
+          <img src="/badan-gizi-nasional-seeklogo.png" alt="Logo Badan Gizi Nasional" class="header-logo" onerror="this.style.display='none'" />
           <div class="header-title-1">BERITA ACARA PENYERAHAN ALAT MAKAN</div>
           <div class="header-title-2">PROGRAM MAKAN BERGIZI</div>
           <div class="header-nomor">Nomor: ${bast.nomorBast}</div>
