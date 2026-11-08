@@ -73,18 +73,18 @@ export const GlobalReportHeader: React.FC<GlobalReportHeaderProps> = ({
         {letterhead.showLogo && (
           <div className="shrink-0 flex items-center justify-center">
             <img
-              src={letterhead.logoUrl || '/badan_gizi_logo.jpg'}
-              alt="Logo BGN SPPG"
+              src={(!letterhead.logoUrl || letterhead.logoUrl === '/badan_gizi_logo.jpg') ? '/badan-gizi-nasional-seeklogo.png' : letterhead.logoUrl}
+              alt="Logo Badan Gizi Nasional"
               style={{
                 width: `${letterhead.logoSize || 68}px`,
                 height: `${letterhead.logoSize || 68}px`,
-                objectFit: 'cover'
+                objectFit: 'contain'
               }}
-              className="rounded-full shadow-xs border border-slate-300"
+              className="object-contain"
               onError={(e) => {
                 // Fallback if image fails to load
                 const target = e.target as HTMLImageElement;
-                target.src = '/badan_gizi_logo.jpg';
+                target.src = '/badan-gizi-nasional-seeklogo.png';
               }}
             />
           </div>

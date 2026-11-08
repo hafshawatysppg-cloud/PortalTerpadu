@@ -2253,9 +2253,9 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
                 <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4">
                   <div className="flex items-center gap-4">
                     <img
-                      src="/badan_gizi_logo.jpg"
+                      src="/badan-gizi-nasional-seeklogo.png"
                       alt="Logo SPPG"
-                      className="w-16 h-16 rounded-full object-cover border"
+                      className="w-16 h-16 object-contain"
                       onError={(e) => {
                         (e.target as HTMLElement).style.display = 'none';
                       }}

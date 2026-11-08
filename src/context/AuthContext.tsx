@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [settings, setSettings] = useState<PortalSettings>({
     namaPortal: 'Portal Administrasi Terpadu',
     deskripsi: 'Single Entry Point Enterprise & Module Integration Gateway (e-Surat & Stock Opname)',
-    logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100',
+    logoUrl: '/badan-gizi-nasional-seeklogo.png',
     theme: 'light',
     primaryColor: '#2563EB',
     smtpHost: 'smtp.instansi.go.id',

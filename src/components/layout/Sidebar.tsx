@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { MenuItem } from '../../types';
-import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
+const logoImg = '/badan-gizi-nasional-seeklogo.png';
 
 interface SidebarProps {
   currentPath: string;
@@ -441,7 +441,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
             <img
               src={logoImg}
               alt="Badan Gizi Nasional Logo"
-              className="w-8 h-8 rounded-full object-cover ring-2 ring-slate-100 dark:ring-slate-800 shadow-sm"
+              className="w-8 h-8 object-contain"
               referrerPolicy="no-referrer"
             />
             <div>

@@ -155,7 +155,7 @@ export const DEFAULT_MASTER_TEMPLATE_CONFIG: MasterDocumentTemplateConfig = {
     penanggungJawabNip: '19820514 200801 1 003'
   },
   letterhead: {
-    logoUrl: '/badan_gizi_logo.jpg',
+    logoUrl: '/badan-gizi-nasional-seeklogo.png',
     logoSize: 68,
     logoPosition: 'left',
     showLogo: true,

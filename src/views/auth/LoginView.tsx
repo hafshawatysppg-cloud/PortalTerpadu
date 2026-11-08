@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { ShieldCheck, LogIn, ArrowLeft, Eye } from 'lucide-react';
-import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
+const logoImg = '/badan-gizi-nasional-seeklogo.png';
 
 interface LoginViewProps {
   onBackToVisitor?: () => void;
@@ -102,7 +102,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onBackToVisitor, onLoginSu
           <img
             src={logoImg}
             alt="Badan Gizi Nasional Logo"
-            className="w-20 h-20 rounded-full object-cover mx-auto ring-4 ring-amber-400/40 shadow-xl shadow-amber-500/10 hover:scale-105 transition"
+            className="w-20 h-20 object-contain mx-auto hover:scale-105 transition drop-shadow-xl"
             referrerPolicy="no-referrer"
           />
           <div>

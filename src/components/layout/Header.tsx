@@ -6,7 +6,7 @@ import { MenuItem } from '../../types';
 import { NotificationDropdown } from '../common/NotificationDropdown';
 import { GlobalSearchModal } from '../common/GlobalSearchModal';
 import { FirebaseSetupGuide } from '../common/FirebaseSetupGuide';
-import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
+const logoImg = '/badan-gizi-nasional-seeklogo.png';
 
 interface HeaderProps {
   currentPath?: string;
@@ -53,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
               <img
                 src={logoImg}
                 alt="Badan Gizi Nasional Logo"
-                className="w-9 h-9 rounded-full object-cover ring-2 ring-slate-100 dark:ring-slate-800 shadow-sm group-hover:scale-105 transition-all duration-300"
+                className="w-9 h-9 object-contain group-hover:scale-105 transition-all duration-300"
                 referrerPolicy="no-referrer"
               />
               <div>

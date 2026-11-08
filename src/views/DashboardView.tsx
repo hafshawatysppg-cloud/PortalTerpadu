@@ -40,7 +40,6 @@ import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../components/document/DocumentSignatures';
 import { FirebaseSetupGuide } from '../components/common/FirebaseSetupGuide';
-import logoImg from '../assets/images/badan_gizi_logo_1785799692960.jpg';
 
 interface DashboardViewProps {
   onNavigate: (path: string) => void;

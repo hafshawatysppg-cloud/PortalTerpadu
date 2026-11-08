@@ -1,7 +1,6 @@
 import React from 'react';
 import * as Icons from 'lucide-react';
 import { PurchaseOrderDocument } from '../../types';
-import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
 import { GlobalReportHeader } from '../document/GlobalReportHeader';
 import { GlobalReportFooter } from '../document/GlobalReportFooter';
 import { DocumentSignatures } from '../document/DocumentSignatures';

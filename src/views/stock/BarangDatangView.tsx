@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import logoImg from '../../assets/images/badan_gizi_logo_1785799692960.jpg';
+const logoImg = '/badan-gizi-nasional-seeklogo.png';
 import { BarangDatang, JenisBarangDatang, KualitasProdukBarangDatang } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 
@@ -571,8 +571,10 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
           canvas.height = img.naturalHeight || img.height;
           const ctx = canvas.getContext('2d');
           if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
-            resolve(canvas.toDataURL('image/jpeg', 0.85));
+            resolve(canvas.toDataURL('image/jpeg', 0.95));
           } else {
             resolve('');
           }

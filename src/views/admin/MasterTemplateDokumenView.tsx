@@ -286,7 +286,7 @@ export const MasterTemplateDokumenView: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="w-20 h-20 bg-white border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-center p-2 shadow-xs shrink-0 relative">
                     <img
-                      src={config.letterhead.logoUrl || '/badan_gizi_logo.jpg'}
+                      src={(!config.letterhead.logoUrl || config.letterhead.logoUrl === '/badan_gizi_logo.jpg') ? '/badan-gizi-nasional-seeklogo.png' : config.letterhead.logoUrl}
                       alt="Logo SPPG"
                       className="max-w-full max-h-full object-contain"
                     />
@@ -312,7 +312,7 @@ export const MasterTemplateDokumenView: React.FC = () => {
 
                       <button
                         type="button"
-                        onClick={() => updateLetterhead({ logoUrl: '/badan_gizi_logo.jpg', showLogo: true })}
+                        onClick={() => updateLetterhead({ logoUrl: '/badan-gizi-nasional-seeklogo.png', showLogo: true })}
                         className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-semibold text-xs rounded-lg transition cursor-pointer"
                       >
                         Default BGN
