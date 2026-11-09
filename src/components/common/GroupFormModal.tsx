@@ -511,6 +511,72 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     });
   };
 
+  // Auto-sync helpers between Step 2 (Identitas Kelompok) and Step 3 (Breakdown Demografi Lembaga)
+  const handleGroupNameChange = (newName: string) => {
+    const prevName = editingGroup.nama || '';
+    const currentList = editingGroup.lembagaList ? [...editingGroup.lembagaList] : [];
+    const updatedList = currentList.map((item, i) => {
+      // Sync first institution or institutions that matched previous name or empty
+      if (i === 0 || !item.namaInstansi || item.namaInstansi === prevName || item.namaInstansi.startsWith('Kelompok Sasaran') || item.namaInstansi.startsWith('Instansi 1')) {
+        return { ...item, namaInstansi: newName };
+      }
+      return item;
+    });
+
+    setEditingGroup({
+      ...editingGroup,
+      nama: newName,
+      lembagaList: updatedList.length > 0 ? updatedList : [{
+        namaInstansi: newName,
+        picNama: editingGroup.picNama || '',
+        kontakPerson: editingGroup.picNama || '',
+        nomorKontak: editingGroup.nomorKontak || editingGroup.picKontak || '',
+        picKontak: editingGroup.nomorKontak || editingGroup.picKontak || '',
+        kategoriLembaga: currentCategory,
+        targetSiswa: 0,
+        targetGuru: 0,
+        total: 0,
+        klasifikasiPorsi: activeConfig.defaultKlasifikasi,
+        breakdownKelas: {}
+      }]
+    });
+  };
+
+  const handleGroupPicChange = (newPic: string) => {
+    const prevPic = editingGroup.picNama || '';
+    const currentList = editingGroup.lembagaList ? [...editingGroup.lembagaList] : [];
+    const updatedList = currentList.map((item) => {
+      if (!item.picNama || item.picNama === prevPic || !item.kontakPerson || item.kontakPerson === prevPic) {
+        return { ...item, picNama: newPic, kontakPerson: newPic };
+      }
+      return item;
+    });
+
+    setEditingGroup({
+      ...editingGroup,
+      picNama: newPic,
+      lembagaList: updatedList
+    });
+  };
+
+  const handleGroupKontakChange = (newKontak: string) => {
+    const prevKontak = editingGroup.nomorKontak || editingGroup.picKontak || '';
+    const currentList = editingGroup.lembagaList ? [...editingGroup.lembagaList] : [];
+    const updatedList = currentList.map((item) => {
+      if (!item.nomorKontak || item.nomorKontak === prevKontak || !item.picKontak || item.picKontak === prevKontak) {
+        return { ...item, nomorKontak: newKontak, picKontak: newKontak };
+      }
+      return item;
+    });
+
+    setEditingGroup({
+      ...editingGroup,
+      nomorKontak: newKontak,
+      picKontak: newKontak,
+      lembagaList: updatedList
+    });
+  };
+
   // Add new institution inside this group
   const handleAddLembaga = () => {
     const list = editingGroup.lembagaList || [];
@@ -540,12 +606,13 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
     const isSmp = activeConfig.id.includes('SMP');
     const isSd = activeConfig.id.includes('SD');
     const newInstName = is3B
-      ? (nextIdx === 1 ? 'Posyandu Desa Temenggungan' : `Posyandu Desa Temenggungan Pos ${nextIdx}`)
+      ? (nextIdx === 1 ? (editingGroup.nama || 'Posyandu Desa Temenggungan') : `${editingGroup.nama || 'Posyandu Desa Temenggungan'} Pos ${nextIdx}`)
       : isSmp
-      ? (nextIdx === 1 ? 'SMP ZAINUL HASAN 1 GENGGONG' : `SMP Zainul Hasan Genggong ${nextIdx}`)
+      ? (nextIdx === 1 ? (editingGroup.nama || 'SMP ZAINUL HASAN 1 GENGGONG') : `${editingGroup.nama || 'SMP Zainul Hasan Genggong'} ${nextIdx}`)
       : isSd
-      ? (nextIdx === 1 ? 'SD Zainul Hasan Genggong' : `SD Zainul Hasan ${nextIdx}`)
-      : `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`;
+      ? (nextIdx === 1 ? (editingGroup.nama || 'SD Zainul Hasan Genggong') : `${editingGroup.nama || 'SD Zainul Hasan'} ${nextIdx}`)
+      : (nextIdx === 1 && editingGroup.nama ? editingGroup.nama : `${editingGroup.nama || activeConfig.shortName} - Instansi ${nextIdx}`);
+
     const autoP = calculateAutoPortion({
       kategoriLembaga: currentCategory,
       namaInstansi: newInstName,
@@ -559,6 +626,10 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
 
     const newItem = {
       namaInstansi: newInstName,
+      picNama: editingGroup.picNama || '',
+      kontakPerson: editingGroup.picNama || '',
+      nomorKontak: editingGroup.nomorKontak || editingGroup.picKontak || '',
+      picKontak: editingGroup.nomorKontak || editingGroup.picKontak || '',
       kategoriLembaga: currentCategory,
       breakdownKelas: initialBd,
       targetSiswa: 0,
@@ -1055,13 +1126,13 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 <input
                   type="text"
                   value={editingGroup.nama || ''}
-                  onChange={(e) => setEditingGroup({ ...editingGroup, nama: e.target.value })}
+                  onChange={(e) => handleGroupNameChange(e.target.value)}
                   placeholder={`e.g. ${activeConfig.label} Kraksaan`}
                   className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   required
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Identitas kelompok sasaran penerima manfaat.
+                  Identitas kelompok sasaran penerima manfaat (otomatis tersinkron ke nama lembaga).
                 </span>
               </div>
 
@@ -1092,12 +1163,12 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 <input
                   type="text"
                   value={editingGroup.picNama || ''}
-                  onChange={(e) => setEditingGroup({ ...editingGroup, picNama: e.target.value })}
+                  onChange={(e) => handleGroupPicChange(e.target.value)}
                   placeholder="e.g. Bpk. Ahmad Fauzi, S.Pd / Bidan Siti"
                   className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Nama koordinator atau penanggung jawab kelompok.
+                  Nama koordinator kelompok (otomatis tersinkron ke PIC lembaga).
                 </span>
               </div>
 
@@ -1110,12 +1181,12 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                 <input
                   type="tel"
                   value={editingGroup.nomorKontak || editingGroup.picKontak || ''}
-                  onChange={(e) => setEditingGroup({ ...editingGroup, nomorKontak: e.target.value, picKontak: e.target.value })}
+                  onChange={(e) => handleGroupKontakChange(e.target.value)}
                   placeholder="e.g. 0812-3456-7890"
                   className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Nomor kontak aktif penanggung jawab untuk koordinasi distribusi.
+                  Nomor kontak aktif penanggung jawab (otomatis tersinkron ke kontak lembaga).
                 </span>
               </div>
             </div>
@@ -1244,7 +1315,7 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                           <div className="flex-1 max-w-lg flex items-center gap-2">
                             <input
                               type="text"
-                              value={item.namaInstansi || ''}
+                              value={item.namaInstansi !== undefined && item.namaInstansi !== '' ? item.namaInstansi : (editingGroup.nama || '')}
                               onChange={(e) => {
                                 const list = [...(editingGroup.lembagaList || [])];
                                 list[idx] = { ...list[idx], namaInstansi: e.target.value };
@@ -1338,40 +1409,40 @@ export const GroupFormModal: React.FC<GroupFormModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Baris Kontak & PIC Lembaga Sasaran (Opsional Spesifik Lembaga) */}
+                      {/* Baris Kontak & PIC Lembaga Sasaran (Otomatis Terisi Mengikuti Identitas Kelompok) */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/70 p-2.5 rounded-xl border border-slate-200/70">
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-bold text-slate-500 shrink-0 flex items-center gap-1">
-                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            <User className="w-3.5 h-3.5 text-emerald-600" />
                             PIC Lembaga:
                           </span>
                           <input
                             type="text"
-                            value={item.picNama || item.kontakPerson || ''}
+                            value={item.picNama !== undefined && item.picNama !== '' ? item.picNama : (item.kontakPerson !== undefined && item.kontakPerson !== '' ? item.kontakPerson : (editingGroup.picNama || ''))}
                             onChange={(e) => {
                               const list = [...(editingGroup.lembagaList || [])];
                               list[idx] = { ...list[idx], picNama: e.target.value, kontakPerson: e.target.value };
                               setEditingGroup({ ...editingGroup, lembagaList: list });
                             }}
-                            placeholder="Nama PIC lembaga (opsional)"
+                            placeholder="Nama PIC lembaga (terisi otomatis dari identitas kelompok)"
                             className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                           />
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-bold text-slate-500 shrink-0 flex items-center gap-1">
-                            <Phone className="w-3.5 h-3.5 text-slate-400" />
+                            <Phone className="w-3.5 h-3.5 text-emerald-600" />
                             No. Kontak:
                           </span>
                           <input
                             type="tel"
-                            value={item.nomorKontak || item.picKontak || ''}
+                            value={item.nomorKontak !== undefined && item.nomorKontak !== '' ? item.nomorKontak : (item.picKontak !== undefined && item.picKontak !== '' ? item.picKontak : (editingGroup.nomorKontak || editingGroup.picKontak || ''))}
                             onChange={(e) => {
                               const list = [...(editingGroup.lembagaList || [])];
                               list[idx] = { ...list[idx], nomorKontak: e.target.value, picKontak: e.target.value };
                               setEditingGroup({ ...editingGroup, lembagaList: list });
                             }}
-                            placeholder="WhatsApp / Telepon PIC lembaga (opsional)"
-                            className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            placeholder="WhatsApp / Telepon PIC lembaga (terisi otomatis)"
+                            className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono"
                           />
                         </div>
                       </div>

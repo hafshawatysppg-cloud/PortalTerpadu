@@ -282,7 +282,12 @@ const PortalMain: React.FC = () => {
       case '/gizi/suhu/pemorsian':
       case '/gizi/suhu/makanan':
       case '/gizi/suhu/makanan/pengolahan':
+      case '/gizi/suhu/makanan/pengolahan/form':
+      case '/gizi/suhu/makanan/pengolahan/tabel':
       case '/gizi/suhu/makanan/masuk-ompreng':
+      case '/gizi/suhu/makanan/masuk-ompreng/form':
+      case '/gizi/suhu/makanan/masuk-ompreng/tabel':
+      case '/gizi/suhu/makanan/masuk-ompreng/dokumentasi':
       case '/gizi/kebersihan-dapur':
         return <GiziView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
       case '/purchase-order':

@@ -73,6 +73,34 @@
         "fotoMenuUrl": { "type": "string" }
       },
       "required": ["tanggalOperasional", "namaMenu"]
+    },
+    "suhuPengolahan": {
+      "title": "Suhu Pengolahan CCP",
+      "description": "Daily cooking core temperature records across 3 sessions and 4 food categories with photo documentation",
+      "type": "object",
+      "properties": {
+        "tanggal": { "type": "string" },
+        "status": { "type": "string" },
+        "petugas": { "type": "string" },
+        "sesi1": { "type": "object" },
+        "sesi2": { "type": "object" },
+        "sesi3": { "type": "object" }
+      },
+      "required": ["tanggal", "petugas"]
+    },
+    "suhuMasukOmpreng": {
+      "title": "Suhu Masuk Ompreng Packing",
+      "description": "Daily temperature records during thermal box / ompreng packing across 3 sessions and 4 food categories with photo documentation",
+      "type": "object",
+      "properties": {
+        "tanggal": { "type": "string" },
+        "status": { "type": "string" },
+        "petugas": { "type": "string" },
+        "sesi1": { "type": "object" },
+        "sesi2": { "type": "object" },
+        "sesi3": { "type": "object" }
+      },
+      "required": ["tanggal", "petugas"]
     }
   },
   "firestore": {
@@ -95,6 +123,14 @@
     "/menuHarian/{menuId}": {
       "schema": { "$ref": "#/entities/menuHarian" },
       "description": "Daily operational menu and nutritional value collection"
+    },
+    "/suhu_pengolahan_v2/{recordId}": {
+      "schema": { "$ref": "#/entities/suhuPengolahan" },
+      "description": "Daily cooking CCP temperature records"
+    },
+    "/suhu_masuk_ompreng_v2/{recordId}": {
+      "schema": { "$ref": "#/entities/suhuMasukOmpreng" },
+      "description": "Daily ompreng packing temperature records"
     }
   }
 }

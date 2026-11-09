@@ -42,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
   const [expandedSubLevels, setExpandedSubLevels] = useState<Record<string, boolean>>({
     '/gizi/suhu': true,
     '/gizi/suhu/makanan': true,
+    '/gizi/suhu/makanan/pengolahan': true,
     '/akuntan/rab-operasional': true,
     '/akuntan/rab-operasional/jasa': true,
     '/akuntan/rab-operasional/jasa/gaji-karyawan': true,
@@ -116,8 +117,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
             path: '/gizi/suhu/makanan',
             icon: Icons.Soup,
             children: [
-              { title: 'Pengolahan', path: '/gizi/suhu/makanan/pengolahan', icon: Icons.Flame },
-              { title: 'Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng', icon: Icons.PackageCheck }
+              {
+                title: 'Pengolahan',
+                path: '/gizi/suhu/makanan/pengolahan',
+                icon: Icons.Flame,
+                children: [
+                  { title: 'Form Suhu Pengolahan', path: '/gizi/suhu/makanan/pengolahan/form', icon: Icons.ClipboardEdit },
+                  { title: 'Tabel Suhu Pengolahan', path: '/gizi/suhu/makanan/pengolahan/tabel', icon: Icons.TableProperties },
+                  { title: 'Dokumentasi Suhu Pengolahan', path: '/gizi/suhu/makanan/pengolahan/dokumentasi', icon: Icons.Image }
+                ]
+              },
+              {
+                title: 'Masuk Ompreng',
+                path: '/gizi/suhu/makanan/masuk-ompreng',
+                icon: Icons.PackageCheck,
+                children: [
+                  { title: 'Form Suhu Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng/form', icon: Icons.ClipboardEdit },
+                  { title: 'Tabel Suhu Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng/tabel', icon: Icons.TableProperties },
+                  { title: 'Dokumentasi Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng/dokumentasi', icon: Icons.Image }
+                ]
+              }
             ]
           }
         ]

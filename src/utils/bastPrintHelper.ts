@@ -187,9 +187,9 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
     ? bast.hariTanggalFormatted.split(',')[1].trim()
     : bast.hariTanggalFormatted;
 
-  const cleanWaktu = bast.waktuPenerimaan
+  const cleanWaktu = bast.waktuPenerimaan && bast.waktuPenerimaan !== '07:30 WIB' && bast.waktuPenerimaan !== 'Jam 07:30 WIB' && !bast.waktuPenerimaan.includes('…………')
     ? bast.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
-    : '…………… WIB';
+    : '................ WIB';
 
   // Digital signature has been removed for manual physical signature & stamp
   const signatureSpace = '<div style="height: 54px;"></div>';
@@ -212,7 +212,7 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
         </div>
 
         <div class="narrative-p">
-          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : <strong>${bast.jumlahPaketMakanan}</strong> dalam keadaan baik dan layak dikonsumsi dari ${bast.namaSppg}.
+          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <u>................ WIB</u> Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : <strong>${bast.jumlahPaketMakanan}</strong> dalam keadaan baik dan layak dikonsumsi dari ${bast.namaSppg}.
         </div>
 
         <!-- Yang Menyerahkan (Atas) -->
@@ -282,7 +282,7 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
         </div>
 
         <div class="narrative-p">
-          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <strong>${cleanWaktu}</strong> Telah Diterima Kembali Alat Makan Sejumlah : <strong>${bast.jumlahAlatMakan || bast.jumlahPaketMakanan}</strong> Paket Alat Makan Bergizi Dari ${bast.namaSppg}.
+          Pada Hari <strong>${bast.hari}</strong> Tanggal <strong>${cleanDate}</strong> Jam <u>................ WIB</u> Telah Diterima Kembali Alat Makan Sejumlah : <strong>${bast.jumlahAlatMakan || bast.jumlahPaketMakanan}</strong> Paket Alat Makan Bergizi Dari ${bast.namaSppg}.
         </div>
 
         <!-- Yang Menyerahkan (diisi oleh Lembaga) (Atas) -->

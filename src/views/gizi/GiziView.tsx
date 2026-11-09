@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 import { PerencanaanBahanView } from '../../components/nutrition/PerencanaanBahanView';
 import { SiklusMenuView } from '../../components/nutrition/SiklusMenuView';
+import { SuhuPengolahanView } from '../../components/gizi/SuhuPengolahanView';
+import { SuhuMasukOmprengView } from '../../components/gizi/SuhuMasukOmprengView';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
 import { exportMasterMenuToExcel, exportMasterMenuToPdf } from '../../utils/giziExportHelper';
@@ -493,6 +495,8 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
 
   const config = getFeatureConfig();
   const HeaderIcon = config.icon;
+  const isSuhuPengolahan = currentPath.includes('/gizi/suhu/makanan/pengolahan');
+  const isSuhuMasukOmpreng = currentPath.includes('/gizi/suhu/makanan/masuk-ompreng');
 
   // Filtered rows
   const filteredRows = config.rows.filter(r =>
@@ -557,7 +561,9 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
           <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
             <button
               onClick={() => {
-                if (config.key === 'master-menu') {
+                if (isSuhuPengolahan) {
+                  onNavigate('/gizi/suhu/makanan/pengolahan/form');
+                } else if (config.key === 'master-menu') {
                   handleOpenAddMasterMenu();
                 } else {
                   setIsModalOpen(true);
@@ -566,7 +572,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Input Data Baru</span>
+              <span>{isSuhuPengolahan ? '+ Form Suhu Baru' : '+ Input Data Baru'}</span>
             </button>
             {config.key === 'master-menu' ? (
               <div className="relative">
@@ -697,7 +703,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               Ruang Pemorsian
             </button>
             <button
-              onClick={() => onNavigate('/gizi/suhu/makanan/pengolahan')}
+              onClick={() => onNavigate('/gizi/suhu/makanan/pengolahan/form')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
                 currentPath.includes('/gizi/suhu/makanan/pengolahan')
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -707,7 +713,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               🔥 Suhu Pengolahan (CCP)
             </button>
             <button
-              onClick={() => onNavigate('/gizi/suhu/makanan/masuk-ompreng')}
+              onClick={() => onNavigate('/gizi/suhu/makanan/masuk-ompreng/form')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
                 currentPath.includes('/gizi/suhu/makanan/masuk-ompreng')
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -730,83 +736,97 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
         </div>
 
         {/* Quick Date Filter Toolbar on Modul Gizi */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Filter Tanggal:</span>
-              <input
-                type="date"
-                value={selectedDateFilter}
-                onChange={(e) => setSelectedDateFilter(e.target.value)}
-                className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
-              />
+        {!isSuhuPengolahan && !isSuhuMasukOmpreng && (
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Filter Tanggal:</span>
+                <input
+                  type="date"
+                  value={selectedDateFilter}
+                  onChange={(e) => setSelectedDateFilter(e.target.value)}
+                  className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                />
+              </div>
+
+              {selectedDateFilter ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs">
+                    <span>Aktif: {formatDateIndo(selectedDateFilter)}</span>
+                    <button
+                      onClick={() => setSelectedDateFilter('')}
+                      className="hover:bg-emerald-700 p-0.5 rounded-full cursor-pointer"
+                      title="Hapus filter tanggal"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDateFilter('')}
+                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Tampilkan Semua Tanggal
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDateFilter(new Date().toISOString().split('T')[0])}
+                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Hari Ini
+                  </button>
+                </div>
+              )}
             </div>
 
-            {selectedDateFilter ? (
-              <div className="flex items-center gap-1.5">
-                <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs">
-                  <span>Aktif: {formatDateIndo(selectedDateFilter)}</span>
-                  <button
-                    onClick={() => setSelectedDateFilter('')}
-                    className="hover:bg-emerald-700 p-0.5 rounded-full cursor-pointer"
-                    title="Hapus filter tanggal"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDateFilter('')}
-                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Tampilkan Semua Tanggal
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDateFilter(new Date().toISOString().split('T')[0])}
-                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Hari Ini
-                </button>
-              </div>
-            )}
+            <div className="text-[11px] text-slate-400 font-medium">
+              {selectedDateFilter
+                ? `Menyaring menu & logbook harian khusus ${selectedDateFilter}`
+                : 'Menampilkan seluruh jadwal & logbook SPPG'}
+            </div>
           </div>
-
-          <div className="text-[11px] text-slate-400 font-medium">
-            {selectedDateFilter
-              ? `Menyaring menu & logbook harian khusus ${selectedDateFilter}`
-              : 'Menampilkan seluruh jadwal & logbook SPPG'}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* KPI Statistic Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {config.kpis.map((kpi, idx) => (
-          <div
-            key={idx}
-            className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4.5 shadow-2xs space-y-2 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
-          >
-            <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-              {kpi.label}
+      {!isSuhuPengolahan && !isSuhuMasukOmpreng && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {config.kpis.map((kpi, idx) => (
+            <div
+              key={idx}
+              className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4.5 shadow-2xs space-y-2 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
+            >
+              <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                {kpi.label}
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+                {kpi.value}
+              </div>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{kpi.status}</span>
+              </div>
             </div>
-            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-              {kpi.value}
-            </div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{kpi.status}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Main Content Section */}
-      {config.key === 'siklus-menu' ? (
+      {isSuhuPengolahan ? (
+        <SuhuPengolahanView
+          currentPath={currentPath}
+          onNavigate={onNavigate}
+        />
+      ) : isSuhuMasukOmpreng ? (
+        <SuhuMasukOmprengView
+          currentPath={currentPath}
+          onNavigate={onNavigate}
+        />
+      ) : config.key === 'siklus-menu' ? (
         <SiklusMenuView
           currentPath={currentPath}
           onNavigate={onNavigate}

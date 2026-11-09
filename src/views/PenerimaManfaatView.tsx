@@ -66,6 +66,7 @@ import {
 } from '../components/common/GroupFormModal';
 import { calculateAutoPortion, calculateDailyRecordsPortion } from '../utils/portionHelper';
 import { BastSubView } from '../components/penerima/BastSubView';
+import { generateRekapHarianPdf } from '../utils/rekapHarianPdfGenerator';
 
 // Authentic stylized cursive signature for Sri Rohayu, S.Pd. (Kepala SPPG Probolinggo)
 const SriRohayuSignature: React.FC<{ className?: string }> = ({ className = 'h-12 w-auto' }) => (
@@ -649,6 +650,77 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   };
 
   // Change handlers for dynamic breakdown inputs in "Buat Penerima Manfaat"
+  const handleBuatPenerimaClassGenderChange = (
+    lembagaIdx: number,
+    classKey: string,
+    gender: 'l' | 'p',
+    rawVal: string
+  ) => {
+    const num = Math.max(0, parseInt(rawVal, 10) || 0);
+    const list = [...buatPenerimaLembagaList];
+    const item = { ...list[lembagaIdx] };
+    const itemCat = item.kategoriLembaga || inferKategoriFromText(item.namaInstansi, 'SD / MI');
+    const itemConf = getKategoriConfig(itemCat);
+
+    const is3B = itemCat.includes('3B') || itemConf.id.includes('3B') || itemConf.targetCategory === '3B';
+    if (is3B) {
+      handleBuatPenerima3BChange(lembagaIdx, classKey, rawVal);
+      return;
+    }
+
+    const bd = { ...(item.breakdownKelas || {}) };
+    const genderKey = `${classKey}_${gender}`;
+    bd[genderKey] = num;
+
+    const otherGender = gender === 'l' ? 'p' : 'l';
+    const otherGenderKey = `${classKey}_${otherGender}`;
+    const otherVal = bd[otherGenderKey] !== undefined
+      ? (Number(bd[otherGenderKey]) || 0)
+      : (bd[classKey] ? Math.max(0, (Number(bd[classKey]) || 0) - num) : 0);
+    bd[otherGenderKey] = otherVal;
+
+    const classTotal = (gender === 'l' ? num : otherVal) + (gender === 'p' ? num : otherVal);
+    bd[classKey] = classTotal;
+    item.breakdownKelas = bd;
+
+    const sumClasses = itemConf.classes.reduce((sum, c) => {
+      const cL = bd[`${c.key}_l`] !== undefined ? (Number(bd[`${c.key}_l`]) || 0) : 0;
+      const cP = bd[`${c.key}_p`] !== undefined ? (Number(bd[`${c.key}_p`]) || 0) : 0;
+      const cTot = (bd[`${c.key}_l`] !== undefined || bd[`${c.key}_p`] !== undefined) ? (cL + cP) : (Number(bd[c.key]) || 0);
+      return sum + cTot;
+    }, 0);
+
+    const g = Number(item.targetGuru) || 0;
+    if (itemConf.targetCategory === 'Balita') {
+      item.targetBalita = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBumilBusui = 0;
+    } else if (itemConf.targetCategory === 'Ibu Hamil') {
+      item.targetBumilBusui = sumClasses;
+      item.targetSiswa = 0;
+      item.targetBalita = 0;
+    } else {
+      item.targetSiswa = sumClasses;
+      item.targetBalita = 0;
+      item.targetBumilBusui = 0;
+    }
+
+    const autoP = calculateAutoPortion({
+      kategoriLembaga: itemCat,
+      namaInstansi: item.namaInstansi,
+      breakdownKelas: bd,
+      targetSiswa: item.targetSiswa,
+      targetGuru: g,
+      targetBalita: item.targetBalita,
+      targetBumilBusui: item.targetBumilBusui,
+      total: sumClasses + g
+    });
+    item.klasifikasiPorsi = autoP.klasifikasi;
+
+    list[lembagaIdx] = item;
+    setBuatPenerimaLembagaList(list);
+  };
+
   const handleBuatPenerimaClassChange = (lembagaIdx: number, classKey: string, rawVal: string) => {
     const num = Math.max(0, parseInt(rawVal, 10) || 0);
     const list = [...buatPenerimaLembagaList];
@@ -662,7 +734,12 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       return;
     }
 
-    const bd = { ...(item.breakdownKelas || {}), [classKey]: num };
+    const bd = {
+      ...(item.breakdownKelas || {}),
+      [classKey]: num,
+      [`${classKey}_l`]: Math.ceil(num / 2),
+      [`${classKey}_p`]: Math.floor(num / 2)
+    };
     item.breakdownKelas = bd;
 
     const sumClasses = itemConf.classes.reduce((sum, c) => sum + (Number(bd[c.key]) || 0), 0);
@@ -2758,11 +2835,33 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   Log Perubahan
                 </button>
                 <button
-                  onClick={() => handleExportCSV(historyRecords, `Rekap_Harian_${historyStartDate}_sd_${historyEndDate}`)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-2xl flex items-center justify-center gap-2 border border-slate-200/80 transition-all cursor-pointer shadow-2xs"
+                  type="button"
+                  onClick={async () => {
+                    const targetDate = selectedDate || historyStartDate || new Date().toISOString().split('T')[0];
+                    const recsForDate = historyRecords.filter(r => r.tanggal === targetDate);
+                    const targetRecs = recsForDate.length > 0 ? recsForDate : historyRecords;
+                    if (targetRecs.length === 0) {
+                      showToast('Tidak ada data penerima manfaat untuk diekspor', 'error');
+                      return;
+                    }
+                    try {
+                      await generateRekapHarianPdf({
+                        tanggal: targetDate,
+                        statusDoc: 'FINAL',
+                        records: targetRecs,
+                        userName: user?.nama || 'Petugas SPPG',
+                        autoPrint: false
+                      });
+                      showToast(`Laporan PDF Rekapitulasi (${targetDate}) berhasil diexport`);
+                    } catch {
+                      handleExportCSV(historyRecords, `Rekap_Harian_${historyStartDate}_sd_${historyEndDate}`);
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-2xl flex items-center justify-center gap-2 border border-emerald-300 transition-all cursor-pointer shadow-2xs"
+                  title="Ekspor laporan berbentuk PDF resmi sesuai tanggal yang dipilih"
                 >
-                  <Download className="w-4 h-4 text-slate-500" />
-                  Ekspor Laporan
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  Ekspor PDF
                 </button>
               </div>
             </div>
@@ -4359,195 +4458,524 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         </div>
       )}
 
-      {/* MODAL: DETAIL REKAP HARIAN (LIHAT) */}
+      {/* MODAL: DETAIL REKAP HARIAN (LIHAT & CETAK PDF) */}
       {detailModalRekap && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-3xl rounded-3xl border border-slate-200 shadow-2xl p-6 space-y-5 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white w-full max-w-5xl rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-7 space-y-5 max-h-[92vh] flex flex-col my-auto">
+            {/* Modal Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-sky-50 rounded-2xl border border-sky-100 text-sky-600">
-                  <Eye className="w-5 h-5" />
+                <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 shadow-2xs">
+                  <Eye className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Rincian Rekapitulasi Harian</h3>
-                  <p className="text-xs text-slate-500 font-medium">{detailModalRekap.hariTanggal}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Laporan Harian Resmi SPPG
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">
+                      Format Cetak PDF BGN
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+                    Rincian Rekapitulasi Harian
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {detailModalRekap.hariTanggal} ({detailModalRekap.tanggal})
+                  </p>
                 </div>
               </div>
-              <button
-                onClick={() => setDetailModalRekap(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-2xl transition-all cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    try {
+                      await generateRekapHarianPdf({
+                        tanggal: detailModalRekap.tanggal,
+                        hariTanggal: detailModalRekap.hariTanggal,
+                        statusDoc: detailModalRekap.status,
+                        records: activeDetailRecs,
+                        userName: user?.nama || 'Petugas SPPG',
+                        autoPrint: false
+                      });
+                      showToast('Laporan PDF Rincian Rekapitulasi berhasil diunduh');
+                    } catch (err) {
+                      showToast('Gagal men-generate PDF', 'error');
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  title="Unduh file PDF resmi sesuai tanggal yang dipilih"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Ekspor PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    try {
+                      await generateRekapHarianPdf({
+                        tanggal: detailModalRekap.tanggal,
+                        hariTanggal: detailModalRekap.hariTanggal,
+                        statusDoc: detailModalRekap.status,
+                        records: activeDetailRecs,
+                        userName: user?.nama || 'Petugas SPPG',
+                        autoPrint: true
+                      });
+                      showToast('Menyiapkan cetakan PDF resmi...');
+                    } catch (err) {
+                      showToast('Gagal memproses cetak PDF', 'error');
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  title="Cetak langsung PDF hasil export laporan"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak Rincian (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDetailModalRekap(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-2xl transition-all cursor-pointer"
+                  title="Tutup Modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
-              <div>
-                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Hari & Tanggal</span>
-                <span className="text-xs font-bold text-slate-900">{detailModalRekap.hariTanggal}</span>
-              </div>
-              <div>
-                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Total Sasaran Porsi</span>
-                <span className="text-xs font-extrabold text-emerald-700 font-mono">
-                  {detailModalRekap.totalSasaran.toLocaleString('id-ID')} Porsi
-                </span>
-              </div>
-              <div>
-                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Status Dokumen</span>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full ${
-                  detailModalRekap.status === 'Final' || detailModalRekap.status === 'FINAL'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-amber-100 text-amber-800'
-                }`}>
-                  <CheckCircle2 className="w-3 h-3" />
-                  {detailModalRekap.status}
-                </span>
-              </div>
-            </div>
+            {/* Quick Stat Bar */}
+            {(() => {
+              const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+              const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
 
+              let statTotalL = 0;
+              let statTotalP = 0;
+              let statTotalGuru = 0;
+              let statTotalPorsi = 0;
+
+              activeDetailRecs.forEach((rec) => {
+                if (rec.statusKbm === 'Libur Full') return;
+                const rawCat = rec.kategoriLembaga || inferKategoriFromText(rec.namaInstansi, 'SD / MI');
+                const conf = getKategoriConfig(rawCat);
+                const bd = rec.breakdownKelas || rec.rincianSasaran?.breakdownKelas || {};
+                const is3B = rawCat.includes('3B') || conf.id.includes('3B') || conf.targetCategory === '3B';
+
+                if (is3B) {
+                  const b511L = Number(bd.balita511_l || 0);
+                  const b511P = Number(bd.balita511_p || 0);
+                  const b1259L = Number(bd.balita1259_l || 0);
+                  const b1259P = Number(bd.balita1259_p || 0);
+                  const busuiW = Number(bd.busui_w ?? bd.busui ?? rec.targetBumilBusui ?? 0);
+                  const bumilW = Number(bd.bumil_w ?? bd.bumil ?? 0);
+                  const kL = Number(bd.kader_l || 0);
+                  const kP = Number(bd.kader_p || 0);
+
+                  statTotalL += b511L + b1259L;
+                  statTotalP += b511P + b1259P + busuiW + bumilW;
+                  statTotalGuru += kL + kP || Number(bd.kader) || 0;
+                } else {
+                  conf.classes.forEach((cls) => {
+                    const valL = bd[`${cls.key}_l`] !== undefined
+                      ? (Number(bd[`${cls.key}_l`]) || 0)
+                      : (bd[cls.key] ? Math.ceil(bd[cls.key] / 2) : 0);
+                    const valP = bd[`${cls.key}_p`] !== undefined
+                      ? (Number(bd[`${cls.key}_p`]) || 0)
+                      : (bd[cls.key] ? Math.floor(bd[cls.key] / 2) : 0);
+                    statTotalL += valL;
+                    statTotalP += valP;
+                  });
+                  statTotalGuru += Number(rec.targetGuru) || Number(rec.rincianSasaran?.guru) || 0;
+                }
+                statTotalPorsi += Number(rec.totalPenerima) || Number(rec.jumlahAwal) || 0;
+              });
+
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
+                      👦 Sasaran Laki-laki
+                    </span>
+                    <span className="text-sm font-black text-blue-700 font-mono">
+                      {statTotalL.toLocaleString('id-ID')} Orang
+                    </span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
+                      👧 Sasaran Perempuan
+                    </span>
+                    <span className="text-sm font-black text-rose-700 font-mono">
+                      {statTotalP.toLocaleString('id-ID')} Orang
+                    </span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
+                      👩‍🏫 Guru / Kader
+                    </span>
+                    <span className="text-sm font-black text-slate-800 font-mono">
+                      {statTotalGuru.toLocaleString('id-ID')} Orang
+                    </span>
+                  </div>
+                  <div className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200">
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block mb-0.5">
+                      🍱 Total Porsi Distribusi
+                    </span>
+                    <span className="text-sm font-black text-emerald-700 font-mono">
+                      {detailModalRekap.totalSasaran.toLocaleString('id-ID')} Porsi
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Table of Beneficiaries with Class & Gender Breakdown */}
             <div className="overflow-y-auto flex-1 space-y-3">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Spesifikasi Kelompok & Porsi Sasaran</h4>
-              <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
-                      <th className="py-2.5 px-4">Lembaga / Sasaran</th>
-                      <th className="py-2.5 px-4">Klasifikasi</th>
-                      <th className="py-2.5 px-4 text-right">Rincian Porsi</th>
-                      <th className="py-2.5 px-4 text-right">Total Porsi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-800">
-                    {(() => {
-                      const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
-                      const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-emerald-600" />
+                  <span>Detail Laporan Berdasarkan PM Kelas dan Jenis Kelamin (L / P)</span>
+                </h4>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  Lembaga Aktif: {
+                    (historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal).length > 0
+                      ? historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal)
+                      : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal)
+                    ).length
+                  } Satuan
+                </span>
+              </div>
 
-                      if (activeDetailRecs.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={4} className="py-6 px-4 text-center text-slate-400">
-                              Tidak ada rincian lembaga untuk tanggal ini.
-                            </td>
-                          </tr>
-                        );
-                      }
+              <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[760px]">
+                    <thead>
+                      <tr className="bg-slate-900 text-white font-extrabold text-[11px]">
+                        <th className="py-3 px-3 text-center w-10">No</th>
+                        <th className="py-3 px-4">Lembaga / Satuan Pendidikan</th>
+                        <th className="py-3 px-3 text-center w-24">Jenjang</th>
+                        <th className="py-3 px-4">Breakdown PM per Kelas & Gender (L / P)</th>
+                        <th className="py-3 px-3 text-center w-16 text-blue-200">Total L</th>
+                        <th className="py-3 px-3 text-center w-16 text-rose-200">Total P</th>
+                        <th className="py-3 px-3 text-center w-20">Guru/Staf</th>
+                        <th className="py-3 px-3 text-center w-24">Porsi</th>
+                        <th className="py-3 px-4 text-right w-24">Total Porsi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-800 bg-white">
+                      {(() => {
+                        const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                        const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
 
-                      return activeDetailRecs.map((rec, idx) => {
-                        const klas = rec.klasifikasiPorsi || rec.groupNama || rec.kategori;
-                        const cleanInst = (rec.namaInstansi || '').toLowerCase();
-                        const is3B = cleanInst.includes('posyandu') || cleanInst.includes('temenggungan') || cleanInst.includes('3b') || (rec.kategoriLembaga && rec.kategoriLembaga.includes('3B')) || rec.groupNama?.includes('3B');
-
-                        const rs = rec.rincianSasaran;
-                        const bd = rec.breakdownKelas || rs?.breakdownKelas || {};
-                        let bumilVal = Number(rs?.ibuHamil) || Number(bd.bumil_w ?? bd.bumil) || 0;
-                        let busuiVal = Number(rs?.ibuMenyusui) || Number(bd.busui_w ?? bd.busui) || 0;
-                        let balitaVal = Number(rs?.balita) || (Number(bd.balita511_l) || 0) + (Number(bd.balita511_p) || 0) + (Number(bd.balita1259_l) || 0) + (Number(bd.balita1259_p) || 0) || (Number(bd.baduta) || 0) + (Number(bd.balita) || 0);
-                        let guruVal = is3B
-                          ? ((Number(bd.kader_l) || 0) + (Number(bd.kader_p) || 0) || Number(bd.kader) || 0)
-                          : (Number(rs?.guru) || 0);
-                        let siswaVal = is3B ? 0 : (Number(rs?.siswa) || 0);
-
-                        const totalBumilBusui = bumilVal + busuiVal;
-
-                        let rincianText = `${rec.totalPenerima} Porsi`;
-                        if (rec.statusKbm === 'Libur Full') {
-                          rincianText = 'Libur Full (0 Porsi)';
-                        } else if (is3B) {
-                          const parts: string[] = [];
-                          if (balitaVal > 0) parts.push(`${balitaVal} Balita`);
-                          if (bumilVal > 0 && busuiVal > 0) {
-                            parts.push(`${bumilVal} Bumil, ${busuiVal} Busui (Total Bumil & Busui: ${totalBumilBusui})`);
-                          } else if (totalBumilBusui > 0) {
-                            parts.push(`${totalBumilBusui} Bumil & Busui`);
-                          }
-                          if (guruVal > 0) parts.push(`${guruVal} Kader`);
-                          rincianText = parts.length > 0 ? parts.join(' • ') : `${rec.totalPenerima} Porsi`;
-                        } else if (rs) {
-                          const parts: string[] = [];
-                          if (siswaVal > 0) parts.push(`${siswaVal} Siswa`);
-                          if (guruVal > 0) parts.push(`${guruVal} Guru`);
-                          if (balitaVal > 0) parts.push(`${balitaVal} Balita`);
-                          if (bumilVal > 0) parts.push(`${bumilVal} Ibu Hamil`);
-                          if (busuiVal > 0) parts.push(`${busuiVal} Ibu Menyusui`);
-                          if (parts.length > 0) rincianText = parts.join(', ');
+                        if (activeDetailRecs.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={9} className="py-8 px-4 text-center text-slate-400 font-medium">
+                                Tidak ada data rincian lembaga untuk tanggal ini.
+                              </td>
+                            </tr>
+                          );
                         }
 
-                        return (
-                          <tr key={rec.id || idx} className="hover:bg-slate-50/50">
-                            <td className="py-2.5 px-4 font-bold text-slate-900">
-                              <div>{rec.namaInstansi}</div>
-                              {is3B && (
-                                <div className="flex items-center gap-1.5 mt-1 flex-wrap font-normal">
-                                  {balitaVal > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold">
-                                      👶 Balita: {balitaVal}
+                        let totalLAll = 0;
+                        let totalPAll = 0;
+                        let totalGuruAll = 0;
+                        let totalPorsiAll = 0;
+
+                        const renderedRows = activeDetailRecs.map((rec, idx) => {
+                          const rawCat = rec.kategoriLembaga || inferKategoriFromText(rec.namaInstansi, 'SD / MI');
+                          const conf = getKategoriConfig(rawCat);
+                          const bd = rec.breakdownKelas || rec.rincianSasaran?.breakdownKelas || {};
+                          const is3B = rawCat.includes('3B') || conf.id.includes('3B') || conf.targetCategory === '3B';
+
+                          let rowL = 0;
+                          let rowP = 0;
+                          let rowGuru = Number(rec.targetGuru) || Number(rec.rincianSasaran?.guru) || 0;
+
+                          if (rec.statusKbm === 'Libur Full') {
+                            return (
+                              <tr key={rec.id || idx} className="hover:bg-slate-50/50 bg-rose-50/30">
+                                <td className="py-3 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                                <td className="py-3 px-4 font-bold text-slate-900">
+                                  <div>{rec.namaInstansi}</div>
+                                  {rec.npsn && <span className="text-[10px] text-blue-700 font-mono">NPSN: {rec.npsn}</span>}
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded-lg text-[10px]">
+                                    {conf.shortName}
+                                  </span>
+                                </td>
+                                <td colSpan={5} className="py-3 px-4 text-center font-bold text-rose-600">
+                                  🔴 Libur Full (0 Porsi Penyaluran)
+                                </td>
+                                <td className="py-3 px-4 text-right font-extrabold text-slate-400">0 Porsi</td>
+                              </tr>
+                            );
+                          }
+
+                          if (is3B) {
+                            const b511L = Number(bd.balita511_l || 0);
+                            const b511P = Number(bd.balita511_p || 0);
+                            const b1259L = Number(bd.balita1259_l || 0);
+                            const b1259P = Number(bd.balita1259_p || 0);
+                            const busuiW = Number(bd.busui_w ?? bd.busui ?? rec.targetBumilBusui ?? 0);
+                            const bumilW = Number(bd.bumil_w ?? bd.bumil ?? 0);
+                            const kL = Number(bd.kader_l || 0);
+                            const kP = Number(bd.kader_p || 0);
+
+                            rowL = b511L + b1259L;
+                            rowP = b511P + b1259P + busuiW + bumilW;
+                            rowGuru = kL + kP || Number(bd.kader) || 0;
+                          } else {
+                            conf.classes.forEach((cls) => {
+                              const valL = bd[`${cls.key}_l`] !== undefined
+                                ? (Number(bd[`${cls.key}_l`]) || 0)
+                                : (bd[cls.key] ? Math.ceil(bd[cls.key] / 2) : 0);
+                              const valP = bd[`${cls.key}_p`] !== undefined
+                                ? (Number(bd[`${cls.key}_p`]) || 0)
+                                : (bd[cls.key] ? Math.floor(bd[cls.key] / 2) : 0);
+                              rowL += valL;
+                              rowP += valP;
+                            });
+                          }
+
+                          const rowPorsi = Number(rec.totalPenerima) || (rowL + rowP + rowGuru);
+
+                          totalLAll += rowL;
+                          totalPAll += rowP;
+                          totalGuruAll += rowGuru;
+                          totalPorsiAll += rowPorsi;
+
+                          return (
+                            <tr key={rec.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                              {/* No */}
+                              <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+
+                              {/* Lembaga / Satuan Pendidikan */}
+                              <td className="py-3 px-4 font-bold text-slate-900">
+                                <div>{rec.namaInstansi}</div>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {rec.npsn && (
+                                    <span className="text-[10px] text-blue-700 font-mono font-bold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                                      NPSN: {rec.npsn}
                                     </span>
                                   )}
-                                  {bumilVal > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold">
-                                      🤰 Bumil: {bumilVal}
-                                    </span>
-                                  )}
-                                  {busuiVal > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-pink-50 text-pink-800 border border-pink-200 text-[10px] font-bold">
-                                      🤱 Busui: {busuiVal}
-                                    </span>
-                                  )}
-                                  {totalBumilBusui > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 text-[10px] font-black">
-                                      🤰🤱 Gabungan Bumil & Busui: {totalBumilBusui}
-                                    </span>
-                                  )}
-                                  {guruVal > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-                                      👩‍🏫 Kader: {guruVal}
+                                  {(rec.picNama || rec.kontakPerson) && (
+                                    <span className="text-[10px] text-slate-500 font-normal">
+                                      PIC: {rec.picNama || rec.kontakPerson}
                                     </span>
                                   )}
                                 </div>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-4">
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded-lg text-[10px]">
-                                {klas}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-4 text-right text-slate-600 font-medium">{rincianText}</td>
-                            <td className="py-2.5 px-4 text-right font-bold text-slate-900">
-                              {rec.totalPenerima.toLocaleString('id-ID')} Porsi
-                            </td>
-                          </tr>
+                              </td>
+
+                              {/* Jenjang */}
+                              <td className="py-3 px-3 text-center">
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-800 font-bold rounded-lg text-[10px] border border-slate-200">
+                                  {conf.shortName}
+                                </span>
+                              </td>
+
+                              {/* Breakdown PM per Kelas & Gender (L/P) */}
+                              <td className="py-3 px-4">
+                                {is3B ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {(Number(bd.balita511_l) > 0 || Number(bd.balita511_p) > 0) && (
+                                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold">
+                                        👶 5-11 Bln: {bd.balita511_l || 0}L, {bd.balita511_p || 0}P
+                                      </span>
+                                    )}
+                                    {(Number(bd.balita1259_l) > 0 || Number(bd.balita1259_p) > 0) && (
+                                      <span className="px-2 py-0.5 rounded bg-cyan-50 text-cyan-800 border border-cyan-200 text-[10px] font-bold">
+                                        🧒 12-59 Bln: {bd.balita1259_l || 0}L, {bd.balita1259_p || 0}P
+                                      </span>
+                                    )}
+                                    {Number(bd.bumil_w ?? bd.bumil) > 0 && (
+                                      <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold">
+                                        🤰 Bumil: {bd.bumil_w ?? bd.bumil} W
+                                      </span>
+                                    )}
+                                    {Number(bd.busui_w ?? bd.busui) > 0 && (
+                                      <span className="px-2 py-0.5 rounded bg-pink-50 text-pink-800 border border-pink-200 text-[10px] font-bold">
+                                        🤱 Busui: {bd.busui_w ?? bd.busui} W
+                                      </span>
+                                    )}
+                                    {(Number(bd.kader_l) > 0 || Number(bd.kader_p) > 0) && (
+                                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                                        👩‍🏫 Kader: {bd.kader_l || 0}L, {bd.kader_p || 0}P
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {conf.classes.map((cls) => {
+                                      const valL = bd[`${cls.key}_l`] !== undefined
+                                        ? (Number(bd[`${cls.key}_l`]) || 0)
+                                        : (bd[cls.key] ? Math.ceil(bd[cls.key] / 2) : 0);
+                                      const valP = bd[`${cls.key}_p`] !== undefined
+                                        ? (Number(bd[`${cls.key}_p`]) || 0)
+                                        : (bd[cls.key] ? Math.floor(bd[cls.key] / 2) : 0);
+                                      const cTot = valL + valP;
+                                      if (cTot === 0) return null;
+
+                                      return (
+                                        <span
+                                          key={cls.key}
+                                          className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-800"
+                                        >
+                                          <strong className="text-slate-900">{cls.shortLabel || cls.label}:</strong>{' '}
+                                          <span className="text-blue-700">{valL}L</span>,{' '}
+                                          <span className="text-rose-700">{valP}P</span>{' '}
+                                          <span className="text-slate-400 font-normal">({cTot})</span>
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Total L */}
+                              <td className="py-3 px-3 text-center font-black text-blue-700 font-mono">
+                                {rowL > 0 ? rowL.toLocaleString('id-ID') : '-'}
+                              </td>
+
+                              {/* Total P */}
+                              <td className="py-3 px-3 text-center font-black text-rose-700 font-mono">
+                                {rowP > 0 ? rowP.toLocaleString('id-ID') : '-'}
+                              </td>
+
+                              {/* Guru / Staf */}
+                              <td className="py-3 px-3 text-center font-bold text-slate-700 font-mono">
+                                {rowGuru > 0 ? rowGuru.toLocaleString('id-ID') : '-'}
+                              </td>
+
+                              {/* Standar Porsi */}
+                              <td className="py-3 px-3 text-center">
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold rounded-md text-[10px]">
+                                  {rec.klasifikasiPorsi || 'Porsi Besar'}
+                                </span>
+                              </td>
+
+                              {/* Total Porsi */}
+                              <td className="py-3 px-4 text-right font-black text-slate-900 font-mono text-sm">
+                                {rowPorsi.toLocaleString('id-ID')} Porsi
+                              </td>
+                            </tr>
+                          );
+                        });
+
+                        return (
+                          <>
+                            {renderedRows}
+                            {/* Baris Total Akumulasi */}
+                            <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                              <td colSpan={3} className="py-3 px-4 font-black uppercase text-slate-900">
+                                TOTAL AKUMULASI SELURUH SASARAN
+                              </td>
+                              <td className="py-3 px-4 text-slate-600 font-semibold text-[11px]">
+                                Total PM L & P: {(totalLAll + totalPAll).toLocaleString('id-ID')} Orang • Guru/Kader: {totalGuruAll.toLocaleString('id-ID')} Orang
+                              </td>
+                              <td className="py-3 px-3 text-center font-black text-blue-800 font-mono text-sm">
+                                {totalLAll.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-3 px-3 text-center font-black text-rose-800 font-mono text-sm">
+                                {totalPAll.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-3 px-3 text-center font-black text-slate-800 font-mono text-sm">
+                                {totalGuruAll.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold text-slate-600 text-[11px]">
+                                Akumulasi
+                              </td>
+                              <td className="py-3 px-4 text-right font-black text-emerald-800 font-mono text-base bg-emerald-100/70">
+                                {totalPorsiAll.toLocaleString('id-ID')} Porsi
+                              </td>
+                            </tr>
+                          </>
                         );
-                      });
-                    })()}
-                  </tbody>
-                </table>
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+            {/* Modal Footer Controls */}
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button
+                type="button"
                 onClick={() => {
                   const targetRec = { ...detailModalRekap };
                   setDetailModalRekap(null);
                   handleOpenEditPenerimaModal(targetRec);
                 }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-2xl text-xs font-semibold border border-amber-200 transition-all cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-2xl text-xs font-bold border border-amber-200 transition-all cursor-pointer shadow-2xs"
               >
-                <Edit3 className="w-3.5 h-3.5" />
-                Edit Data Tanggal Ini
+                <Edit3 className="w-4 h-4 text-amber-600" />
+                <span>Edit Data Tanggal Ini</span>
               </button>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2.5 flex-wrap">
                 <button
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-semibold transition-all cursor-pointer"
+                  type="button"
+                  onClick={async () => {
+                    const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    try {
+                      await generateRekapHarianPdf({
+                        tanggal: detailModalRekap.tanggal,
+                        hariTanggal: detailModalRekap.hariTanggal,
+                        statusDoc: detailModalRekap.status,
+                        records: activeDetailRecs,
+                        userName: user?.nama || 'Petugas SPPG',
+                        autoPrint: false
+                      });
+                      showToast('Laporan PDF Rincian Rekapitulasi berhasil diexport');
+                    } catch (err) {
+                      showToast('Gagal mengekspor PDF', 'error');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-2xl text-xs font-extrabold border border-emerald-300 transition-all cursor-pointer shadow-2xs"
+                  title="Unduh dokumen PDF resmi sesuai tanggal yang dipilih"
                 >
-                  <Printer className="w-3.5 h-3.5" />
-                  Cetak Rincian
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>Ekspor PDF</span>
                 </button>
+
                 <button
+                  type="button"
+                  onClick={async () => {
+                    const detailRecs = historyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    const activeDetailRecs = detailRecs.length > 0 ? detailRecs : dailyRecords.filter(r => r.tanggal === detailModalRekap.tanggal);
+                    try {
+                      await generateRekapHarianPdf({
+                        tanggal: detailModalRekap.tanggal,
+                        hariTanggal: detailModalRekap.hariTanggal,
+                        statusDoc: detailModalRekap.status,
+                        records: activeDetailRecs,
+                        userName: user?.nama || 'Petugas SPPG',
+                        autoPrint: true
+                      });
+                      showToast('Membuka dialog cetak PDF resmi...');
+                    } catch (err) {
+                      showToast('Gagal memproses cetak PDF', 'error');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-xs"
+                  title="Cetak langsung PDF hasil export laporan"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak Rincian (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setDetailModalRekap(null)}
-                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-semibold cursor-pointer"
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-bold cursor-pointer transition-all"
                 >
                   Tutup
                 </button>
@@ -5339,148 +5767,193 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                         </div>
                       ) : (
                         /* STANDARD BREAKDOWN DEMOGRAFI PENERIMA FOR SCHOOLS (SD / MI, SMP / MTs, SMA, PAUD, DLL) */
-                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                                BREAKDOWN KELAS ({itemConf.shortName})
-                              </span>
-                              <span className="text-xs font-bold text-slate-700">
-                                {itemConf.label}
-                              </span>
-                            </div>
+                        (() => {
+                          const totClassL = itemConf.classes.reduce((sum, cls) => {
+                            const l = itemBd[`${cls.key}_l`] !== undefined ? (Number(itemBd[`${cls.key}_l`]) || 0) : (itemBd[cls.key] ? Math.ceil(itemBd[cls.key] / 2) : 0);
+                            return sum + l;
+                          }, 0);
+                          const totClassP = itemConf.classes.reduce((sum, cls) => {
+                            const p = itemBd[`${cls.key}_p`] !== undefined ? (Number(itemBd[`${cls.key}_p`]) || 0) : (itemBd[cls.key] ? Math.floor(itemBd[cls.key] / 2) : 0);
+                            return sum + p;
+                          }, 0);
 
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-extrabold text-slate-500">
-                                Subtotal {itemConf.mainTargetLabel}:
-                              </span>
-                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-300">
-                                {sumClassesThisItem} {itemConf.mainTargetLabel}
-                              </span>
-                            </div>
-                          </div>
+                          return (
+                            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                                    DETAIL SASARAN KELAS & GENDER (L / P)
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {itemConf.label}
+                                  </span>
+                                </div>
 
-                          {/* In-container validation banner for School classes */}
-                          {isOutOfSync && (
-                            <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                              <div className="flex items-center gap-2 text-amber-900 font-bold">
-                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                                <span>
-                                  Peringatan: Total siswa + {itemConf.teacherLabel.toLowerCase()} ({totalPorsiCalculated} porsi) tidak selaras dengan target master kelompok ({selisihInfo?.targetMaster} porsi).
-                                </span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[11px] font-extrabold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 flex items-center gap-1">
+                                    <span>👦</span> L: <strong className="font-black">{totClassL}</strong>
+                                  </span>
+                                  <span className="text-[11px] font-extrabold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200 flex items-center gap-1">
+                                    <span>👧</span> P: <strong className="font-black">{totClassP}</strong>
+                                  </span>
+                                  <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                                    Total: {sumClassesThisItem} {itemConf.mainTargetLabel}
+                                  </span>
+                                </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleResetToMaster(idx)}
-                                className="self-start sm:self-auto px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                                Sinkronkan ke Master ({selisihInfo?.targetMaster} Porsi)
-                              </button>
-                            </div>
-                          )}
 
-                          {/* GRID OF CLASS INPUTS */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
-                            {itemConf.classes.map((cls) => {
-                              const val = itemBd[cls.key] !== undefined ? itemBd[cls.key] : 0;
+                              {/* In-container validation banner for School classes */}
+                              {isOutOfSync && (
+                                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                  <div className="flex items-center gap-2 text-amber-900 font-bold">
+                                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                    <span>
+                                      Peringatan: Total siswa + {itemConf.teacherLabel.toLowerCase()} ({totalPorsiCalculated} porsi) tidak selaras dengan target master kelompok ({selisihInfo?.targetMaster} porsi).
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetToMaster(idx)}
+                                    className="self-start sm:self-auto px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                    Sinkronkan ke Master ({selisihInfo?.targetMaster} Porsi)
+                                  </button>
+                                </div>
+                              )}
 
-                              return (
-                                <div
-                                  key={cls.key}
-                                  className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all flex flex-col justify-between"
-                                >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <label className="text-[11px] font-extrabold text-slate-800">
-                                      {cls.label}
+                              {/* GRID OF CLASS INPUTS WITH GENDER BREAKDOWN (LAKI-LAKI & PEREMPUAN) */}
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
+                                {itemConf.classes.map((cls) => {
+                                  const valL = itemBd[`${cls.key}_l`] !== undefined
+                                    ? itemBd[`${cls.key}_l`]
+                                    : (itemBd[cls.key] ? Math.ceil(itemBd[cls.key] / 2) : 0);
+                                  const valP = itemBd[`${cls.key}_p`] !== undefined
+                                    ? itemBd[`${cls.key}_p`]
+                                    : (itemBd[cls.key] ? Math.floor(itemBd[cls.key] / 2) : 0);
+                                  const classTotal = (Number(valL) || 0) + (Number(valP) || 0);
+
+                                  return (
+                                    <div
+                                      key={cls.key}
+                                      className="bg-slate-50/90 p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-slate-50 transition-all flex flex-col justify-between shadow-2xs"
+                                    >
+                                      <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200/60">
+                                        <label className="text-[11px] font-black text-slate-800">
+                                          {cls.label}
+                                        </label>
+                                        {cls.portionTier && (
+                                          <span
+                                            className={`text-[8px] font-extrabold px-1 rounded ${
+                                              cls.portionTier === 'Porsi Kecil'
+                                                ? 'bg-amber-100 text-amber-800'
+                                                : cls.portionTier === 'Porsi Besar'
+                                                ? 'bg-blue-100 text-blue-800'
+                                                : cls.portionTier === 'Porsi Balita'
+                                                ? 'bg-rose-100 text-rose-800'
+                                                : 'bg-fuchsia-100 text-fuchsia-800'
+                                            }`}
+                                          >
+                                            {cls.portionTier.replace('Porsi ', '')}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Inputs L (Laki-laki) & P (Perempuan) */}
+                                      <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                                        <div>
+                                          <span className="block text-[9px] font-extrabold text-blue-700 text-center mb-0.5">
+                                            👦 L
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={valL === 0 ? '' : valL}
+                                            onChange={(e) => handleBuatPenerimaClassGenderChange(idx, cls.key, 'l', e.target.value)}
+                                            placeholder="0"
+                                            className="w-full px-1 py-1 bg-white border border-blue-200 focus:border-blue-500 rounded-lg text-xs font-black text-blue-900 text-center focus:ring-1 focus:ring-blue-400 shadow-2xs"
+                                            title={`Jumlah Siswa Laki-laki ${cls.label}`}
+                                          />
+                                        </div>
+                                        <div>
+                                          <span className="block text-[9px] font-extrabold text-rose-700 text-center mb-0.5">
+                                            👧 P
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={valP === 0 ? '' : valP}
+                                            onChange={(e) => handleBuatPenerimaClassGenderChange(idx, cls.key, 'p', e.target.value)}
+                                            placeholder="0"
+                                            className="w-full px-1 py-1 bg-white border border-rose-200 focus:border-rose-500 rounded-lg text-xs font-black text-rose-900 text-center focus:ring-1 focus:ring-rose-400 shadow-2xs"
+                                            title={`Jumlah Siswi Perempuan ${cls.label}`}
+                                          />
+                                        </div>
+                                      </div>
+
+                                      {/* Subtotal Footer */}
+                                      <div className="pt-1 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                                        <span className="text-slate-400 font-medium">Total:</span>
+                                        <span className="font-black text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                          {classTotal}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {/* ROW: GURU / STAF & FORMULA SUMMARY */}
+                              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100">
+                                {/* Guru / Staf Input */}
+                                <div className="md:col-span-5 flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <label className="text-[11px] font-extrabold text-slate-700 block mb-0.5">
+                                      {itemConf.teacherLabel}
                                     </label>
-                                    {cls.portionTier && (
-                                      <span
-                                        className={`text-[8px] font-extrabold px-1 rounded ${
-                                          cls.portionTier === 'Porsi Kecil'
-                                            ? 'bg-amber-100 text-amber-800'
-                                            : cls.portionTier === 'Porsi Besar'
-                                            ? 'bg-blue-100 text-blue-800'
-                                            : cls.portionTier === 'Porsi Balita'
-                                            ? 'bg-rose-100 text-rose-800'
-                                            : 'bg-fuchsia-100 text-fuchsia-800'
-                                        }`}
-                                      >
-                                        {cls.portionTier.replace('Porsi ', '')}
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={numGuruThisItem === 0 ? '' : numGuruThisItem}
+                                        onChange={(e) => handleBuatPenerimaGuruChange(idx, e.target.value)}
+                                        placeholder="0"
+                                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Auto Portions badges & Total */}
+                                <div className="md:col-span-7 flex flex-wrap items-center justify-between md:justify-end gap-2.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {autoPortionItem.porsiKecil > 0 && (
+                                      <span className="font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 text-[11px]">
+                                        🥣 {autoPortionItem.porsiKecil} Porsi Kecil
+                                      </span>
+                                    )}
+                                    {autoPortionItem.porsiBesar > 0 && (
+                                      <span className="font-extrabold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
+                                        🍱 {autoPortionItem.porsiBesar} Porsi Besar
                                       </span>
                                     )}
                                   </div>
 
-                                  <div className="relative">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={val === 0 ? '' : val}
-                                      onChange={(e) => handleBuatPenerimaClassChange(idx, cls.key, e.target.value)}
-                                      placeholder="0"
-                                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-extrabold text-slate-900 text-center focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-700">
+                                      Total: <strong className="text-emerald-700 font-black">{subtotalPorsi} Porsi</strong>
+                                    </span>
+                                    <PortionValidationBadge
+                                      subtotal={validation.subtotal}
+                                      formula={validation.formula}
+                                      compact={false}
                                     />
                                   </div>
-
-                                  {cls.ageRange && (
-                                    <span className="text-[9px] text-slate-400 mt-1 text-center block">
-                                      {cls.ageRange}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* ROW: GURU / STAF & FORMULA SUMMARY */}
-                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100">
-                            {/* Guru / Staf Input */}
-                            <div className="md:col-span-5 flex items-center gap-2">
-                              <div className="flex-1">
-                                <label className="text-[11px] font-extrabold text-slate-700 block mb-0.5">
-                                  {itemConf.teacherLabel}
-                                </label>
-                                <div className="relative">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={numGuruThisItem === 0 ? '' : numGuruThisItem}
-                                    onChange={(e) => handleBuatPenerimaGuruChange(idx, e.target.value)}
-                                    placeholder="0"
-                                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                                  />
                                 </div>
                               </div>
                             </div>
-
-                            {/* Auto Portions badges & Total */}
-                            <div className="md:col-span-7 flex flex-wrap items-center justify-between md:justify-end gap-2.5">
-                              <div className="flex items-center gap-1.5">
-                                {autoPortionItem.porsiKecil > 0 && (
-                                  <span className="font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 text-[11px]">
-                                    🥣 {autoPortionItem.porsiKecil} Porsi Kecil
-                                  </span>
-                                )}
-                                {autoPortionItem.porsiBesar > 0 && (
-                                  <span className="font-extrabold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[11px]">
-                                    🍱 {autoPortionItem.porsiBesar} Porsi Besar
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-700">
-                                  Total: <strong className="text-emerald-700 font-black">{subtotalPorsi} Porsi</strong>
-                                </span>
-                                <PortionValidationBadge
-                                  subtotal={validation.subtotal}
-                                  formula={validation.formula}
-                                  compact={false}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                          );
+                        })()
                       )}
 
                       {/* Kolom Keterangan Setiap Lembaga */}

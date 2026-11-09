@@ -1192,3 +1192,35 @@ export interface BastDocument {
   updatedAt: string;
   createdBy?: string;
 }
+
+// --- SUHU PENGOLAHAN (COOKING CCP MONITORING) ---
+export type SesiSuhu = 'Sesi 1' | 'Sesi 2' | 'Sesi 3';
+
+export interface SubKategoriSuhuItem {
+  sesi: SesiSuhu;
+  suhu: number; // in °C
+  namaMenu?: string;
+  catatan?: string;
+}
+
+export interface SuhuPengolahanRecord {
+  id: string;
+  tanggal: string; // YYYY-MM-DD
+  waktu: string; // e.g. '07:30 WIB'
+  petugas: string; // automatic from logged-in user
+  petugasRole?: string;
+  
+  // 4 Sub Kategori
+  makananPokok: SubKategoriSuhuItem;
+  proteinHewani: SubKategoriSuhuItem;
+  proteinNabati: SubKategoriSuhuItem;
+  sayuran: SubKategoriSuhuItem;
+  
+  fotoDokumentasiUrl?: string;
+  catatanTambahan?: string;
+  rataRataSuhu: number;
+  statusCcp: 'Lolos CCP (≥ 75°C)' | 'Di Bawah Standar (< 75°C)';
+  createdAt: string;
+  updatedAt?: string;
+}
+

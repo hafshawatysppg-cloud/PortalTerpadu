@@ -116,6 +116,17 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Suhu Pengolahan & Suhu Masuk Ompreng
+    match /suhu_pengolahan_v2/{recordId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /suhu_masuk_ompreng_v2/{recordId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // e-Surat
     match /suratMasuk/{suratId} {
       allow read: if true;

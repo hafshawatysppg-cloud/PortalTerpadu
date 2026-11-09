@@ -17,9 +17,9 @@ import { BastDocument } from '../types';
  * the official "BERITA ACARA PENERIMAAN PAKET MAKANA2.docx" template.
  */
 export async function createBastWordDocument(bast: BastDocument): Promise<Document> {
-  const waktuText = bast.waktuPenerimaan && bast.waktuPenerimaan !== 'Jam …………… WIB'
+  const waktuText = bast.waktuPenerimaan && bast.waktuPenerimaan !== 'Jam …………… WIB' && bast.waktuPenerimaan !== '07:30 WIB' && bast.waktuPenerimaan !== 'Jam 07:30 WIB' && !bast.waktuPenerimaan.includes('…………')
     ? bast.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
-    : '…………… WIB';
+    : '................ WIB';
 
   // Helper for borderless table cells
   const noBorder = {
@@ -104,7 +104,9 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
               new TextRun({ text: bast.hari, bold: true, font: 'Times New Roman', size: 21 }),
               new TextRun({ text: ' Tanggal ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: cleanDateFormatted, bold: true, font: 'Times New Roman', size: 21 }),
-              new TextRun({ text: ` Jam ${waktuText} Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : `, font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: ' Jam ', font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: '................ WIB', underline: {}, font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: ' Telah Diterima Paket Makanan Bergizi Gratis (MBG) Sejumlah : ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: `${bast.jumlahPaketMakanan}`, bold: true, font: 'Times New Roman', size: 21 }),
               new TextRun({
                 text: ` dalam keadaan baik dan layak dikonsumsi dari ${bast.namaSppg}.`,
@@ -305,7 +307,9 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
               new TextRun({ text: bast.hari, bold: true, font: 'Times New Roman', size: 21 }),
               new TextRun({ text: ' Tanggal ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: cleanDateFormatted, bold: true, font: 'Times New Roman', size: 21 }),
-              new TextRun({ text: ` Jam ${waktuText} Telah Diterima Kembali Alat Makan Sejumlah : `, font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: ' Jam ', font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: '................ WIB', underline: {}, font: 'Times New Roman', size: 21 }),
+              new TextRun({ text: ' Telah Diterima Kembali Alat Makan Sejumlah : ', font: 'Times New Roman', size: 21 }),
               new TextRun({ text: `${bast.jumlahAlatMakan || bast.jumlahPaketMakanan}`, bold: true, font: 'Times New Roman', size: 21 }),
               new TextRun({
                 text: ` Paket Alat Makan Bergizi Dari ${bast.namaSppg}.`,

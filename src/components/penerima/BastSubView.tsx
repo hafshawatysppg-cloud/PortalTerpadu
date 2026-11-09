@@ -365,7 +365,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     setIsCreateModalOpen(true);
     setFormData({
       tanggal: selectedDate,
-      waktuPenerimaan: 'Jam 07:30 WIB',
+      waktuPenerimaan: '................ WIB',
       namaSekolah: '',
       namaPic: '',
       telponPic: '',
@@ -1154,9 +1154,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                   const cleanDate = previewDoc.hariTanggalFormatted.includes(',')
                     ? previewDoc.hariTanggalFormatted.split(',')[1].trim()
                     : previewDoc.hariTanggalFormatted;
-                  const cleanWaktu = previewDoc.waktuPenerimaan
+                  const cleanWaktu = previewDoc.waktuPenerimaan && previewDoc.waktuPenerimaan !== 'Jam 07:30 WIB' && previewDoc.waktuPenerimaan !== '07:30 WIB' && !previewDoc.waktuPenerimaan.includes('…………')
                     ? previewDoc.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
-                    : '…………… WIB';
+                    : '................ WIB';
 
                   return (
                     <div className="space-y-6">
@@ -1193,7 +1193,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                         <p className="text-justify text-[10.5pt] leading-normal mt-2">
                           Pada Hari <strong className="font-bold">{previewDoc.hari}</strong> Tanggal{' '}
                           <strong className="font-bold">{cleanDate}</strong> Jam{' '}
-                          <strong className="font-bold">{cleanWaktu}</strong> Telah Diterima Paket
+                          <span className="underline">................ WIB</span> Telah Diterima Paket
                           Makanan Bergizi Gratis (MBG) Sejumlah :{' '}
                           <strong className="font-bold">{previewDoc.jumlahPaketMakanan}</strong> dalam
                           keadaan baik dan layak dikonsumsi dari {previewDoc.namaSppg}.
@@ -1302,7 +1302,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                         <p className="text-justify text-[10.5pt] leading-normal mt-2">
                           Pada Hari <strong className="font-bold">{previewDoc.hari}</strong> Tanggal{' '}
                           <strong className="font-bold">{cleanDate}</strong> Jam{' '}
-                          <strong className="font-bold">{cleanWaktu}</strong> Telah Diterima Kembali
+                          <span className="underline">................ WIB</span> Telah Diterima Kembali
                           Alat Makan Sejumlah :{' '}
                           <strong className="font-bold">
                             {previewDoc.jumlahAlatMakan || previewDoc.jumlahPaketMakanan}
@@ -1479,7 +1479,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                   <input
                     type="text"
                     value={formData.waktuPenerimaan || ''}
-                    placeholder="Contoh: Jam 07:30 WIB"
+                    placeholder="Contoh: ................ WIB"
                     onChange={(e) =>
                       setFormData({ ...formData, waktuPenerimaan: e.target.value })
                     }
