@@ -512,17 +512,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
             sesi3: targetSesiKey === 'sesi3' ? updatedSesiData : emptySesi
           };
 
-      // 1. Sync Firestore
-      try {
-        const db = getDb();
-        if (db) {
-          await setDoc(doc(db, 'suhu_pengolahan_v2', formTanggal), recordToSave);
-        }
-      } catch (err) {
-        console.warn('Firestore write notice:', err);
-      }
-
-      // 2. Sync Local
+      // 1. Instant Optimistic Local Update
       const existsIndex = dailyRecords.findIndex(r => r.tanggal === formTanggal);
       let updatedList: DailySuhuPengolahanRecord[];
       if (existsIndex >= 0) {
@@ -536,8 +526,16 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
       setSelectedDokumentasiTanggal(formTanggal);
       showToast(`Data suhu ${makananPokokSesi} tanggal ${formatTanggalTable(formTanggal)} berhasil disimpan!`, 'success');
 
-      // Navigate to Tabel
+      // 2. Immediate Navigation to Tabel
       onNavigate('/gizi/suhu/makanan/pengolahan/tabel');
+
+      // 3. Background Async Firestore Persistence (non-blocking)
+      const firestoreDb = getDb();
+      if (firestoreDb) {
+        setDoc(doc(firestoreDb, 'suhu_pengolahan_v2', formTanggal), recordToSave).catch(err => {
+          console.warn('Background Firestore write notice:', err);
+        });
+      }
     } catch (err) {
       console.error('Error saving suhu pengolahan:', err);
       showToast('Gagal menyimpan data suhu pengolahan', 'error');
@@ -569,22 +567,22 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     );
   }, [dailyRecords, selectedDokumentasiTanggal]);
 
-  // Delete record
+  // Delete record with instant optimistic update
   const handleDeleteDailyRecord = async (tanggal: string) => {
     if (!window.confirm(`Hapus data tanggal ${formatTanggalTable(tanggal)}?`)) return;
 
-    try {
-      const db = getDb();
-      if (db) {
-        await deleteDoc(doc(db, 'suhu_pengolahan_v2', tanggal));
-      }
-    } catch (err) {
-      console.warn('Firestore delete notice:', err);
-    }
-
+    // Instant local removal
     const updated = dailyRecords.filter(r => r.tanggal !== tanggal);
     saveRecordsLocally(updated);
     showToast(`Data tanggal ${formatTanggalTable(tanggal)} berhasil dihapus`, 'success');
+
+    // Background delete in Firestore
+    const firestoreDb = getDb();
+    if (firestoreDb) {
+      deleteDoc(doc(firestoreDb, 'suhu_pengolahan_v2', tanggal)).catch(err => {
+        console.warn('Background Firestore delete notice:', err);
+      });
+    }
   };
 
   return (

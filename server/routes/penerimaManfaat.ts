@@ -150,9 +150,11 @@ function cleanDuplicateGroupsAndLocations() {
   dbStore.beneficiaryLocations = uniqueLocations;
 }
 
+// Initial sanitize on startup
+cleanDuplicateGroupsAndLocations();
+
 // 1. GET GROUPS
 router.get('/groups', (req: Request, res: Response): void => {
-  cleanDuplicateGroupsAndLocations();
   const sorted = [...dbStore.beneficiaryGroups].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
   res.json({
     success: true,
@@ -540,7 +542,6 @@ router.delete('/groups/:id', async (req: Request, res: Response): Promise<void> 
 
 // 4. GET LOCATIONS
 router.get('/locations', (req: Request, res: Response): void => {
-  cleanDuplicateGroupsAndLocations();
   res.json({
     success: true,
     data: dbStore.beneficiaryLocations

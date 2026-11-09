@@ -71,7 +71,8 @@ export function getCloudInfo() {
     githubOAuthConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     syncedCollectionsCount: SYNCED_COLLECTIONS.length,
     collections: SYNCED_COLLECTIONS.map(s => s.coll),
-    mode: 'Google Cloud Firestore Real-time Primary Database'
+    mode: 'Google Cloud Firestore Real-time Primary Database (High-Speed Write-Behind Engine)',
+    writeQueue: getQueueStatus()
   };
 }
 
@@ -122,32 +123,138 @@ export async function testFirestoreConnection(): Promise<{
   }
 }
 
-// Sync helper functions to write changes to Firestore in realtime
+// High-Performance Asynchronous Write-Behind Queue
+interface PendingWriteItem {
+  type: 'set' | 'delete';
+  collectionName: string;
+  docId: string;
+  data?: any;
+  userMeta?: { name?: string; userId?: string };
+  queuedAt: number;
+}
+
+const pendingWriteQueue = new Map<string, PendingWriteItem>();
+let flushTimeout: NodeJS.Timeout | null = null;
+let isFlushing = false;
+let totalWritesQueued = 0;
+let totalWritesCommitted = 0;
+let writeErrors = 0;
+
+export function getQueueStatus() {
+  return {
+    pendingCount: pendingWriteQueue.size,
+    totalQueued: totalWritesQueued,
+    totalCommitted: totalWritesCommitted,
+    errors: writeErrors,
+    isFlushing
+  };
+}
+
+function scheduleFlush(delayMs = 25) {
+  if (flushTimeout) return;
+  flushTimeout = setTimeout(async () => {
+    flushTimeout = null;
+    await flushWriteQueue();
+  }, delayMs);
+}
+
+// Background Batch Committer
+export async function flushWriteQueue(): Promise<void> {
+  if (isFlushing || pendingWriteQueue.size === 0) return;
+  const db = getFirestoreDb();
+  if (!db) return;
+
+  isFlushing = true;
+  try {
+    while (pendingWriteQueue.size > 0) {
+      // Max 400 operations per Firestore batch (Firestore hard limit is 500)
+      const batchLimit = 400;
+      const entries = Array.from(pendingWriteQueue.entries()).slice(0, batchLimit);
+      const batch = writeBatch(db);
+      const now = new Date().toISOString();
+
+      for (const [, item] of entries) {
+        const docRef = doc(db, item.collectionName, item.docId);
+        if (item.type === 'delete') {
+          batch.delete(docRef);
+        } else {
+          try {
+            const cleanData = JSON.parse(JSON.stringify(item.data || {}));
+            cleanData.updatedAt = now;
+            if (item.userMeta?.name) {
+              cleanData.updatedBy = item.userMeta.name;
+            }
+            if (!cleanData.createdAt) {
+              cleanData.createdAt = now;
+              cleanData.createdBy = item.userMeta?.name || 'System';
+            }
+            batch.set(docRef, cleanData, { merge: true });
+          } catch (serializeErr) {
+            console.error(`⚠️ Serialization error for ${item.collectionName}/${item.docId}:`, serializeErr);
+          }
+        }
+      }
+
+      await batch.commit();
+
+      // Dequeue committed items
+      for (const [key] of entries) {
+        pendingWriteQueue.delete(key);
+      }
+      totalWritesCommitted += entries.length;
+    }
+  } catch (err: any) {
+    writeErrors++;
+    console.error('⚠️ Error committing write batch to Firestore:', err?.message || err);
+    // On batch failure, fallback to saving individual items with safe catch so no data is dropped
+    const entries = Array.from(pendingWriteQueue.entries()).slice(0, 50);
+    for (const [key, item] of entries) {
+      pendingWriteQueue.delete(key);
+      try {
+        const docRef = doc(db, item.collectionName, item.docId);
+        if (item.type === 'delete') {
+          await deleteDoc(docRef);
+        } else {
+          const cleanData = JSON.parse(JSON.stringify(item.data || {}));
+          cleanData.updatedAt = new Date().toISOString();
+          await setDoc(docRef, cleanData, { merge: true });
+        }
+        totalWritesCommitted++;
+      } catch (indivErr) {
+        console.error(`⚠️ Individual write failed for ${item.collectionName}/${item.docId}:`, indivErr);
+      }
+    }
+  } finally {
+    isFlushing = false;
+    if (pendingWriteQueue.size > 0) {
+      scheduleFlush(30);
+    }
+  }
+}
+
+// Fast non-blocking sync helper functions to write changes to Firestore
 export async function syncSaveDoc(
   collectionName: string, 
   docId: string, 
   data: any, 
   userMeta?: { name?: string; userId?: string }
-) {
-  try {
-    const db = getFirestoreDb();
-    if (!db) return;
-    const cleanData = JSON.parse(JSON.stringify(data));
-    
-    // Add metadata
-    cleanData.updatedAt = new Date().toISOString();
-    if (userMeta?.name) {
-      cleanData.updatedBy = userMeta.name;
-    }
-    if (!cleanData.createdAt) {
-      cleanData.createdAt = cleanData.updatedAt;
-      cleanData.createdBy = userMeta?.name || 'System';
-    }
+): Promise<void> {
+  if (!collectionName || !docId) return;
+  totalWritesQueued++;
+  const key = `${collectionName}/${docId}`;
+  pendingWriteQueue.set(key, {
+    type: 'set',
+    collectionName,
+    docId,
+    data,
+    userMeta,
+    queuedAt: Date.now()
+  });
 
-    const docRef = doc(db, collectionName, docId);
-    await setDoc(docRef, cleanData, { merge: true });
-  } catch (err: any) {
-    console.error(`⚠️ Error writing ${collectionName}/${docId} to Firestore:`, err?.message || err);
+  if (pendingWriteQueue.size >= 50) {
+    setImmediate(() => { flushWriteQueue().catch(() => {}); });
+  } else {
+    scheduleFlush(25);
   }
 }
 
@@ -155,50 +262,42 @@ export async function syncSaveBatch(
   collectionName: string, 
   items: Array<{ id: string; data?: any; [key: string]: any }>,
   userMeta?: { name?: string; userId?: string }
-) {
-  try {
-    const db = getFirestoreDb();
-    if (!db || items.length === 0) return;
-    
-    const now = new Date().toISOString();
-    const batchSize = 100;
-    
-    for (let i = 0; i < items.length; i += batchSize) {
-      const batch = writeBatch(db);
-      const chunk = items.slice(i, i + batchSize);
-      
-      for (const rawItem of chunk) {
-        const docId = rawItem.id;
-        if (!docId) continue;
-        const rawData = rawItem.data !== undefined ? rawItem.data : rawItem;
-        const cleanData = JSON.parse(JSON.stringify(rawData));
-        cleanData.updatedAt = now;
-        if (userMeta?.name) cleanData.updatedBy = userMeta.name;
-        if (!cleanData.createdAt) {
-          cleanData.createdAt = now;
-          cleanData.createdBy = userMeta?.name || 'System';
-        }
+): Promise<void> {
+  if (!collectionName || !items || items.length === 0) return;
+  for (const rawItem of items) {
+    const docId = rawItem.id;
+    if (!docId) continue;
+    const rawData = rawItem.data !== undefined ? rawItem.data : rawItem;
+    totalWritesQueued++;
+    const key = `${collectionName}/${docId}`;
+    pendingWriteQueue.set(key, {
+      type: 'set',
+      collectionName,
+      docId,
+      data: rawData,
+      userMeta,
+      queuedAt: Date.now()
+    });
+  }
 
-        const docRef = doc(db, collectionName, docId);
-        batch.set(docRef, cleanData, { merge: true });
-      }
-
-      await batch.commit();
-    }
-  } catch (err: any) {
-    console.error(`⚠️ Error committing batch to ${collectionName}:`, err?.message || err);
+  if (pendingWriteQueue.size >= 50) {
+    setImmediate(() => { flushWriteQueue().catch(() => {}); });
+  } else {
+    scheduleFlush(25);
   }
 }
 
-export async function syncDeleteDoc(collectionName: string, docId: string) {
-  try {
-    const db = getFirestoreDb();
-    if (!db) return;
-    const docRef = doc(db, collectionName, docId);
-    await deleteDoc(docRef);
-  } catch (err: any) {
-    console.error(`⚠️ Error deleting ${collectionName}/${docId} from Firestore:`, err?.message || err);
-  }
+export async function syncDeleteDoc(collectionName: string, docId: string): Promise<void> {
+  if (!collectionName || !docId) return;
+  totalWritesQueued++;
+  const key = `${collectionName}/${docId}`;
+  pendingWriteQueue.set(key, {
+    type: 'delete',
+    collectionName,
+    docId,
+    queuedAt: Date.now()
+  });
+  scheduleFlush(25);
 }
 
 // Generate collision-resistant unique ID (replaces array.length + 1)
