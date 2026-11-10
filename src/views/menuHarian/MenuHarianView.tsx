@@ -119,11 +119,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
   // Form State — Top: Tanggal Operasional -> Nama Menu & Kandungan Gizi (Porsi Besar & Porsi Kecil) -> Bottom: Upload Foto Menu
   const [editingId, setEditingId] = useState<string | null>(null);
   const [availableSiklusDates, setAvailableSiklusDates] = useState<AvailableSiklusDate[]>(() => getAllAvailableSiklusDates());
-  const [tanggalOperasional, setTanggalOperasional] = useState<string>(() => {
-    const available = getAllAvailableSiklusDates();
-    if (available.some(a => a.tanggal === todayStr)) return todayStr;
-    return available[0]?.tanggal || todayStr;
-  });
+  const [tanggalOperasional, setTanggalOperasional] = useState<string>(todayStr);
   const [syncInfo, setSyncInfo] = useState<SyncedSiklusData | null>(null);
   const [namaMenu, setNamaMenu] = useState<string>('');
   const [kategoriPorsi, setKategoriPorsi] = useState<string>('Porsi Besar & Porsi Kecil');
@@ -261,8 +257,43 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
         );
       }
     } else {
+      // JIKA DATA DI SIKLUS MENU MASIH KOSONG MAKA DATA DI FORM MENU HARIAN HARUS KOSONG
+      setNamaMenu('');
+      setKategoriPorsi('Porsi Besar & Porsi Kecil');
+
+      setBesarEnergi('');
+      setBesarProtein('');
+      setBesarLemak('');
+      setBesarKarbo('');
+      setBesarSerat('');
+      setBesarKeterangan('');
+
+      setKecilEnergi('');
+      setKecilProtein('');
+      setKecilLemak('');
+      setKecilKarbo('');
+      setKecilSerat('');
+      setKecilKeterangan('');
+
+      setKarbohidratKomponen('');
+      setLaukHewaniKomponen('');
+      setLaukNabatiKomponen('');
+      setSayurKomponen('');
+      setBuahSusuKomponen('');
+
+      setCatatanGizi('');
+
+      if (!editingId) {
+        setFotoMenuUrl('');
+        setFotoFileName('');
+        setFotoFileSizeKb(0);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+
       if (force) {
-        showToast(`Belum ada data Siklus Menu untuk tanggal ${formatTanggalIndo(date).formatted}`, 'info');
+        showToast(`Data di Siklus Menu untuk tanggal ${formatTanggalIndo(date).formatted} masih kosong, formulir menu harian dikosongkan.`, 'info');
       }
     }
   };
@@ -410,16 +441,14 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
   const handleResetForm = () => {
     setEditingId(null);
-    const available = getAllAvailableSiklusDates();
-    const defaultDate = available.some(a => a.tanggal === todayStr) ? todayStr : (available[0]?.tanggal || todayStr);
-    setTanggalOperasional(defaultDate);
+    setTanggalOperasional(todayStr);
     setFotoMenuUrl('');
     setFotoFileName('');
     setFotoFileSizeKb(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-    applySiklusDataForDate(defaultDate, true);
+    applySiklusDataForDate(todayStr, true);
   };
 
   const handleEditRecord = (rec: MenuHarianRecord) => {
@@ -688,7 +717,10 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setTanggalOperasional(todayStr)}
+                  onClick={() => {
+                    setTanggalOperasional(todayStr);
+                    applySiklusDataForDate(todayStr, true);
+                  }}
                   className="px-3 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold transition cursor-pointer"
                 >
                   Hari Ini
@@ -768,11 +800,22 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                 </div>
               </div>
             ) : syncInfo && !syncInfo.found ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-900 dark:text-amber-200 text-xs flex items-center gap-2.5">
-                <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                <p className="text-[11px] text-amber-800 dark:text-amber-300">
-                  Tanggal <strong>{tanggalOperasional}</strong> belum terjadwal di Siklus Menu. Anda dapat memilih tanggal siklus menu yang tersedia di atas atau mengisi formulir menu harian secara manual.
-                </p>
+              <div className="p-3.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between flex-wrap gap-2.5">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Data di Siklus Menu untuk tanggal <strong>{infoTanggalOperasional.formatted}</strong> ({tanggalOperasional}) masih kosong. <strong>Data form menu harian dikosongkan.</strong>
+                  </p>
+                </div>
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('/gizi/siklus-menu')}
+                    className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[11px] font-bold transition cursor-pointer"
+                  >
+                    Buka Siklus Menu &rarr;
+                  </button>
+                )}
               </div>
             ) : null}
           </div>
@@ -1225,17 +1268,19 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
             </div>
 
             {/* Admin callout pill */}
-            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-900/60 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-extrabold text-blue-900 dark:text-blue-200">
-                  Langkah Utama Admin: Cukup Upload Foto Menu Harian
+            {syncInfo?.found && (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-900/60 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs font-extrabold text-blue-900 dark:text-blue-200">
+                    Langkah Utama Admin: Cukup Upload Foto Menu Harian
+                  </span>
+                </div>
+                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  Data Menu &amp; Kandungan Gizi terisi otomatis dari siklus menu
                 </span>
               </div>
-              <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                Data Menu &amp; Kandungan Gizi terisi otomatis dari siklus menu
-              </span>
-            </div>
+            )}
 
             <input
               ref={fileInputRef}
