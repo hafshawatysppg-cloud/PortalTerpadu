@@ -473,6 +473,11 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
       [selectedDate]: payload
     }));
 
+    // Broadcast update so Menu Harian synchronizes in real time
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sppg_siklus_menu_changed', { detail: { date: selectedDate } }));
+    }
+
     setIsLocked(true);
     triggerToast(`Kandungan Gizi tanggal ${formatDateIndo(selectedDate)} berhasil disimpan & dikunci!`);
   };

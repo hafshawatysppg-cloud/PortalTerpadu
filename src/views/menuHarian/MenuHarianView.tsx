@@ -19,11 +19,19 @@ import {
   RefreshCw,
   Check,
   Users,
-  Calculator
+  Calculator,
+  Info,
+  Layers
 } from 'lucide-react';
 import { MenuHarianRecord, NilaiGiziPorsi } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import {
+  getSiklusMenuForDate,
+  getAllAvailableSiklusDates,
+  SyncedSiklusData,
+  AvailableSiklusDate
+} from '../../utils/siklusMenuSyncHelper';
 
 interface MenuHarianViewProps {
   currentPath?: string;
@@ -110,7 +118,13 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
   // Form State — Top: Tanggal Operasional -> Nama Menu & Kandungan Gizi (Porsi Besar & Porsi Kecil) -> Bottom: Upload Foto Menu
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [tanggalOperasional, setTanggalOperasional] = useState<string>(todayStr);
+  const [availableSiklusDates, setAvailableSiklusDates] = useState<AvailableSiklusDate[]>(() => getAllAvailableSiklusDates());
+  const [tanggalOperasional, setTanggalOperasional] = useState<string>(() => {
+    const available = getAllAvailableSiklusDates();
+    if (available.some(a => a.tanggal === todayStr)) return todayStr;
+    return available[0]?.tanggal || todayStr;
+  });
+  const [syncInfo, setSyncInfo] = useState<SyncedSiklusData | null>(null);
   const [namaMenu, setNamaMenu] = useState<string>('');
   const [kategoriPorsi, setKategoriPorsi] = useState<string>('Porsi Besar & Porsi Kecil');
 
@@ -198,6 +212,80 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
     () => formatTanggalIndo(tanggalOperasional),
     [tanggalOperasional]
   );
+
+  // Synchronize Nama Menu & Kandungan Gizi automatically from Siklus Menu
+  const applySiklusDataForDate = (date: string, force = false) => {
+    if (editingId && !force) return;
+
+    const synced = getSiklusMenuForDate(date);
+    setSyncInfo(synced);
+
+    if (synced && synced.found) {
+      setNamaMenu(synced.namaMenu || '');
+      setKategoriPorsi(synced.kategoriPorsi || 'Porsi Besar & Porsi Kecil');
+
+      setBesarEnergi(synced.giziPorsiBesar?.energiKkal ? String(synced.giziPorsiBesar.energiKkal) : '');
+      setBesarProtein(synced.giziPorsiBesar?.proteinGram ? String(synced.giziPorsiBesar.proteinGram) : '');
+      setBesarLemak(synced.giziPorsiBesar?.lemakGram ? String(synced.giziPorsiBesar.lemakGram) : '');
+      setBesarKarbo(synced.giziPorsiBesar?.karbohidratGram ? String(synced.giziPorsiBesar.karbohidratGram) : '');
+      setBesarSerat(synced.giziPorsiBesar?.seratGram ? String(synced.giziPorsiBesar.seratGram) : '');
+      setBesarKeterangan(synced.giziPorsiBesar?.keterangan || 'Sasaran SD Kelas 4-6, SMP, SMA / Bumil & Busui');
+
+      setKecilEnergi(synced.giziPorsiKecil?.energiKkal ? String(synced.giziPorsiKecil.energiKkal) : '');
+      setKecilProtein(synced.giziPorsiKecil?.proteinGram ? String(synced.giziPorsiKecil.proteinGram) : '');
+      setKecilLemak(synced.giziPorsiKecil?.lemakGram ? String(synced.giziPorsiKecil.lemakGram) : '');
+      setKecilKarbo(synced.giziPorsiKecil?.karbohidratGram ? String(synced.giziPorsiKecil.karbohidratGram) : '');
+      setKecilSerat(synced.giziPorsiKecil?.seratGram ? String(synced.giziPorsiKecil.seratGram) : '');
+      setKecilKeterangan(synced.giziPorsiKecil?.keterangan || 'Sasaran PAUD, TK, SD Kelas 1-3 / Balita');
+
+      setKarbohidratKomponen(synced.rincianKomponen?.karbohidrat || '');
+      setLaukHewaniKomponen(synced.rincianKomponen?.laukHewani || '');
+      setLaukNabatiKomponen(synced.rincianKomponen?.laukNabati || '');
+      setSayurKomponen(synced.rincianKomponen?.sayur || '');
+      setBuahSusuKomponen(synced.rincianKomponen?.buahSusu || '');
+
+      setCatatanGizi(synced.catatanGizi || '');
+
+      // If an existing record for this date already has a photo in records, preserve or preview it
+      const existingRecord = records.find(r => r.tanggalOperasional === date);
+      if (existingRecord?.fotoMenuUrl && !fotoMenuUrl) {
+        setFotoMenuUrl(existingRecord.fotoMenuUrl || '');
+        setFotoFileName(existingRecord.fotoFileName || '');
+        setFotoFileSizeKb(existingRecord.fotoFileSizeKb || 0);
+      }
+
+      if (force) {
+        showToast(
+          `Nama Menu & Kandungan Gizi berhasil disinkronkan dari Siklus Menu (${(synced.namaMenu || '').slice(0, 35)}...)`,
+          'success'
+        );
+      }
+    } else {
+      if (force) {
+        showToast(`Belum ada data Siklus Menu untuk tanggal ${formatTanggalIndo(date).formatted}`, 'info');
+      }
+    }
+  };
+
+  // Sync automatically on date change
+  useEffect(() => {
+    applySiklusDataForDate(tanggalOperasional);
+  }, [tanggalOperasional]);
+
+  // Sync in real time when Siklus Menu is saved in another component/tab
+  useEffect(() => {
+    const handleSiklusUpdated = () => {
+      setAvailableSiklusDates(getAllAvailableSiklusDates());
+      applySiklusDataForDate(tanggalOperasional, false);
+    };
+
+    window.addEventListener('sppg_siklus_menu_changed', handleSiklusUpdated);
+    window.addEventListener('storage', handleSiklusUpdated);
+    return () => {
+      window.removeEventListener('sppg_siklus_menu_changed', handleSiklusUpdated);
+      window.removeEventListener('storage', handleSiklusUpdated);
+    };
+  }, [tanggalOperasional]);
 
   // Combine component helper into namaMenu when user fills helper inputs
   const applyKomponenToNamaMenu = () => {
@@ -322,33 +410,16 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
   const handleResetForm = () => {
     setEditingId(null);
-    setTanggalOperasional(todayStr);
-    setNamaMenu('');
-    setKategoriPorsi('Porsi Besar & Porsi Kecil');
-    setBesarEnergi('');
-    setBesarProtein('');
-    setBesarLemak('');
-    setBesarKarbo('');
-    setBesarSerat('');
-    setBesarKeterangan('');
-    setKecilEnergi('');
-    setKecilProtein('');
-    setKecilLemak('');
-    setKecilKarbo('');
-    setKecilSerat('');
-    setKecilKeterangan('');
-    setCatatanGizi('');
-    setKarbohidratKomponen('');
-    setLaukHewaniKomponen('');
-    setLaukNabatiKomponen('');
-    setSayurKomponen('');
-    setBuahSusuKomponen('');
+    const available = getAllAvailableSiklusDates();
+    const defaultDate = available.some(a => a.tanggal === todayStr) ? todayStr : (available[0]?.tanggal || todayStr);
+    setTanggalOperasional(defaultDate);
     setFotoMenuUrl('');
     setFotoFileName('');
     setFotoFileSizeKb(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    applySiklusDataForDate(defaultDate, true);
   };
 
   const handleEditRecord = (rec: MenuHarianRecord) => {
@@ -444,8 +515,12 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
         petugas: user?.nama || 'Ahli Gizi SPPG'
       };
 
-      const url = editingId ? `/api/v1/menu-harian/${editingId}` : '/api/v1/menu-harian';
-      const method = editingId ? 'PUT' : 'POST';
+      // Cek apakah tanggal ini sudah ada recordnya untuk mode create (mencegah duplikasi data tanggal yang sama)
+      const existingRecordForDate = !editingId ? records.find(r => r.tanggalOperasional === tanggalOperasional) : null;
+      const targetId = editingId || existingRecordForDate?.id;
+
+      const url = targetId ? `/api/v1/menu-harian/${targetId}` : '/api/v1/menu-harian';
+      const method = targetId ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
         method,
@@ -456,8 +531,8 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
       const json = await res.json();
       if (res.ok && json.success) {
         showToast(
-          editingId
-            ? 'Data Menu Harian berhasil diperbarui!'
+          targetId
+            ? 'Data Menu Harian berhasil diperbarui (tersinkronisasi)!'
             : 'Data Menu Harian berhasil disimpan!',
           'success'
         );
@@ -624,12 +699,82 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
             <div>
               <input
                 type="date"
-                value={tanggalOperasional}
+                value={tanggalOperasional || ''}
                 onChange={(e) => setTanggalOperasional(e.target.value)}
                 required
                 className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
               />
             </div>
+
+            {/* Quick Chips: Tanggal Siklus Menu yang Tersedia */}
+            {availableSiklusDates.length > 0 && (
+              <div className="pt-2 border-t border-blue-100 dark:border-blue-900/40">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[11px] font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    Pilih Tanggal dari Siklus Menu Tersedia:
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Otomatis mengisi Nama Menu &amp; Kandungan Gizi
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {availableSiklusDates.map((item, idx) => {
+                    const isSelected = tanggalOperasional === item.tanggal;
+                    return (
+                      <button
+                        key={item.tanggal ? `siklus-${item.tanggal}` : `siklus-idx-${idx}`}
+                        type="button"
+                        onClick={() => setTanggalOperasional(item.tanggal)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-xs scale-102 ring-2 ring-blue-400/50'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-blue-200/80 dark:border-blue-800/80 hover:bg-blue-50 hover:border-blue-300 dark:hover:bg-blue-950/40'
+                        }`}
+                      >
+                        <span className="font-extrabold">{item.tanggal}</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                            isSelected
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          {item.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Auto-Sync Status Alert */}
+            {syncInfo && syncInfo.found ? (
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800/80 text-emerald-900 dark:text-emerald-200 text-xs flex items-start gap-2.5 shadow-2xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 flex-1">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="font-extrabold text-emerald-800 dark:text-emerald-300">
+                      Sinkronisasi Otomatis Siklus Menu Aktif
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-200/70 dark:bg-emerald-900/60 rounded-full text-emerald-800 dark:text-emerald-200">
+                      {syncInfo.source === 'siklus_menu_detailed' ? 'Siklus Menu Detail' : 'Master Menu'} &bull; {infoTanggalOperasional.formatted}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-300 leading-relaxed">
+                    Nama Menu, 5 Komponen Menu, dan Rincian Gizi (Porsi Besar &amp; Porsi Kecil) telah terisi otomatis sesuai siklus tanggal ini. <strong>Admin cukup mengunggah foto menu harian di bawah!</strong>
+                  </p>
+                </div>
+              </div>
+            ) : syncInfo && !syncInfo.found ? (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-900 dark:text-amber-200 text-xs flex items-center gap-2.5">
+                <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                  Tanggal <strong>{tanggalOperasional}</strong> belum terjadwal di Siklus Menu. Anda dapat memilih tanggal siklus menu yang tersedia di atas atau mengisi formulir menu harian secara manual.
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {/* ============================================================ */}
@@ -654,7 +799,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
               <input
                 type="text"
-                value={namaMenu}
+                value={namaMenu || ''}
                 onChange={(e) => setNamaMenu(e.target.value)}
                 required
                 placeholder="Masukkan nama menu makanan (Contoh: Nasi Putih, Ayam Goreng Lengkuas, Tahu Goreng, Sayur Sop, Buah Pisang)"
@@ -682,7 +827,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Makanan Pokok / Karbo</label>
                       <input
                         type="text"
-                        value={karbohidratKomponen}
+                        value={karbohidratKomponen || ''}
                         onChange={(e) => setKarbohidratKomponen(e.target.value)}
                         placeholder="Cth: Nasi Putih"
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
@@ -692,7 +837,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Lauk Hewani</label>
                       <input
                         type="text"
-                        value={laukHewaniKomponen}
+                        value={laukHewaniKomponen || ''}
                         onChange={(e) => setLaukHewaniKomponen(e.target.value)}
                         placeholder="Cth: Ayam Katsu Kari"
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
@@ -702,7 +847,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Lauk Nabati</label>
                       <input
                         type="text"
-                        value={laukNabatiKomponen}
+                        value={laukNabatiKomponen || ''}
                         onChange={(e) => setLaukNabatiKomponen(e.target.value)}
                         placeholder="Cth: Tahu / Tempe"
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
@@ -712,7 +857,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Sayur</label>
                       <input
                         type="text"
-                        value={sayurKomponen}
+                        value={sayurKomponen || ''}
                         onChange={(e) => setSayurKomponen(e.target.value)}
                         placeholder="Cth: Tumis Wortel"
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
@@ -722,7 +867,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Buah / Susu</label>
                       <input
                         type="text"
-                        value={buahSusuKomponen}
+                        value={buahSusuKomponen || ''}
                         onChange={(e) => setBuahSusuKomponen(e.target.value)}
                         placeholder="Cth: Kelengkeng"
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
@@ -782,7 +927,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={besarEnergi}
+                          value={besarEnergi || ''}
                           onChange={(e) => setBesarEnergi(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-11 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -803,7 +948,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={besarProtein}
+                          value={besarProtein || ''}
                           onChange={(e) => setBesarProtein(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -824,7 +969,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={besarLemak}
+                          value={besarLemak || ''}
                           onChange={(e) => setBesarLemak(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -845,7 +990,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={besarKarbo}
+                          value={besarKarbo || ''}
                           onChange={(e) => setBesarKarbo(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -866,7 +1011,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={besarSerat}
+                          value={besarSerat || ''}
                           onChange={(e) => setBesarSerat(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -884,7 +1029,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={besarKeterangan}
+                      value={besarKeterangan || ''}
                       onChange={(e) => setBesarKeterangan(e.target.value)}
                       placeholder="Cth: Standar AKG Porsi Besar (SD 4-6, SMP, SMA)"
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -938,7 +1083,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={kecilEnergi}
+                          value={kecilEnergi || ''}
                           onChange={(e) => setKecilEnergi(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-11 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -959,7 +1104,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={kecilProtein}
+                          value={kecilProtein || ''}
                           onChange={(e) => setKecilProtein(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -980,7 +1125,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={kecilLemak}
+                          value={kecilLemak || ''}
                           onChange={(e) => setKecilLemak(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1001,7 +1146,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={kecilKarbo}
+                          value={kecilKarbo || ''}
                           onChange={(e) => setKecilKarbo(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1022,7 +1167,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                           type="number"
                           step="any"
                           min="0"
-                          value={kecilSerat}
+                          value={kecilSerat || ''}
                           onChange={(e) => setKecilSerat(e.target.value)}
                           placeholder="0"
                           className="w-full pl-3 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1040,7 +1185,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={kecilKeterangan}
+                      value={kecilKeterangan || ''}
                       onChange={(e) => setKecilKeterangan(e.target.value)}
                       placeholder="Cth: Standar AKG Porsi Kecil (PAUD, TK, SD 1-3)"
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1056,7 +1201,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={catatanGizi}
+                  value={catatanGizi || ''}
                   onChange={(e) => setCatatanGizi(e.target.value)}
                   placeholder="Catatan tambahan nilai gizi atau standar AKG harian..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1076,6 +1221,19 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
               </label>
               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                 Ukuran file antara 0.1 MB - 0.5 MB (JPG, JPEG, PNG)
+              </span>
+            </div>
+
+            {/* Admin callout pill */}
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-900/60 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs font-extrabold text-blue-900 dark:text-blue-200">
+                  Langkah Utama Admin: Cukup Upload Foto Menu Harian
+                </span>
+              </div>
+              <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                Data Menu &amp; Kandungan Gizi terisi otomatis dari siklus menu
               </span>
             </div>
 
@@ -1226,7 +1384,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                value={searchQuery}
+                value={searchQuery || ''}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Cari nama menu..."
                 className="pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1235,7 +1393,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
             <input
               type="date"
-              value={filterTanggal}
+              value={filterTanggal || ''}
               onChange={(e) => setFilterTanggal(e.target.value)}
               className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200"
             />
@@ -1274,13 +1432,13 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
-                {filteredRecords.map((rec) => {
+                {filteredRecords.map((rec, idx) => {
                   const dateInfo = formatTanggalIndo(rec.tanggalOperasional);
                   const gb = getGiziBesar(rec);
                   const gk = getGiziKecil(rec);
                   return (
                     <tr
-                      key={rec.id}
+                      key={rec.id ? `menu-rec-${rec.id}` : `menu-rec-idx-${idx}`}
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                     >
                       <td className="py-3.5 px-3 whitespace-nowrap align-top">
