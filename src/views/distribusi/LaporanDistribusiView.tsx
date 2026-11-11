@@ -30,7 +30,7 @@ import {
   RefreshCw,
   Sparkles
 } from 'lucide-react';
-import { DriverStaff, DistributionReport, BeneficiaryLocation } from '../../types';
+import { DriverStaff, DistributionReport, BeneficiaryLocation, DailyBeneficiaryRecord } from '../../types';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 import { GlobalReportHeader } from '../../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
@@ -101,6 +101,8 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
   });
 
   const [selectedLocationDetail, setSelectedLocationDetail] = useState<string>('');
+  const [dailyBeneficiaries, setDailyBeneficiaries] = useState<DailyBeneficiaryRecord[]>([]);
+  const [isSyncedFromDaily, setIsSyncedFromDaily] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // --- DATA DISTRIBUSI FILTER STATE ---
@@ -190,6 +192,62 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     }
   }, [drivers]);
 
+  // Fetch Daily Beneficiaries whenever formData.tanggal changes
+  useEffect(() => {
+    let active = true;
+    const fetchDailyByDate = async () => {
+      if (!formData.tanggal) return;
+      try {
+        const res = await fetch(`/api/v1/penerima-manfaat/by-date?tanggal=${formData.tanggal}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (active && json.success && Array.isArray(json.records)) {
+          setDailyBeneficiaries(json.records);
+        } else if (active) {
+          setDailyBeneficiaries([]);
+        }
+      } catch (err) {
+        console.warn('Error fetching daily beneficiaries for distribution:', err);
+        if (active) setDailyBeneficiaries([]);
+      }
+    };
+    fetchDailyByDate();
+    return () => {
+      active = false;
+    };
+  }, [formData.tanggal]);
+
+  // Helper to resolve beneficiary count for a location based on selected date's daily records
+  const getBeneficiaryCountForLocation = (loc: BeneficiaryLocation): { count: number; synced: boolean } => {
+    const matchingRecords = dailyBeneficiaries.filter(
+      r => r.locationId === loc.id || r.namaInstansi?.toLowerCase() === loc.namaInstansi?.toLowerCase()
+    );
+    if (matchingRecords.length > 0) {
+      const totalDaily = matchingRecords.reduce((sum, r) => sum + (Number(r.totalPenerima) || 0), 0);
+      return { count: totalDaily, synced: true };
+    }
+    const defaultCount = loc.defaultJumlah ||
+      ((loc.kategoriBreakdown?.siswa || 0) + (loc.kategoriBreakdown?.guru || 0)) ||
+      0;
+    return { count: defaultCount, synced: false };
+  };
+
+  // Auto-update jumlahPenerimaManfaat when date/dailyBeneficiaries change and an instansi is already selected
+  useEffect(() => {
+    if (!formData.instansiId || formData.instansiId === 'CUSTOM') return;
+    const loc = locations.find(l => l.id === formData.instansiId || l.namaInstansi === formData.namaInstansi);
+    if (loc) {
+      const { count, synced } = getBeneficiaryCountForLocation(loc);
+      setFormData(prev => (
+        prev.jumlahPenerimaManfaat !== count ? { ...prev, jumlahPenerimaManfaat: count } : prev
+      ));
+      setIsSyncedFromDaily(synced);
+      setSelectedLocationDetail(
+        `Kelompok: ${loc.groupNama || 'Sasaran Utama'} | Alamat: ${loc.alamat || 'Area Kraksaan'} | Kontak: ${loc.kontak || '-'}`
+      );
+    }
+  }, [dailyBeneficiaries, locations, formData.instansiId]);
+
   // Handle Selection of School / Instansi from Dropdown (Penerima Manfaat Data Binding)
   const handleSelectInstansi = (instansiNamaOrId: string) => {
     if (!instansiNamaOrId) {
@@ -200,6 +258,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
         jumlahPenerimaManfaat: 0
       }));
       setSelectedLocationDetail('');
+      setIsSyncedFromDaily(false);
       return;
     }
 
@@ -207,20 +266,18 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     const loc = locations.find(l => l.id === instansiNamaOrId || l.namaInstansi === instansiNamaOrId);
 
     if (loc) {
-      // Calculate total porsi / jumlah penerima
-      const totalPorsi = loc.defaultJumlah ||
-        ((loc.kategoriBreakdown?.siswa || 0) + (loc.kategoriBreakdown?.guru || 0)) ||
-        0;
+      const { count, synced } = getBeneficiaryCountForLocation(loc);
 
       setFormData(prev => ({
         ...prev,
         instansiId: loc.id,
         namaInstansi: loc.namaInstansi,
-        jumlahPenerimaManfaat: totalPorsi
+        jumlahPenerimaManfaat: count
       }));
+      setIsSyncedFromDaily(synced);
 
       setSelectedLocationDetail(
-        `Kelompok: ${loc.groupNama || 'Sasaran Utama'} | Alamat: ${loc.alamat || 'Area Kraksaan'} | Kontat: ${loc.kontak || '-'}`
+        `Kelompok: ${loc.groupNama || 'Sasaran Utama'} | Alamat: ${loc.alamat || 'Area Kraksaan'} | Kontak: ${loc.kontak || '-'}`
       );
     } else {
       // Custom entry fallback
@@ -230,6 +287,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
         namaInstansi: instansiNamaOrId,
       }));
       setSelectedLocationDetail('');
+      setIsSyncedFromDaily(false);
     }
   };
 
@@ -688,12 +746,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                     required
                   >
                     <option value="">-- Pilih Sekolah / Instansi Sasaran --</option>
-                    <optgroup label="Lembaga / Sasaran (Menu Penerima Manfaat)">
+                    <optgroup label={`Lembaga / Sasaran (Penerima Hari Ini: ${formData.tanggal})`}>
                       {locations.map(loc => {
-                        const count = loc.defaultJumlah || ((loc.kategoriBreakdown?.siswa || 0) + (loc.kategoriBreakdown?.guru || 0));
+                        const { count, synced } = getBeneficiaryCountForLocation(loc);
                         return (
                           <option key={loc.id} value={loc.id}>
-                            {loc.namaInstansi} ({count ? `${count} Porsi` : 'Auto-sync'})
+                            {loc.namaInstansi} ({count ? `${count} Porsi` : '0 Porsi'}{synced ? ' • Hari Ini' : ''})
                           </option>
                         );
                       })}
@@ -725,9 +783,11 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                     required
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Otomatis ditarik dari total porsi Menu Penerima Manfaat saat instansi dipilih.
+                <p className={`text-[11px] mt-1.5 flex items-center gap-1 ${isSyncedFromDaily ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}>
+                  <CheckCircle2 className={`w-3.5 h-3.5 ${isSyncedFromDaily ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  {isSyncedFromDaily
+                    ? `Tersinkronisasi otomatis dengan Data Penerima Hari Ini (${formData.tanggal}).`
+                    : `Otomatis ditarik dari data Penerima Manfaat (default lembaga jika belum ada input tanggal ${formData.tanggal}).`}
                 </p>
               </div>
             </div>
