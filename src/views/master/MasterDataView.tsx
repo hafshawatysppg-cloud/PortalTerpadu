@@ -50,6 +50,11 @@ export const MasterDataView: React.FC = () => {
   const [isAddInstansiOpen, setIsAddInstansiOpen] = useState(false);
   const [formInstansi, setFormInstansi] = useState({ nama: '', jenis: 'Sekolah / Madrasah', alamat: '', kontak: '', telepon: '', email: '' });
 
+  const [editingDivisi, setEditingDivisi] = useState<MasterDivisi | null>(null);
+  const [editingGudang, setEditingGudang] = useState<MasterGudang | null>(null);
+  const [editingKategori, setEditingKategori] = useState<MasterKategori | null>(null);
+  const [editingInstansi, setEditingInstansi] = useState<MasterInstansi | null>(null);
+
   const [isSubmittingMaster, setIsSubmittingMaster] = useState(false);
 
   const [form, setForm] = useState({
@@ -145,23 +150,45 @@ export const MasterDataView: React.FC = () => {
     if (!formDivisi.nama.trim()) return;
     setIsSubmittingMaster(true);
     try {
-      const res = await fetch('/api/v1/master/divisi', {
-        method: 'POST',
+      const isEdit = Boolean(editingDivisi);
+      const url = isEdit ? `/api/v1/master/divisi/${editingDivisi!.id}` : '/api/v1/master/divisi';
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formDivisi)
       });
       const data = await res.json();
       if (data.success && data.data) {
-        setDivisi(prev => [data.data, ...prev]);
+        if (isEdit) {
+          setDivisi(prev => prev.map(item => (item.id === editingDivisi!.id ? data.data : item)));
+        } else {
+          setDivisi(prev => [data.data, ...prev]);
+        }
         setIsAddDivisiOpen(false);
+        setEditingDivisi(null);
         setFormDivisi({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
       } else {
-        alert(data.message || 'Gagal menambahkan divisi');
+        alert(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} divisi`);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleDeleteDivisi = async (d: MasterDivisi) => {
+    if (!window.confirm(`Yakin ingin menghapus divisi "${d.nama}"?`)) return;
+    try {
+      const res = await fetch(`/api/v1/master/divisi/${d.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setDivisi(prev => prev.filter(item => item.id !== d.id));
+      } else {
+        alert(data.message || 'Gagal menghapus divisi');
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -170,23 +197,45 @@ export const MasterDataView: React.FC = () => {
     if (!formGudang.nama.trim()) return;
     setIsSubmittingMaster(true);
     try {
-      const res = await fetch('/api/v1/master/gudang', {
-        method: 'POST',
+      const isEdit = Boolean(editingGudang);
+      const url = isEdit ? `/api/v1/master/gudang/${editingGudang!.id}` : '/api/v1/master/gudang';
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formGudang)
       });
       const data = await res.json();
       if (data.success && data.data) {
-        setGudang(prev => [data.data, ...prev]);
+        if (isEdit) {
+          setGudang(prev => prev.map(item => (item.id === editingGudang!.id ? data.data : item)));
+        } else {
+          setGudang(prev => [data.data, ...prev]);
+        }
         setIsAddGudangOpen(false);
+        setEditingGudang(null);
         setFormGudang({ nama: '', kode: '', lokasi: '', penanggungJawab: '', kapasitasM3: 100 });
       } else {
-        alert(data.message || 'Gagal menambahkan gudang');
+        alert(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} gudang`);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleDeleteGudang = async (g: MasterGudang) => {
+    if (!window.confirm(`Yakin ingin menghapus gudang "${g.nama}"?`)) return;
+    try {
+      const res = await fetch(`/api/v1/master/gudang/${g.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setGudang(prev => prev.filter(item => item.id !== g.id));
+      } else {
+        alert(data.message || 'Gagal menghapus gudang');
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -195,18 +244,25 @@ export const MasterDataView: React.FC = () => {
     if (!formKategori.nama.trim()) return;
     setIsSubmittingMaster(true);
     try {
-      const res = await fetch('/api/v1/master/kategori', {
-        method: 'POST',
+      const isEdit = Boolean(editingKategori);
+      const url = isEdit ? `/api/v1/master/kategori/${editingKategori!.id}` : '/api/v1/master/kategori';
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formKategori)
       });
       const data = await res.json();
       if (data.success && data.data) {
-        setKategori(prev => [data.data, ...prev]);
+        if (isEdit) {
+          setKategori(prev => prev.map(item => (item.id === editingKategori!.id ? data.data : item)));
+        } else {
+          setKategori(prev => [data.data, ...prev]);
+        }
         setIsAddKategoriOpen(false);
+        setEditingKategori(null);
         setFormKategori({ nama: '', kode: '', deskripsi: '' });
       } else {
-        alert(data.message || 'Gagal menambahkan kategori');
+        alert(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} kategori`);
       }
     } catch (err) {
       console.error(err);
@@ -215,28 +271,65 @@ export const MasterDataView: React.FC = () => {
     }
   };
 
+  const handleDeleteKategori = async (k: MasterKategori) => {
+    if (!window.confirm(`Yakin ingin menghapus kategori "${k.nama}"?`)) return;
+    try {
+      const res = await fetch(`/api/v1/master/kategori/${k.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setKategori(prev => prev.filter(item => item.id !== k.id));
+      } else {
+        alert(data.message || 'Gagal menghapus kategori');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAddInstansi = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formInstansi.nama.trim()) return;
     setIsSubmittingMaster(true);
     try {
-      const res = await fetch('/api/v1/master/instansi', {
-        method: 'POST',
+      const isEdit = Boolean(editingInstansi);
+      const url = isEdit ? `/api/v1/master/instansi/${editingInstansi!.id}` : '/api/v1/master/instansi';
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formInstansi)
       });
       const data = await res.json();
       if (data.success && data.data) {
-        setInstansi(prev => [data.data, ...prev]);
+        if (isEdit) {
+          setInstansi(prev => prev.map(item => (item.id === editingInstansi!.id ? data.data : item)));
+        } else {
+          setInstansi(prev => [data.data, ...prev]);
+        }
         setIsAddInstansiOpen(false);
+        setEditingInstansi(null);
         setFormInstansi({ nama: '', jenis: 'Sekolah / Madrasah', alamat: '', kontak: '', telepon: '', email: '' });
       } else {
-        alert(data.message || 'Gagal menambahkan instansi mitra');
+        alert(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} instansi mitra`);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleDeleteInstansi = async (ins: MasterInstansi) => {
+    if (!window.confirm(`Yakin ingin menghapus instansi mitra "${ins.nama}"?`)) return;
+    try {
+      const res = await fetch(`/api/v1/master/instansi/${ins.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setInstansi(prev => prev.filter(item => item.id !== ins.id));
+      } else {
+        alert(data.message || 'Gagal menghapus instansi mitra');
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -524,6 +617,7 @@ export const MasterDataView: React.FC = () => {
                 <th className="p-3">Nama Divisi</th>
                 <th className="p-3">Kepala Divisi</th>
                 <th className="p-3">Keterangan Fungsi</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -533,6 +627,33 @@ export const MasterDataView: React.FC = () => {
                   <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{d.nama}</td>
                   <td className="p-3">{d.kepalaDivisi || '-'}</td>
                   <td className="p-3 text-slate-500">{d.keterangan}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingDivisi(d);
+                          setFormDivisi({
+                            nama: d.nama || '',
+                            kode: d.kode || '',
+                            keterangan: d.keterangan || '',
+                            kepalaDivisi: d.kepalaDivisi || ''
+                          });
+                          setIsAddDivisiOpen(true);
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition"
+                        title="Edit Divisi"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDivisi(d)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
+                        title="Hapus Divisi"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -547,6 +668,7 @@ export const MasterDataView: React.FC = () => {
                 <th className="p-3">Nama Gudang</th>
                 <th className="p-3">Lokasi Fisik</th>
                 <th className="p-3">Penanggung Jawab</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -556,6 +678,34 @@ export const MasterDataView: React.FC = () => {
                   <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{g.nama}</td>
                   <td className="p-3 text-slate-500">{g.lokasi}</td>
                   <td className="p-3">{g.penanggungJawab}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingGudang(g);
+                          setFormGudang({
+                            nama: g.nama || '',
+                            kode: g.kode || '',
+                            lokasi: g.lokasi || '',
+                            penanggungJawab: g.penanggungJawab || '',
+                            kapasitasM3: g.kapasitasM3 || 100
+                          });
+                          setIsAddGudangOpen(true);
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition"
+                        title="Edit Gudang"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGudang(g)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
+                        title="Hapus Gudang"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -569,6 +719,7 @@ export const MasterDataView: React.FC = () => {
                 <th className="p-3">Kode</th>
                 <th className="p-3">Nama Kategori</th>
                 <th className="p-3">Deskripsi</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -577,6 +728,32 @@ export const MasterDataView: React.FC = () => {
                   <td className="p-3 font-mono font-bold text-blue-600">{k.kode}</td>
                   <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{k.nama}</td>
                   <td className="p-3 text-slate-500">{k.deskripsi}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingKategori(k);
+                          setFormKategori({
+                            nama: k.nama || '',
+                            kode: k.kode || '',
+                            deskripsi: k.deskripsi || ''
+                          });
+                          setIsAddKategoriOpen(true);
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition"
+                        title="Edit Kategori"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteKategori(k)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
+                        title="Hapus Kategori"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -591,6 +768,7 @@ export const MasterDataView: React.FC = () => {
                 <th className="p-3">Nama Instansi Partner</th>
                 <th className="p-3">Alamat</th>
                 <th className="p-3">Kontak & Email</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -600,6 +778,35 @@ export const MasterDataView: React.FC = () => {
                   <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{ins.nama}</td>
                   <td className="p-3 text-slate-500 max-w-xs">{ins.alamat}</td>
                   <td className="p-3">{ins.email}<div className="text-[10px] text-slate-400">{ins.telepon} • {ins.kontakPerson}</div></td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingInstansi(ins);
+                          setFormInstansi({
+                            nama: ins.nama || '',
+                            jenis: (ins as any).jenis || 'Sekolah / Madrasah',
+                            alamat: ins.alamat || '',
+                            kontak: ins.kontakPerson || '',
+                            telepon: ins.telepon || '',
+                            email: ins.email || ''
+                          });
+                          setIsAddInstansiOpen(true);
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition"
+                        title="Edit Instansi Mitra"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInstansi(ins)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
+                        title="Hapus Instansi Mitra"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -873,7 +1080,7 @@ export const MasterDataView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Building className="w-4 h-4 text-purple-600" /> Tambah Divisi Baru
+                <Building className="w-4 h-4 text-purple-600" /> {editingDivisi ? 'Edit Divisi' : 'Tambah Divisi Baru'}
               </h3>
               <button onClick={() => setIsAddDivisiOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
@@ -950,7 +1157,7 @@ export const MasterDataView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Warehouse className="w-4 h-4 text-amber-600" /> Tambah Gudang Baru
+                <Warehouse className="w-4 h-4 text-amber-600" /> {editingGudang ? 'Edit Gudang' : 'Tambah Gudang Baru'}
               </h3>
               <button onClick={() => setIsAddGudangOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
@@ -1036,7 +1243,7 @@ export const MasterDataView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Tag className="w-4 h-4 text-blue-600" /> Tambah Kategori Barang Baru
+                <Tag className="w-4 h-4 text-blue-600" /> {editingKategori ? 'Edit Kategori Barang' : 'Tambah Kategori Barang Baru'}
               </h3>
               <button onClick={() => setIsAddKategoriOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
@@ -1101,7 +1308,7 @@ export const MasterDataView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Landmark className="w-4 h-4 text-indigo-600" /> Tambah Instansi Mitra Baru
+                <Landmark className="w-4 h-4 text-indigo-600" /> {editingInstansi ? 'Edit Instansi Mitra' : 'Tambah Instansi Mitra Baru'}
               </h3>
               <button onClick={() => setIsAddInstansiOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />

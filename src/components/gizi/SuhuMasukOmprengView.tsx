@@ -297,27 +297,27 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
 
   // Sub 1: Makanan Pokok
   const [makananPokokSesi, setMakananPokokSesi] = useState<'Sesi 1' | 'Sesi 2' | 'Sesi 3'>('Sesi 1');
-  const [makananPokokSuhu, setMakananPokokSuhu] = useState<number | string>(69.4);
-  const [makananPokokFoto, setMakananPokokFoto] = useState<string>('/assets/suhu_seed/suhu_makanan_pokok_seed.png');
-  const [makananPokokNama, setMakananPokokNama] = useState<string>('Nasi Putih Pulen Steamer');
+  const [makananPokokSuhu, setMakananPokokSuhu] = useState<number | string>('');
+  const [makananPokokFoto, setMakananPokokFoto] = useState<string>('');
+  const [makananPokokNama, setMakananPokokNama] = useState<string>('');
 
   // Sub 2: Protein Hewani
   const [proteinHewaniSesi, setProteinHewaniSesi] = useState<'Sesi 1' | 'Sesi 2' | 'Sesi 3'>('Sesi 1');
-  const [proteinHewaniSuhu, setProteinHewaniSuhu] = useState<number | string>(68.2);
-  const [proteinHewaniFoto, setProteinHewaniFoto] = useState<string>('/assets/suhu_seed/suhu_protein_hewani_seed.png');
-  const [proteinHewaniNama, setProteinHewaniNama] = useState<string>('Ayam Semur Rempah');
+  const [proteinHewaniSuhu, setProteinHewaniSuhu] = useState<number | string>('');
+  const [proteinHewaniFoto, setProteinHewaniFoto] = useState<string>('');
+  const [proteinHewaniNama, setProteinHewaniNama] = useState<string>('');
 
   // Sub 3: Protein Nabati
   const [proteinNabatiSesi, setProteinNabatiSesi] = useState<'Sesi 1' | 'Sesi 2' | 'Sesi 3'>('Sesi 1');
-  const [proteinNabatiSuhu, setProteinNabatiSuhu] = useState<number | string>(63.5);
-  const [proteinNabatiFoto, setProteinNabatiFoto] = useState<string>('/assets/suhu_seed/suhu_protein_nabati_seed.png');
-  const [proteinNabatiNama, setProteinNabatiNama] = useState<string>('Tempe Orek Manis');
+  const [proteinNabatiSuhu, setProteinNabatiSuhu] = useState<number | string>('');
+  const [proteinNabatiFoto, setProteinNabatiFoto] = useState<string>('');
+  const [proteinNabatiNama, setProteinNabatiNama] = useState<string>('');
 
   // Sub 4: Sayuran
   const [sayuranSesi, setSayuranSesi] = useState<'Sesi 1' | 'Sesi 2' | 'Sesi 3'>('Sesi 1');
-  const [sayuranSuhu, setSayuranSuhu] = useState<number | string>(71.8);
-  const [sayuranFoto, setSayuranFoto] = useState<string>('/assets/suhu_seed/suhu_sayuran_seed.png');
-  const [sayuranNama, setSayuranNama] = useState<string>('Sop Sayuran Makaroni');
+  const [sayuranSuhu, setSayuranSuhu] = useState<number | string>('');
+  const [sayuranFoto, setSayuranFoto] = useState<string>('');
+  const [sayuranNama, setSayuranNama] = useState<string>('');
 
   // General Status & Notes
   const [formStatus, setFormStatus] = useState<string>('Sesuai Standar (≥ 60°C)');
@@ -336,6 +336,9 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
 
   // Selected date for Dokumentasi View
   const [selectedDokumentasiTanggal, setSelectedDokumentasiTanggal] = useState<string>('2026-10-26');
+  const [docStartDate, setDocStartDate] = useState<string>('');
+  const [docEndDate, setDocEndDate] = useState<string>('');
+  const [docKategoriFilter, setDocKategoriFilter] = useState<'ALL' | 'makananPokok' | 'proteinHewani' | 'proteinNabati' | 'sayuran'>('ALL');
 
   // UI Toast & Lightbox Modal
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -461,23 +464,23 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       const updatedSesiData: SesiGroupData = {
         makananPokok: {
           suhu: isNaN(suhuPokok) ? null : suhuPokok,
-          fotoUrl: makananPokokFoto || undefined,
-          namaMenu: makananPokokNama || undefined
+          fotoUrl: makananPokokFoto || '',
+          namaMenu: makananPokokNama || ''
         },
         proteinHewani: {
           suhu: isNaN(suhuHewani) ? null : suhuHewani,
-          fotoUrl: proteinHewaniFoto || undefined,
-          namaMenu: proteinHewaniNama || undefined
+          fotoUrl: proteinHewaniFoto || '',
+          namaMenu: proteinHewaniNama || ''
         },
         proteinNabati: {
           suhu: isNaN(suhuNabati) ? null : suhuNabati,
-          fotoUrl: proteinNabatiFoto || undefined,
-          namaMenu: proteinNabatiNama || undefined
+          fotoUrl: proteinNabatiFoto || '',
+          namaMenu: proteinNabatiNama || ''
         },
         sayuran: {
           suhu: isNaN(suhuSayur) ? null : suhuSayur,
-          fotoUrl: sayuranFoto || undefined,
-          namaMenu: sayuranNama || undefined
+          fotoUrl: sayuranFoto || '',
+          namaMenu: sayuranNama || ''
         },
         waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
       };
@@ -495,7 +498,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
             petugas: defaultPetugas,
             petugasRole: defaultPetugasRole,
             status: formStatus || 'Sesuai Standar (≥ 60°C)',
-            catatan: formCatatan || existing.catatan,
+            catatan: formCatatan || existing.catatan || '',
             updatedAt: new Date().toISOString(),
             [targetSesiKey]: updatedSesiData
           }
@@ -505,7 +508,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
             petugas: defaultPetugas,
             petugasRole: defaultPetugasRole,
             status: formStatus || 'Sesuai Standar (≥ 60°C)',
-            catatan: formCatatan || undefined,
+            catatan: formCatatan || '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             sesi1: targetSesiKey === 'sesi1' ? updatedSesiData : emptySesi,
@@ -526,6 +529,21 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       saveRecordsLocally(updatedList);
       setSelectedDokumentasiTanggal(formTanggal);
       showToast(`Data suhu masuk ompreng ${makananPokokSesi} tanggal ${formatTanggalTable(formTanggal)} berhasil disimpan!`, 'success');
+
+      // Reset form fields to empty for next session/entry
+      setMakananPokokSuhu('');
+      setMakananPokokFoto('');
+      setMakananPokokNama('');
+      setProteinHewaniSuhu('');
+      setProteinHewaniFoto('');
+      setProteinHewaniNama('');
+      setProteinNabatiSuhu('');
+      setProteinNabatiFoto('');
+      setProteinNabatiNama('');
+      setSayuranSuhu('');
+      setSayuranFoto('');
+      setSayuranNama('');
+      setFormCatatan('');
 
       // 2. Immediate Navigation to Tabel
       onNavigate('/gizi/suhu/makanan/masuk-ompreng/tabel');
@@ -559,14 +577,23 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     });
   }, [dailyRecords, startDate, endDate, searchQuery]);
 
+  // Filtered Records for Documentation View
+  const filteredDokumentasiRecords = useMemo(() => {
+    return dailyRecords.filter(r => {
+      if (docStartDate && r.tanggal < docStartDate) return false;
+      if (docEndDate && r.tanggal > docEndDate) return false;
+      return true;
+    });
+  }, [dailyRecords, docStartDate, docEndDate]);
+
   // Selected Record for Documentation View (Image 2 format)
   const currentDokumentasiRecord = useMemo(() => {
     return (
-      dailyRecords.find(r => r.tanggal === selectedDokumentasiTanggal) ||
-      dailyRecords[0] ||
+      filteredDokumentasiRecords.find(r => r.tanggal === selectedDokumentasiTanggal) ||
+      filteredDokumentasiRecords[0] ||
       null
     );
-  }, [dailyRecords, selectedDokumentasiTanggal]);
+  }, [filteredDokumentasiRecords, selectedDokumentasiTanggal]);
 
   // Delete record with instant optimistic update
   const handleDeleteDailyRecord = async (tanggal: string) => {
@@ -1634,20 +1661,24 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
               </div>
             </div>
 
-            {/* Date Selector Dropdown / Date Picker */}
+            {/* Date Selector Dropdown / Date Range & Category Filter */}
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-3 text-xs">
               <span className="font-bold text-slate-700 dark:text-slate-300">Pilih Tanggal Dokumentasi:</span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
-                  value={selectedDokumentasiTanggal}
+                  value={currentDokumentasiRecord?.tanggal || selectedDokumentasiTanggal}
                   onChange={(e) => setSelectedDokumentasiTanggal(e.target.value)}
                   className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
                 >
-                  {dailyRecords.map(r => (
-                    <option key={r.tanggal} value={r.tanggal}>
-                      {formatTanggalBanner(r.tanggal)} ({formatTanggalTable(r.tanggal)})
-                    </option>
-                  ))}
+                  {filteredDokumentasiRecords.length === 0 ? (
+                    <option value="">Tidak ada data pada rentang ini</option>
+                  ) : (
+                    filteredDokumentasiRecords.map(r => (
+                      <option key={r.tanggal} value={r.tanggal}>
+                        {formatTanggalBanner(r.tanggal)} ({formatTanggalTable(r.tanggal)})
+                      </option>
+                    ))
+                  )}
                 </select>
 
                 <input
@@ -1657,6 +1688,56 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                   className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs"
                 />
               </div>
+
+              <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-slate-500 dark:text-slate-400">Rentang:</span>
+                <input
+                  type="date"
+                  value={docStartDate}
+                  onChange={(e) => setDocStartDate(e.target.value)}
+                  title="Tanggal Mulai"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-800 dark:text-slate-200"
+                />
+                <span className="text-slate-400">-</span>
+                <input
+                  type="date"
+                  value={docEndDate}
+                  onChange={(e) => setDocEndDate(e.target.value)}
+                  title="Tanggal Akhir"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-800 dark:text-slate-200"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-500 dark:text-slate-400">Kategori:</span>
+                <select
+                  value={docKategoriFilter}
+                  onChange={(e) => setDocKategoriFilter(e.target.value as 'ALL' | 'makananPokok' | 'proteinHewani' | 'proteinNabati' | 'sayuran')}
+                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                >
+                  <option value="ALL">Semua Kategori</option>
+                  <option value="makananPokok">Makanan Pokok</option>
+                  <option value="proteinHewani">Protein Hewani</option>
+                  <option value="proteinNabati">Protein Nabati</option>
+                  <option value="sayuran">Sayuran</option>
+                </select>
+              </div>
+
+              {(docStartDate || docEndDate || docKategoriFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDocStartDate('');
+                    setDocEndDate('');
+                    setDocKategoriFilter('ALL');
+                  }}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-xl font-bold text-xs cursor-pointer transition-colors"
+                >
+                  Reset Filter
+                </button>
+              )}
             </div>
           </div>
 
@@ -1680,244 +1761,80 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                     <th className="border border-black px-3 py-2 w-16 font-bold uppercase text-[11px]">
                       SESI
                     </th>
-                    <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
-                      MAKANAN POKOK
-                    </th>
-                    <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
-                      PROTEIN HEWANI
-                    </th>
-                    <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
-                      PROTEIN NABATI
-                    </th>
-                    <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
-                      SAYURAN
-                    </th>
+                    {(docKategoriFilter === 'ALL' || docKategoriFilter === 'makananPokok') && (
+                      <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
+                        MAKANAN POKOK
+                      </th>
+                    )}
+                    {(docKategoriFilter === 'ALL' || docKategoriFilter === 'proteinHewani') && (
+                      <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
+                        PROTEIN HEWANI
+                      </th>
+                    )}
+                    {(docKategoriFilter === 'ALL' || docKategoriFilter === 'proteinNabati') && (
+                      <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
+                        PROTEIN NABATI
+                      </th>
+                    )}
+                    {(docKategoriFilter === 'ALL' || docKategoriFilter === 'sayuran') && (
+                      <th className="border border-black px-3 py-2 font-bold uppercase text-[11px]">
+                        SAYURAN
+                      </th>
+                    )}
                   </tr>
                 </thead>
 
                 <tbody>
-                  {/* Sesi 1 Row */}
-                  <tr>
-                    <td className="border border-black font-bold text-base align-middle px-3 py-4">
-                      1
-                    </td>
+                  {([1, 2, 3] as const).map((sesiNum) => {
+                    const sesiKey = `sesi${sesiNum}` as 'sesi1' | 'sesi2' | 'sesi3';
+                    const sesiData = currentDokumentasiRecord[sesiKey];
+                    const categories = [
+                      { key: 'makananPokok' as const, label: 'Makanan Pokok' },
+                      { key: 'proteinHewani' as const, label: 'Protein Hewani' },
+                      { key: 'proteinNabati' as const, label: 'Protein Nabati' },
+                      { key: 'sayuran' as const, label: 'Sayuran' },
+                    ];
 
-                    {/* Makanan Pokok */}
-                    <td className="border border-black p-2 align-middle">
-                      {currentDokumentasiRecord.sesi1?.makananPokok?.fotoUrl ? (
-                        <div
-                          onClick={() =>
-                            setLightboxImage({
-                              url: currentDokumentasiRecord.sesi1.makananPokok.fotoUrl!,
-                              title: 'Makanan Pokok - Sesi 1',
-                              suhu: formatSuhu(currentDokumentasiRecord.sesi1.makananPokok.suhu)
-                            })
+                    return (
+                      <tr key={sesiNum}>
+                        <td className="border border-black font-bold text-base align-middle px-3 py-4">
+                          {sesiNum}
+                        </td>
+                        {categories.map((cat) => {
+                          if (docKategoriFilter !== 'ALL' && docKategoriFilter !== cat.key) {
+                            return null;
                           }
-                          className="cursor-pointer group flex flex-col items-center justify-center"
-                        >
-                          <img
-                            src={currentDokumentasiRecord.sesi1.makananPokok.fotoUrl}
-                            alt="Makanan Pokok Sesi 1"
-                            className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
-                          />
-                        </div>
-                      ) : (
-                        <div className="py-12 text-slate-400 italic text-[11px]">
-                          Foto belum diunggah
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Protein Hewani */}
-                    <td className="border border-black p-2 align-middle">
-                      {currentDokumentasiRecord.sesi1?.proteinHewani?.fotoUrl ? (
-                        <div
-                          onClick={() =>
-                            setLightboxImage({
-                              url: currentDokumentasiRecord.sesi1.proteinHewani.fotoUrl!,
-                              title: 'Protein Hewani - Sesi 1',
-                              suhu: formatSuhu(currentDokumentasiRecord.sesi1.proteinHewani.suhu)
-                            })
-                          }
-                          className="cursor-pointer group flex flex-col items-center justify-center"
-                        >
-                          <img
-                            src={currentDokumentasiRecord.sesi1.proteinHewani.fotoUrl}
-                            alt="Protein Hewani Sesi 1"
-                            className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
-                          />
-                        </div>
-                      ) : (
-                        <div className="py-12 text-slate-400 italic text-[11px]">
-                          Foto belum diunggah
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Protein Nabati */}
-                    <td className="border border-black p-2 align-middle">
-                      {currentDokumentasiRecord.sesi1?.proteinNabati?.fotoUrl ? (
-                        <div
-                          onClick={() =>
-                            setLightboxImage({
-                              url: currentDokumentasiRecord.sesi1.proteinNabati.fotoUrl!,
-                              title: 'Protein Nabati - Sesi 1',
-                              suhu: formatSuhu(currentDokumentasiRecord.sesi1.proteinNabati.suhu)
-                            })
-                          }
-                          className="cursor-pointer group flex flex-col items-center justify-center"
-                        >
-                          <img
-                            src={currentDokumentasiRecord.sesi1.proteinNabati.fotoUrl}
-                            alt="Protein Nabati Sesi 1"
-                            className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
-                          />
-                        </div>
-                      ) : (
-                        <div className="py-12 text-slate-400 italic text-[11px]">
-                          Foto belum diunggah
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Sayuran */}
-                    <td className="border border-black p-2 align-middle">
-                      {currentDokumentasiRecord.sesi1?.sayuran?.fotoUrl ? (
-                        <div
-                          onClick={() =>
-                            setLightboxImage({
-                              url: currentDokumentasiRecord.sesi1.sayuran.fotoUrl!,
-                              title: 'Sayuran - Sesi 1',
-                              suhu: formatSuhu(currentDokumentasiRecord.sesi1.sayuran.suhu)
-                            })
-                          }
-                          className="cursor-pointer group flex flex-col items-center justify-center"
-                        >
-                          <img
-                            src={currentDokumentasiRecord.sesi1.sayuran.fotoUrl}
-                            alt="Sayuran Sesi 1"
-                            className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
-                          />
-                        </div>
-                      ) : (
-                        <div className="py-12 text-slate-400 italic text-[11px]">
-                          Foto belum diunggah
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-
-                  {/* Sesi 2 Row (If Sesi 2 photos or temperature recorded) */}
-                  {(currentDokumentasiRecord.sesi2?.makananPokok?.fotoUrl ||
-                    currentDokumentasiRecord.sesi2?.proteinHewani?.fotoUrl ||
-                    currentDokumentasiRecord.sesi2?.proteinNabati?.fotoUrl ||
-                    currentDokumentasiRecord.sesi2?.sayuran?.fotoUrl) && (
-                    <tr>
-                      <td className="border border-black font-bold text-base align-middle px-3 py-4">
-                        2
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi2?.makananPokok?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi2.makananPokok.fotoUrl}
-                            alt="Makanan Pokok Sesi 2"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi2?.proteinHewani?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi2.proteinHewani.fotoUrl}
-                            alt="Protein Hewani Sesi 2"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi2?.proteinNabati?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi2.proteinNabati.fotoUrl}
-                            alt="Protein Nabati Sesi 2"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi2?.sayuran?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi2.sayuran.fotoUrl}
-                            alt="Sayuran Sesi 2"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* Sesi 3 Row (If Sesi 3 photos recorded) */}
-                  {(currentDokumentasiRecord.sesi3?.makananPokok?.fotoUrl ||
-                    currentDokumentasiRecord.sesi3?.proteinHewani?.fotoUrl ||
-                    currentDokumentasiRecord.sesi3?.proteinNabati?.fotoUrl ||
-                    currentDokumentasiRecord.sesi3?.sayuran?.fotoUrl) && (
-                    <tr>
-                      <td className="border border-black font-bold text-base align-middle px-3 py-4">
-                        3
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi3?.makananPokok?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi3.makananPokok.fotoUrl}
-                            alt="Makanan Pokok Sesi 3"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi3?.proteinHewani?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi3.proteinHewani.fotoUrl}
-                            alt="Protein Hewani Sesi 3"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi3?.proteinNabati?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi3.proteinNabati.fotoUrl}
-                            alt="Protein Nabati Sesi 3"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                      <td className="border border-black p-2 align-middle">
-                        {currentDokumentasiRecord.sesi3?.sayuran?.fotoUrl ? (
-                          <img
-                            src={currentDokumentasiRecord.sesi3.sayuran.fotoUrl}
-                            alt="Sayuran Sesi 3"
-                            className="max-h-48 max-w-full object-contain mx-auto"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  )}
+                          const item = sesiData?.[cat.key];
+                          return (
+                            <td key={cat.key} className="border border-black p-2 align-middle">
+                              {item?.fotoUrl ? (
+                                <div
+                                  onClick={() =>
+                                    setLightboxImage({
+                                      url: item.fotoUrl!,
+                                      title: `${cat.label} - Sesi ${sesiNum}`,
+                                      suhu: formatSuhu(item.suhu),
+                                    })
+                                  }
+                                  className="cursor-pointer group flex flex-col items-center justify-center"
+                                >
+                                  <img
+                                    src={item.fotoUrl}
+                                    alt={`${cat.label} Sesi ${sesiNum}`}
+                                    className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="py-12 text-slate-400 italic text-[11px]">
+                                  Foto belum diunggah
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

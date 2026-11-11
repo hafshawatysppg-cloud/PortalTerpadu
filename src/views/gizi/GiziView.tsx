@@ -663,36 +663,6 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               Food Cost
             </button>
             <button
-              onClick={() => onNavigate('/gizi/suhu/kelembapan-gudang-kering')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
-                currentPath.includes('/gizi/suhu/kelembapan-gudang-kering')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Gudang Kering (RH)
-            </button>
-            <button
-              onClick={() => onNavigate('/gizi/suhu/freezer')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
-                currentPath.includes('/gizi/suhu/freezer')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Freezer
-            </button>
-            <button
-              onClick={() => onNavigate('/gizi/suhu/chiller')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
-                currentPath.includes('/gizi/suhu/chiller')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Chiller
-            </button>
-            <button
               onClick={() => onNavigate('/gizi/suhu/pemorsian')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
                 currentPath.includes('/gizi/suhu/pemorsian')
@@ -721,16 +691,6 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               }`}
             >
               📦 Suhu Masuk Ompreng
-            </button>
-            <button
-              onClick={() => onNavigate('/gizi/kebersihan-dapur')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
-                currentPath.includes('/gizi/kebersihan-dapur')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Kebersihan Dapur
             </button>
           </div>
         </div>

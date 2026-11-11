@@ -108,9 +108,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         path: '/gizi/suhu',
         icon: Icons.Thermometer,
         children: [
-          { title: 'Kelembapan Gudang Kering', path: '/gizi/suhu/kelembapan-gudang-kering', icon: Icons.Droplets },
-          { title: 'Frezeer', path: '/gizi/suhu/freezer', icon: Icons.Snowflake },
-          { title: 'Chiller', path: '/gizi/suhu/chiller', icon: Icons.Refrigerator },
           { title: 'Pemorsian', path: '/gizi/suhu/pemorsian', icon: Icons.Utensils },
           {
             title: 'Makanan',
@@ -140,8 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
             ]
           }
         ]
-      },
-      { title: 'Kebersihan Dapur', path: '/gizi/kebersihan-dapur', icon: Icons.Sparkles }
+      }
     ],
     menuHarian: [
       { title: 'Form Menu Harian', path: '/menu-harian/form', icon: Icons.ClipboardEdit },
@@ -183,9 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     ],
     admin: [
       { title: 'Manajemen Pengguna', path: '/admin/users', icon: Icons.Users },
-      { title: 'Builder Menu Dynamic', path: '/admin/menus', icon: Icons.Menu },
       { title: 'Hak Akses & Role', path: '/admin/roles', icon: Icons.Shield },
-      { title: 'Audit & Log Aktivitas', path: '/admin/logs', icon: Icons.FileText },
       { title: 'Master Template Dokumen', path: '/admin/document-template', icon: Icons.FileSignature },
       { title: 'Pengaturan Portal', path: '/admin/settings', icon: Icons.Settings },
     ],
@@ -336,6 +330,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
   // Filter menus based on user role and exclude removed menus
   const allowedMenus = effectiveMenus.filter(m => {
     if (m.path.includes('perencanaan-bahan') || m.id === 'MNU-003-PLANNING') return false;
+    const lowerTitle = (m.title || '').toLowerCase();
+    if (
+      m.path === '/docs/installation' ||
+      m.path === '/docs/api' ||
+      m.path === '/admin/logs' ||
+      m.path === '/admin/menus' ||
+      lowerTitle.includes('arsitektur enterprise') ||
+      lowerTitle.includes('dokumentasi rest api') ||
+      lowerTitle.includes('log aktivitas central') ||
+      lowerTitle.includes('menu dinamis')
+    ) {
+      return false;
+    }
     if (!m.isActive) return false;
     if (!m.requiredRole || m.requiredRole.length === 0) return true;
     if (!user) return false;

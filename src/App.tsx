@@ -284,6 +284,7 @@ const PortalMain: React.FC = () => {
       case '/gizi/suhu/makanan/pengolahan':
       case '/gizi/suhu/makanan/pengolahan/form':
       case '/gizi/suhu/makanan/pengolahan/tabel':
+      case '/gizi/suhu/makanan/pengolahan/dokumentasi':
       case '/gizi/suhu/makanan/masuk-ompreng':
       case '/gizi/suhu/makanan/masuk-ompreng/form':
       case '/gizi/suhu/makanan/masuk-ompreng/tabel':
