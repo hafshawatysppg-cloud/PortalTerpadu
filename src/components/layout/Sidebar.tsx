@@ -103,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
       { title: 'Master Menu', path: '/gizi/master-menu', icon: Icons.BookOpen },
       { title: 'Siklus Menu (Kandungan Gizi)', path: '/gizi/siklus-menu', icon: Icons.RotateCw },
       { title: 'Food Cost', path: '/gizi/food-cost', icon: Icons.Coins },
+      { title: 'Organoleptik', path: '/gizi/organoleptik', icon: Icons.ClipboardCheck },
       {
         title: 'Suhu',
         path: '/gizi/suhu',

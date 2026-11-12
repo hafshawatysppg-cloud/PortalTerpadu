@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { OrganoleptikView } from '../../components/gizi/OrganoleptikView';
 import {
   UtensilsCrossed,
   BookOpen,
@@ -497,6 +498,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   const HeaderIcon = config.icon;
   const isSuhuPengolahan = currentPath.includes('/gizi/suhu/makanan/pengolahan');
   const isSuhuMasukOmpreng = currentPath.includes('/gizi/suhu/makanan/masuk-ompreng');
+  const isOrganoleptik = currentPath.includes('/gizi/organoleptik');
 
   // Filtered rows
   const filteredRows = config.rows.filter(r =>
@@ -663,14 +665,14 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               Food Cost
             </button>
             <button
-              onClick={() => onNavigate('/gizi/suhu/pemorsian')}
+              onClick={() => onNavigate('/gizi/organoleptik')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
-                currentPath.includes('/gizi/suhu/pemorsian')
+                isOrganoleptik
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              Ruang Pemorsian
+              Organoleptik
             </button>
             <button
               onClick={() => onNavigate('/gizi/suhu/makanan/pengolahan/form')}
@@ -696,7 +698,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
         </div>
 
         {/* Quick Date Filter Toolbar on Modul Gizi */}
-        {!isSuhuPengolahan && !isSuhuMasukOmpreng && (
+        {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isOrganoleptik && (
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
@@ -753,7 +755,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
       </div>
 
       {/* KPI Statistic Cards */}
-      {!isSuhuPengolahan && !isSuhuMasukOmpreng && (
+      {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isOrganoleptik && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {config.kpis.map((kpi, idx) => (
             <div
@@ -776,7 +778,9 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
       )}
 
       {/* Main Content Section */}
-      {isSuhuPengolahan ? (
+      {isOrganoleptik ? (
+        <OrganoleptikView masterMenus={masterMenus} />
+      ) : isSuhuPengolahan ? (
         <SuhuPengolahanView
           currentPath={currentPath}
           onNavigate={onNavigate}
