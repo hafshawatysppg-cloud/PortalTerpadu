@@ -239,5 +239,30 @@
     margin-top: 20pt !important;
     page-break-inside: avoid !important;
   }
+
+  /* Isolated preservation for Checklist Uji Organoleptik official A4 sheet */
+  .organoleptik-print-sheet,
+  .organoleptik-print-sheet * {
+    font-family: "Times New Roman", Times, serif !important;
+    color: #000000 !important;
+  }
+
+  .organoleptik-print-sheet .border-black {
+    border-color: #000000 !important;
+  }
+
+  .organoleptik-print-sheet table:not(.border-black) td {
+    border: none !important;
+    padding: 1.5pt 0 !important;
+  }
+
+  .organoleptik-print-sheet table.border-black,
+  .organoleptik-print-sheet table.border-black th,
+  .organoleptik-print-sheet table.border-black td {
+    border: 1px solid #000000 !important;
+    background: #FFFFFF !important;
+    text-transform: none !important;
+    font-size: 9.5pt !important;
+  }
 }
 

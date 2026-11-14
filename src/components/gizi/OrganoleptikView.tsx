@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
-  Edit3
+  Edit3,
+  Download
 } from 'lucide-react';
 import {
   collection,
@@ -22,6 +23,7 @@ import {
 } from 'firebase/firestore';
 import { getDb } from '../../lib/firebase';
 import { MasterMenuRecord } from '../../types/masterMenu';
+import { printOrganoleptikA4, downloadOrganoleptikPdf } from '../../utils/organoleptikPdfHelper';
 
 export interface OrganoleptikRow {
   no: number;
@@ -277,6 +279,29 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
     return `${d} ${months[mIdx] || m} ${y}`;
   };
 
+  const buildPrintPayload = () => ({
+    namaPemeriksa,
+    tempatPemeriksaan,
+    namaTempatPemeriksa,
+    tanggalPemeriksaan,
+    tanggalFormatted: formatTanggalIndo(tanggalPemeriksaan),
+    waktuPemeriksaan,
+    rows
+  });
+
+  const handlePrintA4 = async () => {
+    await printOrganoleptikA4(buildPrintPayload());
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      await downloadOrganoleptikPdf(buildPrintPayload());
+      showToast('File PDF Uji Organoleptik berhasil diunduh!');
+    } catch {
+      showToast('Gagal mengunduh file PDF.', 'error');
+    }
+  };
+
   return (
     <div className="space-y-4">
       {toast && (
@@ -334,14 +359,24 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
         </div>
 
         {activeTab === 'print' && (
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Cetak Checklist (PDF)</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrintA4}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Cetak A4</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -482,9 +517,9 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
         </form>
       )}
 
-      {/* TAB 2: PRINT OUT FORMAT PERSIS PDF */}
+      {/* TAB 2: PRINT OUT FORMAT PERSIS PDF (LAMPIRAN A4) */}
       {activeTab === 'print' && (
-        <div className="bg-white text-black p-6 sm:p-10 rounded-2xl border border-slate-200 shadow-sm max-w-4xl mx-auto font-['Times_New_Roman',Times,serif] print:border-none print:shadow-none print:p-0 print:max-w-none">
+        <div className="organoleptik-print-sheet bg-white text-black p-6 sm:p-[14mm_18mm] rounded-2xl border border-slate-200 shadow-sm w-full max-w-[210mm] min-h-[297mm] mx-auto font-['Times_New_Roman',Times,serif] print:border-none print:shadow-none print:p-0 print:max-w-none print:min-h-0">
           {/* Kop Surat */}
           <div className="flex items-center gap-4 border-b-2 border-black pb-3 mb-4">
             <img

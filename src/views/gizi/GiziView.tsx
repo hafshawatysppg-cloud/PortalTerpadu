@@ -511,14 +511,14 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
     <div className="space-y-6 pb-12">
       {/* Toast Notification */}
       {showToast && (
-        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 border border-slate-700">
+        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 border border-slate-700 print:hidden">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{showToast}</span>
         </div>
       )}
 
       {/* Top Header Card */}
-      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4 print:hidden">
         {/* Breadcrumbs Row */}
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500">
           <button
