@@ -52,9 +52,22 @@ import distribusiRoutes from './server/routes/distribusi';
 import foodWasteRoutes from './server/routes/foodWaste';
 import petugasRoutes from './server/routes/petugas';
 import { swaggerSpec } from './server/docs/swagger';
-import { initFirestoreSync, getCloudInfo, testFirestoreConnection } from './server/db/firestore';
+import {
+  initFirestoreSync,
+  getCloudInfo,
+  testFirestoreConnection,
+  hydrateFromLocalSnapshot,
+  getAppStateEntries,
+  saveAppStateEntries,
+  getCollectionSnapshot,
+  flushWriteQueue,
+  saveSnapshotToDiskNow
+} from './server/db/firestore';
 
 async function startServer() {
+  // Hydrate persistent server cache immediately before accepting requests (0 Firestore reads)
+  hydrateFromLocalSnapshot();
+
   const app = express();
   // Dynamic port: 3000 for local dev behind nginx, or process.env.PORT (8080) for Cloud Run production
   const distPath = path.join(process.cwd(), 'dist');
@@ -68,6 +81,7 @@ async function startServer() {
   // Middleware
   app.use(cors());
   app.use(express.json({ limit: '100mb' }));
+  app.use(express.text({ type: 'text/plain', limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
   // API Health Check
@@ -94,10 +108,96 @@ async function startServer() {
     res.json(result);
   });
 
+  // Unified App-State Sync (All sppg_* client localStorage data <-> Google Cloud + Server Disk Snapshot)
+  app.get('/api/v1/cloud/app-state', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: getAppStateEntries(),
+      cloud: getCloudInfo()
+    });
+  });
+
+  app.post('/api/v1/cloud/app-state', async (req: Request, res: Response) => {
+    try {
+      let bodyPayload = req.body;
+      if (typeof bodyPayload === 'string') {
+        try {
+          bodyPayload = JSON.parse(bodyPayload);
+        } catch (_) {
+          bodyPayload = {};
+        }
+      }
+      const entries = bodyPayload?.entries;
+      if (!entries || typeof entries !== 'object') {
+        return res.status(400).json({ success: false, message: 'Payload entries tidak valid' });
+      }
+      const userName = (req.headers['x-user-name'] as string) || bodyPayload?.userName || 'Web Client';
+      const updatedCount = await saveAppStateEntries(entries, { name: userName });
+      res.json({
+        success: true,
+        updatedCount,
+        cloud: getCloudInfo()
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        message: err?.message || 'Gagal menyimpan sinkronisasi app-state'
+      });
+    }
+  });
+
+  // Server Cached Collection Snapshot Fallback (avoids burning Firestore quota on read)
+  app.get('/api/v1/cloud/collection/:name', (req: Request, res: Response) => {
+    const rawName = req.params.name;
+    const aliasMap: Record<string, string> = {
+      distribution_reports: 'distributionReports',
+      divisiTaskRecords: 'tugasDivisi'
+    };
+    const resolvedName = aliasMap[rawName] || rawName;
+    const data = getCollectionSnapshot(resolvedName);
+    res.json({
+      success: true,
+      collection: rawName,
+      data: Array.isArray(data) ? data : []
+    });
+  });
+
+  // Flush queued writes, persist disk snapshot, and optionally force-pull from Firestore
+  app.post('/api/v1/cloud/sync-all', async (req: Request, res: Response) => {
+    try {
+      let bodyPayload = req.body;
+      if (typeof bodyPayload === 'string') {
+        try {
+          bodyPayload = JSON.parse(bodyPayload);
+        } catch (_) {
+          bodyPayload = {};
+        }
+      }
+      if (bodyPayload?.entries && typeof bodyPayload.entries === 'object') {
+        await saveAppStateEntries(bodyPayload.entries, {
+          name: (req.headers['x-user-name'] as string) || 'Manual Cloud Sync'
+        });
+      }
+      await flushWriteQueue();
+      saveSnapshotToDiskNow();
+      await initFirestoreSync(Boolean(bodyPayload?.forcePull));
+      res.json({
+        success: true,
+        message: 'Seluruh data aplikasi berhasil disinkronisasi ke Google Cloud & cadangan server.',
+        cloud: getCloudInfo()
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        message: err?.message || 'Gagal melakukan sinkronisasi penuh ke Google Cloud'
+      });
+    }
+  });
+
   // Re-seed clean slate master collections to Firestore
   app.post('/api/v1/cloud/reseed-clean-slate', async (req: Request, res: Response) => {
     try {
-      await initFirestoreSync();
+      await initFirestoreSync(true);
       res.json({
         success: true,
         message: 'Koleksi database berhasil diinisialisasi dan disinkronisasi ke Firebase!',

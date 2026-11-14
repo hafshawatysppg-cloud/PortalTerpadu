@@ -127,6 +127,17 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Uji Organoleptik & App State Sync
+    match /organoleptik_v1/{recordId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /app_state_sync/{stateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // e-Surat
     match /suratMasuk/{suratId} {
       allow read: if true;

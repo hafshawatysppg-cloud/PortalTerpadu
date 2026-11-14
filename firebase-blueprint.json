@@ -101,6 +101,28 @@
         "sesi3": { "type": "object" }
       },
       "required": ["tanggal", "petugas"]
+    },
+    "organoleptik": {
+      "title": "Uji Organoleptik",
+      "description": "Organoleptic food quality inspection records across 3 phases",
+      "type": "object",
+      "properties": {
+        "tanggal": { "type": "string" },
+        "petugas": { "type": "string" },
+        "sesi": { "type": "object" },
+        "rows": { "type": "array" }
+      },
+      "required": ["tanggal"]
+    },
+    "appStateSync": {
+      "title": "Unified App State Sync",
+      "description": "Synchronized key-value persistent client application state",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "required": ["key", "value"]
     }
   },
   "firestore": {
@@ -131,6 +153,14 @@
     "/suhu_masuk_ompreng_v2/{recordId}": {
       "schema": { "$ref": "#/entities/suhuMasukOmpreng" },
       "description": "Daily ompreng packing temperature records"
+    },
+    "/organoleptik_v1/{recordId}": {
+      "schema": { "$ref": "#/entities/organoleptik" },
+      "description": "Organoleptic food inspection records"
+    },
+    "/app_state_sync/{stateId}": {
+      "schema": { "$ref": "#/entities/appStateSync" },
+      "description": "Unified client application state synchronization documents"
     }
   }
 }

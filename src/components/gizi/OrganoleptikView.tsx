@@ -90,11 +90,17 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
 
   useEffect(() => {
     const loadRecords = async () => {
+      const cooldownKey = 'sppg_fs_cache_fetch_organoleptik_v1';
+      const lastFetched = Number(sessionStorage.getItem(cooldownKey) || 0);
+      if (Date.now() - lastFetched < 5 * 60 * 1000) {
+        return;
+      }
       try {
         const firestoreDb = getDb();
         if (!firestoreDb) return;
         const q = query(collection(firestoreDb, 'organoleptik_v1'), orderBy('tanggalPemeriksaan', 'desc'));
         const snapshot = await getDocs(q);
+        sessionStorage.setItem(cooldownKey, String(Date.now()));
         const list: OrganoleptikRecord[] = [];
         snapshot.forEach((docSnap) => {
           list.push(docSnap.data() as OrganoleptikRecord);
@@ -104,7 +110,18 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
           localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
         }
       } catch {
-        // Fallback silently to localStorage if Firestore quota is exceeded
+        try {
+          const res = await fetch('/api/v1/cloud/collection/organoleptik_v1');
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json?.data) && json.data.length > 0) {
+              setRecords(json.data);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
+            }
+          }
+        } catch {
+          // Fallback silently to localStorage if Firestore & server unreachable
+        }
       }
     };
     loadRecords();

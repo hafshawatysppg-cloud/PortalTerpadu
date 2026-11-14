@@ -2530,6 +2530,10 @@ class EnterpriseDataStore {
   public slipGajiList: SlipGajiHarian[] = [...initialSlipGajiList];
   public rekapAbsensiList: RekapAbsensiHarian[] = [...initialRekapAbsensiList];
   public bastDocuments: BastDocument[] = [...initialBastDocuments];
+  public suhuPengolahan: any[] = [];
+  public suhuMasukOmpreng: any[] = [];
+  public organoleptikRecords: any[] = [];
+  public appStateSync: Record<string, string> = {};
 
   // Global Config for RAB Tarifs & Pagu (persistent across all menu plannings)
   public globalTarifConfig: RABTarifConfig = {

@@ -1,6 +1,13 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, getFirestore, setLogLevel, type Firestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  setLogLevel,
+  type Firestore
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -16,21 +23,24 @@ let _db: Firestore | null = null;
 
 export const getDb = (): Firestore => {
   if (!_db) {
+    const dbId = (firebaseConfig as any).firestoreDatabaseId;
     try {
-      const dbId = (firebaseConfig as any).firestoreDatabaseId;
-      if (dbId) {
-        _db = initializeFirestore(app, {
-          experimentalForceLongPolling: true,
-        }, dbId);
-      } else {
-        _db = initializeFirestore(app, {
-          experimentalForceLongPolling: true,
-        });
-      }
+      const settings = {
+        experimentalForceLongPolling: true,
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
+      };
+      _db = dbId ? initializeFirestore(app, settings, dbId) : initializeFirestore(app, settings);
     } catch (_err) {
-      _db = (firebaseConfig as any).firestoreDatabaseId 
-        ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
-        : getFirestore(app);
+      try {
+        const fallbackSettings = { experimentalForceLongPolling: true };
+        _db = dbId
+          ? initializeFirestore(app, fallbackSettings, dbId)
+          : initializeFirestore(app, fallbackSettings);
+      } catch (_err2) {
+        _db = dbId ? getFirestore(app, dbId) : getFirestore(app);
+      }
     }
   }
   return _db;

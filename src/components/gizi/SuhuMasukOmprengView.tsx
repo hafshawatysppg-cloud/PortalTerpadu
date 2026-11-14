@@ -345,15 +345,21 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; suhu?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Sync to Firestore on mount and fallback to localStorage
+  // Sync to Firestore on mount and fallback to server cache / localStorage
   useEffect(() => {
     const fetchFirestore = async () => {
+      const cooldownKey = 'sppg_fs_cache_fetch_suhu_ompreng';
+      const lastFetched = Number(sessionStorage.getItem(cooldownKey) || 0);
+      if (Date.now() - lastFetched < 5 * 60 * 1000) {
+        return;
+      }
       try {
         const db = getDb();
         if (db) {
           const colRef = collection(db, 'suhu_masuk_ompreng_v2');
           const q = query(colRef, orderBy('tanggal', 'desc'));
           const snap = await getDocs(q);
+          sessionStorage.setItem(cooldownKey, String(Date.now()));
           if (!snap.empty) {
             const list: DailySuhuOmprengRecord[] = [];
             snap.forEach(d => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
@@ -367,6 +373,17 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
           }
         }
       } catch (err) {
+        try {
+          const res = await fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2');
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json?.data) && json.data.length > 0) {
+              setDailyRecords(json.data);
+              localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(json.data));
+              return;
+            }
+          }
+        } catch (_) {}
         console.warn('Firestore sync notice (using localStorage fallback):', err);
       }
     };

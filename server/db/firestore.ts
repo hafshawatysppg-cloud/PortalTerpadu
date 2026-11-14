@@ -27,6 +27,138 @@ try {
 let firestoreDb: Firestore | null = null;
 let isConnected = false;
 let configData: any = null;
+let quotaExceeded = false;
+let lastQuotaErrorAt: string | null = null;
+let lastFullSyncAt = 0;
+const SYNC_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown to prevent redundant full-DB read bursts
+
+const SNAPSHOT_DIR = path.resolve(process.cwd(), '.cloud-sync-cache');
+const SNAPSHOT_FILE = path.join(SNAPSHOT_DIR, 'db-snapshot.json');
+let snapshotSaveTimer: NodeJS.Timeout | null = null;
+
+function isQuotaError(err: any): boolean {
+  const msg = String(err?.message || err || '').toLowerCase();
+  const code = String(err?.code || '').toLowerCase();
+  return (
+    code.includes('resource-exhausted') ||
+    msg.includes('quota exceeded') ||
+    msg.includes('quota limit exceeded') ||
+    msg.includes('resource_exhausted')
+  );
+}
+
+function sanitizeDocId(rawKey: string): string {
+  return encodeURIComponent(rawKey).replace(/%/g, '_').slice(0, 200);
+}
+
+export function hydrateFromLocalSnapshot(): boolean {
+  try {
+    if (!fs.existsSync(SNAPSHOT_FILE)) return false;
+    const raw = fs.readFileSync(SNAPSHOT_FILE, 'utf8');
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return false;
+
+    if (parsed.collections && typeof parsed.collections === 'object') {
+      for (const item of SYNCED_COLLECTIONS) {
+        if (parsed.collections[item.key] !== undefined) {
+          (dbStore as any)[item.key] = parsed.collections[item.key];
+        }
+      }
+    }
+    if (parsed.appStateSync && typeof parsed.appStateSync === 'object') {
+      dbStore.appStateSync = { ...dbStore.appStateSync, ...parsed.appStateSync };
+    }
+    if (typeof parsed.lastFullSyncAt === 'number') {
+      lastFullSyncAt = parsed.lastFullSyncAt;
+    }
+    console.log(`💾 Hydrated local persistent cloud cache (${Object.keys(dbStore.appStateSync).length} app-state keys).`);
+    return true;
+  } catch (err: any) {
+    console.warn('⚠️ Failed to hydrate local snapshot cache:', err?.message || err);
+    return false;
+  }
+}
+
+export function saveSnapshotToDiskNow(): void {
+  try {
+    if (!fs.existsSync(SNAPSHOT_DIR)) {
+      fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
+    }
+    const collections: Record<string, any> = {};
+    for (const item of SYNCED_COLLECTIONS) {
+      collections[item.key] = (dbStore as any)[item.key];
+    }
+    const payload = {
+      savedAt: new Date().toISOString(),
+      lastFullSyncAt,
+      collections,
+      appStateSync: dbStore.appStateSync,
+    };
+    const tmpFile = `${SNAPSHOT_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(payload), 'utf8');
+    fs.renameSync(tmpFile, SNAPSHOT_FILE);
+  } catch (err: any) {
+    console.warn('⚠️ Failed saving local snapshot cache:', err?.message || err);
+  }
+}
+
+export function scheduleSnapshotSave(delayMs = 250): void {
+  if (snapshotSaveTimer) return;
+  snapshotSaveTimer = setTimeout(() => {
+    snapshotSaveTimer = null;
+    saveSnapshotToDiskNow();
+  }, delayMs);
+}
+
+export function getAppStateEntries(): Record<string, string> {
+  return dbStore.appStateSync || {};
+}
+
+export async function saveAppStateEntries(
+  entries: Record<string, string | null>,
+  userMeta?: { name?: string; userId?: string }
+): Promise<number> {
+  if (!entries || typeof entries !== 'object') return 0;
+  let updatedCount = 0;
+
+  for (const [key, val] of Object.entries(entries)) {
+    if (!key || !key.startsWith('sppg_') || key.startsWith('sppg_fs_cache_')) continue;
+    const docId = sanitizeDocId(key);
+    if (val === null || val === undefined) {
+      if (dbStore.appStateSync[key] !== undefined) {
+        delete dbStore.appStateSync[key];
+        updatedCount++;
+        await syncDeleteDoc('app_state_sync', docId);
+      }
+    } else {
+      const strVal = typeof val === 'string' ? val : JSON.stringify(val);
+      if (dbStore.appStateSync[key] !== strVal) {
+        dbStore.appStateSync[key] = strVal;
+        updatedCount++;
+        await syncSaveDoc(
+          'app_state_sync',
+          docId,
+          { id: docId, key, value: strVal },
+          userMeta
+        );
+      }
+    }
+  }
+
+  if (updatedCount > 0) {
+    scheduleSnapshotSave(150);
+  }
+  return updatedCount;
+}
+
+export function getCollectionSnapshot(collectionName: string): any[] | null {
+  const entry = SYNCED_COLLECTIONS.find((c) => c.coll === collectionName || c.key === collectionName);
+  if (!entry) return null;
+  const val = (dbStore as any)[entry.key];
+  if (Array.isArray(val)) return val;
+  return null;
+}
 
 export function getFirestoreDb(): Firestore | null {
   if (firestoreDb) return firestoreDb;
@@ -60,8 +192,12 @@ export function getCloudInfo() {
   getFirestoreDb();
   return {
     isConnected,
-    status: isConnected ? 'online' : 'offline',
-    projectId: configData?.projectId || 'chromatic-reference-lt3g1',
+    status: quotaExceeded ? 'cached-fallback' : (isConnected ? 'online' : 'offline'),
+    quotaExceeded,
+    lastQuotaErrorAt,
+    lastFullSyncAt: lastFullSyncAt ? new Date(lastFullSyncAt).toISOString() : null,
+    appStateKeysCount: Object.keys(dbStore.appStateSync || {}).length,
+    projectId: configData?.projectId || 'gen-lang-client-0372936717',
     databaseId: configData?.firestoreDatabaseId || 'default',
     authDomain: configData?.authDomain || '',
     appId: configData?.appId || '',
@@ -71,7 +207,7 @@ export function getCloudInfo() {
     githubOAuthConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     syncedCollectionsCount: SYNCED_COLLECTIONS.length,
     collections: SYNCED_COLLECTIONS.map(s => s.coll),
-    mode: 'Google Cloud Firestore Real-time Primary Database (High-Speed Write-Behind Engine)',
+    mode: 'Google Cloud Firestore + Server Persistent Snapshot Cache (Quota-Optimized Sync)',
     writeQueue: getQueueStatus()
   };
 }
@@ -196,6 +332,7 @@ export async function flushWriteQueue(): Promise<void> {
       }
 
       await batch.commit();
+      quotaExceeded = false;
 
       // Dequeue committed items
       for (const [key] of entries) {
@@ -205,6 +342,14 @@ export async function flushWriteQueue(): Promise<void> {
     }
   } catch (err: any) {
     writeErrors++;
+    if (isQuotaError(err)) {
+      quotaExceeded = true;
+      lastQuotaErrorAt = new Date().toISOString();
+      console.warn('⚠️ Firestore quota exceeded during batch commit — data safely preserved in local server snapshot.');
+      pendingWriteQueue.clear();
+      scheduleSnapshotSave(50);
+      return;
+    }
     console.error('⚠️ Error committing write batch to Firestore:', err?.message || err);
     // On batch failure, fallback to saving individual items with safe catch so no data is dropped
     const entries = Array.from(pendingWriteQueue.entries()).slice(0, 50);
@@ -220,13 +365,18 @@ export async function flushWriteQueue(): Promise<void> {
           await setDoc(docRef, cleanData, { merge: true });
         }
         totalWritesCommitted++;
-      } catch (indivErr) {
+      } catch (indivErr: any) {
+        if (isQuotaError(indivErr)) {
+          quotaExceeded = true;
+          lastQuotaErrorAt = new Date().toISOString();
+          break;
+        }
         console.error(`⚠️ Individual write failed for ${item.collectionName}/${item.docId}:`, indivErr);
       }
     }
   } finally {
     isFlushing = false;
-    if (pendingWriteQueue.size > 0) {
+    if (pendingWriteQueue.size > 0 && !quotaExceeded) {
       scheduleFlush(30);
     }
   }
@@ -250,6 +400,7 @@ export async function syncSaveDoc(
     userMeta,
     queuedAt: Date.now()
   });
+  scheduleSnapshotSave();
 
   if (pendingWriteQueue.size >= 50) {
     setImmediate(() => { flushWriteQueue().catch(() => {}); });
@@ -279,6 +430,7 @@ export async function syncSaveBatch(
       queuedAt: Date.now()
     });
   }
+  scheduleSnapshotSave();
 
   if (pendingWriteQueue.size >= 50) {
     setImmediate(() => { flushWriteQueue().catch(() => {}); });
@@ -297,6 +449,7 @@ export async function syncDeleteDoc(collectionName: string, docId: string): Prom
     docId,
     queuedAt: Date.now()
   });
+  scheduleSnapshotSave();
   scheduleFlush(25);
 }
 
@@ -530,14 +683,26 @@ export const SYNCED_COLLECTIONS = [
   { key: 'petugasList', coll: 'petugasList' },
   { key: 'slipGajiList', coll: 'slipGajiList' },
   { key: 'rekapAbsensiList', coll: 'rekapAbsensiList' },
+  { key: 'suhuPengolahan', coll: 'suhu_pengolahan_v2' },
+  { key: 'suhuMasukOmpreng', coll: 'suhu_masuk_ompreng_v2' },
+  { key: 'organoleptikRecords', coll: 'organoleptik_v1' },
   { key: 'settings', coll: 'settings', isSingleDoc: true },
   { key: 'documentTemplate', coll: 'documentTemplate', isSingleDoc: true }
 ];
 
 let isSyncing = false;
 
-export async function initFirestoreSync() {
+export async function initFirestoreSync(force = false) {
   if (isSyncing) return;
+
+  // Always hydrate from local disk snapshot first (0 Firestore reads)
+  const hadLocalSnapshot = hydrateFromLocalSnapshot();
+
+  if (!force && hadLocalSnapshot && lastFullSyncAt > 0 && Date.now() - lastFullSyncAt < SYNC_COOLDOWN_MS) {
+    console.log('⚡ Using warm persistent cloud snapshot (skipping redundant Firestore full-sync to preserve read quota).');
+    return;
+  }
+
   const db = getFirestoreDb();
   if (!db) {
     console.warn('⚠️ Firestore initialization skipped: config not found');
@@ -548,7 +713,10 @@ export async function initFirestoreSync() {
   console.log('🔄 Initializing Google Cloud Firestore Synchronization...');
 
   try {
+    let hitQuotaDuringSync = false;
+
     const syncSingleItem = async (item: { key: string; coll: string; isSingleDoc?: boolean }) => {
+      if (hitQuotaDuringSync) return;
       try {
         const collRef = collection(db, item.coll);
 
@@ -590,12 +758,18 @@ export async function initFirestoreSync() {
           }
         } else {
           const docsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          // Firestore is the Single Source of Truth
+          // Firestore is the Single Source of Truth when online
           if (docsData.length > 0) {
             (dbStore as any)[item.key] = docsData;
           }
         }
       } catch (err: any) {
+        if (isQuotaError(err)) {
+          hitQuotaDuringSync = true;
+          quotaExceeded = true;
+          lastQuotaErrorAt = new Date().toISOString();
+          return;
+        }
         console.warn(`⚠️ Warning syncing collection ${item.coll}:`, err?.message || err);
       }
     };
@@ -603,8 +777,34 @@ export async function initFirestoreSync() {
     // Process in controlled parallel batches of 7 to finish quickly with low memory usage
     const concurrency = 7;
     for (let i = 0; i < SYNCED_COLLECTIONS.length; i += concurrency) {
+      if (hitQuotaDuringSync) break;
       const batch = SYNCED_COLLECTIONS.slice(i, i + concurrency);
       await Promise.allSettled(batch.map(item => syncSingleItem(item)));
+    }
+
+    // Also hydrate app_state_sync collection from Firestore
+    if (!hitQuotaDuringSync) {
+      try {
+        const appStateSnap = await getDocs(collection(db, 'app_state_sync'));
+        appStateSnap.forEach((d) => {
+          const data = d.data();
+          if (data?.key && typeof data.value === 'string') {
+            dbStore.appStateSync[data.key] = data.value;
+          }
+        });
+        quotaExceeded = false;
+        lastFullSyncAt = Date.now();
+      } catch (err: any) {
+        if (isQuotaError(err)) {
+          hitQuotaDuringSync = true;
+          quotaExceeded = true;
+          lastQuotaErrorAt = new Date().toISOString();
+        }
+      }
+    }
+
+    if (hitQuotaDuringSync) {
+      console.warn('⚠️ Firestore daily free read quota reached — running seamlessly on persistent server snapshot cache.');
     }
 
     // Ensure default menus (including Menu Harian) are always present in dbStore.menus
@@ -715,7 +915,8 @@ export async function initFirestoreSync() {
     }
 
     dbStore.sanitizeCategories();
-    console.log(`✅ Google Cloud Firestore Sync Complete (${SYNCED_COLLECTIONS.length} collections)!`);
+    saveSnapshotToDiskNow();
+    console.log(`✅ Google Cloud Sync Complete (${SYNCED_COLLECTIONS.length} collections, ${Object.keys(dbStore.appStateSync).length} app-state keys)!`);
   } finally {
     isSyncing = false;
   }
