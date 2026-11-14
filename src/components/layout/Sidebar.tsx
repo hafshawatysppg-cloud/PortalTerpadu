@@ -164,7 +164,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
     ],
     tugas: [
       { title: 'Tugas Divisi Hari Ini', path: '/tugas-divisi/hari-ini', icon: Icons.CheckSquare },
-      { title: 'Perencanaan Menu Harian', path: '/tugas-divisi/menu-harian', icon: Icons.Utensils },
       { title: 'Riwayat & Verifikasi', path: '/tugas-divisi/riwayat', icon: Icons.History },
       { title: 'Template Checklist Divisi', path: '/tugas-divisi/template', icon: Icons.FileSpreadsheet },
       { title: 'Laporan PDF & Cetak', path: '/tugas-divisi/laporan', icon: Icons.Printer },

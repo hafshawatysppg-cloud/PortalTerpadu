@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { 
   ClipboardCheck, 
   History, 
@@ -22,7 +20,6 @@ import {
   Search, 
   Upload, 
   Camera, 
-  Sparkles, 
   CheckSquare, 
   AlertCircle, 
   ChevronRight, 
@@ -34,10 +31,7 @@ import {
   RefreshCw,
   X,
   ExternalLink,
-  Utensils,
-  CalendarDays,
-  Copy,
-  Check
+  Utensils
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -51,6 +45,7 @@ import { useFirestoreRealtime } from '../lib/useFirestoreRealtime';
 import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../components/document/DocumentSignatures';
+import { initialMasterMenuRecords, type MasterMenuRecord } from '../types/masterMenu';
 
 interface TugasDivisiViewProps {
   onNavigate?: (path: string) => void;
@@ -62,7 +57,6 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
   
   // Determine active sub tab based on path
   const getInitialTab = () => {
-    if (currentPath.includes('/menu-harian')) return 'menu-harian';
     if (currentPath.includes('/riwayat')) return 'riwayat';
     if (currentPath.includes('/template')) return 'template';
     if (currentPath.includes('/laporan')) return 'laporan';
@@ -70,7 +64,7 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
     return 'hari-ini';
   };
 
-  const [activeTab, setActiveTab] = useState<'hari-ini' | 'menu-harian' | 'riwayat' | 'template' | 'laporan' | 'whatsapp'>(getInitialTab());
+  const [activeTab, setActiveTab] = useState<'hari-ini' | 'riwayat' | 'template' | 'laporan' | 'whatsapp'>(getInitialTab());
 
   // Date state (defaults to today)
   const todayStr = new Date().toISOString().split('T')[0];
@@ -105,27 +99,116 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
 
   const pdfPrintRecord = pdfPrintRecords[0] || records[0] || null;
 
-  // Menu Harian state
-  const [menuHarianInput, setMenuHarianInput] = useState<string>('');
-
-  useEffect(() => {
-    if (records.length > 0) {
-      const existingMenu = records.find(r => r.menuHarian)?.menuHarian || records[0]?.menuHarian || '';
-      setMenuHarianInput(existingMenu);
-    } else {
-      setMenuHarianInput('');
+  const getMasterMenuTextForDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    try {
+      const saved = localStorage.getItem('sppg_master_menus');
+      const list: MasterMenuRecord[] =
+        saved !== null ? JSON.parse(saved) : initialMasterMenuRecords;
+      if (!Array.isArray(list) || list.length === 0) return '';
+      const matched = list.find((m) => m.tanggalPelaksanaan === dateStr);
+      if (!matched || !Array.isArray(matched.menuItems)) return '';
+      return matched.menuItems.map((s) => s.trim()).filter(Boolean).join(', ');
+    } catch {
+      return '';
     }
-  }, [records]);
+  };
+
+  // Menu Harian state synchronized strictly from Master Menu for selectedDate
+  const [menuHarianInput, setMenuHarianInput] = useState<string>(() =>
+    getMasterMenuTextForDate(todayStr)
+  );
+
+  // Sync Input Menu Harian whenever selectedDate changes or Master Menu updates
+  useEffect(() => {
+    const syncFromMasterMenu = () => {
+      const syncedMenu = getMasterMenuTextForDate(selectedDate);
+      setMenuHarianInput(syncedMenu);
+    };
+
+    syncFromMasterMenu();
+
+    const handleStorageOrSync = (e?: Event) => {
+      if (e instanceof StorageEvent && e.key && e.key !== 'sppg_master_menus') {
+        return;
+      }
+      syncFromMasterMenu();
+    };
+
+    window.addEventListener('storage', handleStorageOrSync);
+    window.addEventListener('sppg-cloud-synced', handleStorageOrSync);
+    window.addEventListener('sppg-master-menu-updated', handleStorageOrSync);
+    return () => {
+      window.removeEventListener('storage', handleStorageOrSync);
+      window.removeEventListener('sppg-cloud-synced', handleStorageOrSync);
+      window.removeEventListener('sppg-master-menu-updated', handleStorageOrSync);
+    };
+  }, [selectedDate]);
+
+  // Keep backend division records' menuHarian aligned with Master Menu for selectedDate
+  useEffect(() => {
+    if (records.length === 0) return;
+    const syncedMenu = getMasterMenuTextForDate(selectedDate);
+    const needsSync = records.some((r) => (r.menuHarian || '') !== syncedMenu);
+    if (!needsSync) return;
+
+    setRecords((prev) => prev.map((r) => ({ ...r, menuHarian: syncedMenu })));
+    fetch('/api/v1/tugas-divisi/menu-harian', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tanggal: selectedDate,
+        menuHarian: syncedMenu
+      })
+    }).catch(() => {});
+  }, [records, selectedDate]);
 
   const handleSaveMenuHarian = async () => {
     if (!selectedDate) return;
+    const trimmed = menuHarianInput.trim();
     try {
+      // Also synchronize back to Master Menu storage so both stay consistent
+      try {
+        const saved = localStorage.getItem('sppg_master_menus');
+        const list: MasterMenuRecord[] =
+          saved !== null ? JSON.parse(saved) : [...initialMasterMenuRecords];
+        const nextList = Array.isArray(list) ? [...list] : [];
+        const items = trimmed
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const existingIdx = nextList.findIndex(
+          (m) => m.tanggalPelaksanaan === selectedDate
+        );
+
+        if (items.length === 0) {
+          if (existingIdx !== -1) {
+            nextList.splice(existingIdx, 1);
+          }
+        } else if (existingIdx !== -1) {
+          nextList[existingIdx] = {
+            ...nextList[existingIdx],
+            menuItems: items
+          };
+        } else {
+          nextList.unshift({
+            id: `MM-${selectedDate.replace(/-/g, '')}-${String(Date.now()).slice(-3)}`,
+            tanggalPelaksanaan: selectedDate,
+            menuItems: items
+          });
+        }
+        localStorage.setItem('sppg_master_menus', JSON.stringify(nextList));
+        window.dispatchEvent(new CustomEvent('sppg-master-menu-updated', { detail: nextList }));
+      } catch {
+        // Non-fatal if localStorage write fails
+      }
+
       const res = await fetch('/api/v1/tugas-divisi/menu-harian', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tanggal: selectedDate,
-          menuHarian: menuHarianInput
+          menuHarian: trimmed
         })
       });
       const json = await res.json();
@@ -139,280 +222,6 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
       console.error('Error saving menu harian:', err);
       showToast('error', 'Terjadi kesalahan koneksi.');
     }
-  };
-
-  // Form Management System States for Menu Harian (5 Item Components)
-  const [formDate, setFormDate] = useState<string>(todayStr);
-  const [formKarbo, setFormKarbo] = useState<string>('Nasi Putih');
-  const [formLaukHewani, setFormLaukHewani] = useState<string>('');
-  const [formLaukNabati, setFormLaukNabati] = useState<string>('');
-  const [formSayur, setFormSayur] = useState<string>('');
-  const [formBuahExtra, setFormBuahExtra] = useState<string>('');
-  const [formCatatan, setFormCatatan] = useState<string>('');
-  const [formMenuCombined, setFormMenuCombined] = useState<string>('');
-  const [isSavingForm, setIsSavingForm] = useState<boolean>(false);
-
-  // Weekly / Range Menu Harian Planner States
-  const [weeklyStartDate, setWeeklyStartDate] = useState<string>(todayStr);
-  const [weeklyNumDays, setWeeklyNumDays] = useState<number>(7);
-  const [weeklyMenuItems, setWeeklyMenuItems] = useState<Array<{ tanggal: string; menuHarian: string; isPlanned: boolean }>>([]);
-  const [isLoadingWeekly, setIsLoadingWeekly] = useState<boolean>(false);
-  const [isSavingWeekly, setIsSavingWeekly] = useState<boolean>(false);
-
-  const loadFormForDate = (dateStr: string, existingText?: string) => {
-    setFormDate(dateStr);
-    let text = existingText;
-    if (text === undefined) {
-      const found = weeklyMenuItems.find(i => i.tanggal === dateStr);
-      text = found ? found.menuHarian : '';
-    }
-    const safeText = text || '';
-    setFormMenuCombined(safeText);
-
-    if (safeText.trim()) {
-      const parts = safeText.split(',').map(s => s.trim());
-      setFormKarbo(parts[0] || 'Nasi Putih');
-      setFormLaukHewani(parts[1] || '');
-      setFormLaukNabati(parts[2] || '');
-      setFormSayur(parts[3] || '');
-      setFormBuahExtra(parts[4] || '');
-      setFormCatatan(parts.slice(5).join(', ') || '');
-    } else {
-      setFormKarbo('Nasi Putih');
-      setFormLaukHewani('');
-      setFormLaukNabati('');
-      setFormSayur('');
-      setFormBuahExtra('');
-      setFormCatatan('');
-    }
-  };
-
-  const handleResetForm = () => {
-    setFormKarbo('Nasi Putih');
-    setFormLaukHewani('');
-    setFormLaukNabati('');
-    setFormSayur('');
-    setFormBuahExtra('');
-    setFormCatatan('');
-    setFormMenuCombined('');
-  };
-
-  const handleDeleteMenuHarian = async (tanggal: string) => {
-    if (!window.confirm(`Apakah Anda yakin ingin menghapus / mengosongkan menu harian untuk tanggal ${tanggal}?`)) {
-      return;
-    }
-    try {
-      const res = await fetch(`/api/v1/tugas-divisi/menu-harian?tanggal=${tanggal}`, {
-        method: 'DELETE'
-      });
-      const json = await res.json();
-      if (json.success) {
-        showToast('success', json.message || `Menu harian tanggal ${tanggal} berhasil dihapus.`);
-        if (tanggal === selectedDate) {
-          setMenuHarianInput('');
-          fetchTasksForDate(selectedDate);
-        }
-        if (formDate === tanggal) {
-          handleResetForm();
-        }
-        fetchWeeklyMenuRange(weeklyStartDate, weeklyNumDays);
-      } else {
-        showToast('error', json.message || 'Gagal menghapus menu harian.');
-      }
-    } catch (err) {
-      console.error('Error deleting menu harian:', err);
-      showToast('error', 'Terjadi kesalahan koneksi.');
-    }
-  };
-
-  const handleSaveFormMenu = async () => {
-    if (!formDate) {
-      showToast('error', 'Pilih tanggal terlebih dahulu.');
-      return;
-    }
-
-    const assembledParts = [formKarbo, formLaukHewani, formLaukNabati, formSayur, formBuahExtra, formCatatan].map(s => s.trim()).filter(Boolean);
-    const targetText = formMenuCombined.trim() || assembledParts.join(', ');
-
-    setIsSavingForm(true);
-    try {
-      const res = await fetch('/api/v1/tugas-divisi/menu-harian', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tanggal: formDate, menuHarian: targetText })
-      });
-      const json = await res.json();
-      if (json.success) {
-        showToast('success', `Menu harian tanggal ${formDate} berhasil disimpan!`);
-        if (formDate === selectedDate) {
-          setMenuHarianInput(targetText);
-          fetchTasksForDate(selectedDate);
-        }
-        fetchWeeklyMenuRange(weeklyStartDate, weeklyNumDays);
-      } else {
-        showToast('error', json.message || 'Gagal menyimpan menu.');
-      }
-    } catch (err) {
-      console.error('Error saving form menu:', err);
-      showToast('error', 'Terjadi kesalahan koneksi.');
-    } finally {
-      setIsSavingForm(false);
-    }
-  };
-
-  const fetchWeeklyMenuRange = async (start: string = weeklyStartDate, days: number = weeklyNumDays) => {
-    setIsLoadingWeekly(true);
-    try {
-      const res = await fetch(`/api/v1/tugas-divisi/menu-harian-range?startDate=${start}&days=${days}`);
-      const json = await res.json();
-      if (json.success) {
-        setWeeklyMenuItems(json.data || []);
-      }
-    } catch (err) {
-      console.error('Error fetching weekly menu range:', err);
-    } finally {
-      setIsLoadingWeekly(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'menu-harian') {
-      fetchWeeklyMenuRange(weeklyStartDate, weeklyNumDays);
-    }
-  }, [activeTab, weeklyStartDate, weeklyNumDays]);
-
-  const handleWeeklyItemChange = (index: number, val: string) => {
-    const copy = [...weeklyMenuItems];
-    copy[index] = {
-      ...copy[index],
-      menuHarian: val,
-      isPlanned: Boolean(val && val.trim() !== '')
-    };
-    setWeeklyMenuItems(copy);
-  };
-
-  const handleSaveSingleWeeklyMenu = async (tanggal: string, menuHarian: string) => {
-    try {
-      const res = await fetch('/api/v1/tugas-divisi/menu-harian', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tanggal, menuHarian })
-      });
-      const json = await res.json();
-      if (json.success) {
-        showToast('success', `Menu harian tanggal ${tanggal} berhasil disimpan!`);
-        if (tanggal === selectedDate) {
-          setMenuHarianInput(menuHarian);
-          fetchTasksForDate(selectedDate);
-        }
-        fetchWeeklyMenuRange(weeklyStartDate, weeklyNumDays);
-      } else {
-        showToast('error', json.message || 'Gagal menyimpan menu.');
-      }
-    } catch (err) {
-      console.error('Error saving single weekly menu:', err);
-      showToast('error', 'Terjadi kesalahan koneksi.');
-    }
-  };
-
-  const handleSaveAllWeeklyMenus = async () => {
-    setIsSavingWeekly(true);
-    try {
-      const res = await fetch('/api/v1/tugas-divisi/menu-harian-bulk', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: weeklyMenuItems.map(i => ({ tanggal: i.tanggal, menuHarian: i.menuHarian })) })
-      });
-      const json = await res.json();
-      if (json.success) {
-        showToast('success', json.message || 'Perencanaan menu harian berhasil disimpan!');
-        fetchTasksForDate(selectedDate);
-        fetchWeeklyMenuRange(weeklyStartDate, weeklyNumDays);
-      } else {
-        showToast('error', json.message || 'Gagal menyimpan perencanaan menu.');
-      }
-    } catch (err) {
-      console.error('Error saving weekly menus:', err);
-      showToast('error', 'Terjadi kesalahan jaringan.');
-    } finally {
-      setIsSavingWeekly(false);
-    }
-  };
-
-  const menuPresets = [
-    { label: '🍗 Paket Ayam Lengkuas + Tahu', karbo: 'Nasi Putih', laukHewani: 'Ayam Goreng Lengkuas', laukNabati: 'Tahu Goreng Crispy', sayur: 'Sayur Sop Bening', buahExtra: 'Pisang Ambon', catatan: 'Sambal Terpisah', text: 'Nasi Putih, Ayam Goreng Lengkuas, Tahu Goreng Crispy, Sayur Sop Bening, Pisang Ambon' },
-    { label: '🐟 Paket Ikan Bakar + Tempe', karbo: 'Nasi Putih', laukHewani: 'Ikan Gurame Bakar Kecap', laukNabati: 'Tempe Bacem Gurih', sayur: 'Tumis Kangkung Belacan', buahExtra: 'Buah Jeruk Manis', catatan: 'Kerupuk', text: 'Nasi Putih, Ikan Gurame Bakar Kecap, Tempe Bacem Gurih, Tumis Kangkung Belacan, Buah Jeruk Manis' },
-    { label: '🥩 Paket Rendang + Perkedel', karbo: 'Nasi Putih', laukHewani: 'Rendang Daging Sapi', laukNabati: 'Perkedel Kentang', sayur: 'Sayur Nangka Gulai', buahExtra: 'Buah Semangka Segar', catatan: 'Kuah Gulai Terpisah', text: 'Nasi Putih, Rendang Daging Sapi, Perkedel Kentang, Sayur Nangka Gulai, Buah Semangka Segar' },
-    { label: '🍳 Paket Telur Balado + Tahu', karbo: 'Nasi Putih', laukHewani: 'Telur Balado Pedas Manis', laukNabati: 'Tahu Bacem Kukus', sayur: 'Sayur Asem Jakarta', buahExtra: 'Buah Pisang + Susu UHT', catatan: 'Sambal Terpisah', text: 'Nasi Putih, Telur Balado Pedas Manis, Tahu Bacem Kukus, Sayur Asem Jakarta, Buah Pisang + Susu UHT' },
-    { label: '🍲 Paket Soto Ayam + Tempe', karbo: 'Nasi Putih', laukHewani: 'Soto Ayam Lamongan', laukNabati: 'Tempe Goreng Tepung', sayur: 'Tauge & Kol Kuah Soto', buahExtra: 'Buah Melon + Puding', catatan: 'Jeruk Nipis & Koya', text: 'Nasi Putih, Soto Ayam Lamongan, Tempe Goreng Tepung, Tauge & Kol Kuah Soto, Buah Melon + Puding' },
-    { label: '🍗 Paket Semur Ayam + Tahu', karbo: 'Nasi Putih', laukHewani: 'Semur Ayam Kecap', laukNabati: 'Tahu Isi Sayuran', sayur: 'Capcay Kuah Kental', buahExtra: 'Buah Apel Merah', catatan: 'Kerupuk Udang', text: 'Nasi Putih, Semur Ayam Kecap, Tahu Isi Sayuran, Capcay Kuah Kental, Buah Apel Merah' },
-    { label: '🐟 Paket Ikan Fillet + Bakwan', karbo: 'Nasi Putih', laukHewani: 'Ikan Fillet Goreng Tepung', laukNabati: 'Bakwan Jagung Manis', sayur: 'Tumis Buncis Wortel', buahExtra: 'Buah Jeruk + Susu', catatan: 'Saus Mayones', text: 'Nasi Putih, Ikan Fillet Goreng Tepung, Bakwan Jagung Manis, Tumis Buncis Wortel, Buah Jeruk + Susu' },
-  ];
-
-  const handleApplyPresetToForm = (preset: typeof menuPresets[0]) => {
-    setFormKarbo(preset.karbo);
-    setFormLaukHewani(preset.laukHewani);
-    setFormLaukNabati(preset.laukNabati);
-    setFormSayur(preset.sayur);
-    setFormBuahExtra(preset.buahExtra);
-    setFormCatatan(preset.catatan || '');
-    setFormMenuCombined(preset.text);
-  };
-
-  const handleAutoFillWeeklyRotation = () => {
-    const copy = [...weeklyMenuItems];
-    copy.forEach((item, idx) => {
-      if (!item.menuHarian || item.menuHarian.trim() === '') {
-        const preset = menuPresets[idx % menuPresets.length];
-        item.menuHarian = preset.text;
-        item.isPlanned = true;
-      }
-    });
-    setWeeklyMenuItems(copy);
-    showToast('success', 'Form berhasil diisi dengan preset menu bergilir.');
-  };
-
-  const exportWeeklyMenuPDF = () => {
-    if (weeklyMenuItems.length === 0) return;
-    const doc = new jsPDF('portrait');
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PERENCANAAN MENU HARIAN DAPUR SPPG', 14, 15);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Periode: ${weeklyMenuItems[0]?.tanggal} s/d ${weeklyMenuItems[weeklyMenuItems.length - 1]?.tanggal}`, 14, 22);
-    doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 14, 27);
-
-    const tableColumn = ['No', 'Hari & Tanggal', 'Rincian Menu Harian', 'Status Planning'];
-    const tableRows = weeklyMenuItems.map((item, idx) => {
-      const dt = new Date(item.tanggal);
-      const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-      const dayName = days[dt.getDay()];
-      const formattedDate = `${dayName}, ${dt.getDate()} ${dt.toLocaleString('id-ID', { month: 'short' })} ${dt.getFullYear()}`;
-      return [
-        idx + 1,
-        formattedDate,
-        item.menuHarian || '(Belum Diisi)',
-        item.isPlanned ? 'TERISI' : 'BELUM DIISI'
-      ];
-    });
-
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 32,
-      theme: 'grid',
-      headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: {
-        0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 45, fontStyle: 'bold' },
-        2: { cellWidth: 100 },
-        3: { cellWidth: 30, halign: 'center' }
-      }
-    });
-
-    doc.save(`Perencanaan_Menu_Harian_${weeklyStartDate}.pdf`);
   };
 
   // Bulk Selection States
@@ -488,7 +297,7 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
   const [createShift, setCreateShift] = useState<string>('Shift 1 (Pagi)');
   const [createJumlahProduksi, setCreateJumlahProduksi] = useState<number>(2500);
   const [createKeterangan, setCreateKeterangan] = useState<string>('Pemeriksaan & pelaksanaan operasional divisi.');
-  const [createMenuHarian, setCreateMenuHarian] = useState<string>('Nasi, Ayam Goreng Lengkuas, Sayur Sop Bening, Pisang Ambon');
+  const [createMenuHarian, setCreateMenuHarian] = useState<string>('');
   const [createChecklists, setCreateChecklists] = useState<string[]>([]);
   const [newChecklistInput, setNewChecklistInput] = useState<string>('');
 
@@ -515,7 +324,7 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
     setCreateShift('Shift 1 (Pagi)');
     setCreateJumlahProduksi(2500);
     setCreateKeterangan('Pemeriksaan & pelaksanaan operasional divisi.');
-    setCreateMenuHarian(menuHarianInput || 'Nasi, Ayam Goreng Lengkuas, Sayur Sop Bening, Pisang Ambon');
+    setCreateMenuHarian(menuHarianInput || getMasterMenuTextForDate(selectedDate || todayStr) || '');
     
     const tpl = templates.find(t => t.divisiId === 'persiapan');
     setCreateChecklists(tpl ? [...tpl.checklists] : [
@@ -925,18 +734,6 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
           </button>
 
           <button
-            onClick={() => setActiveTab('menu-harian')}
-            className={`px-4 py-2.5 rounded-full text-xs font-semibold flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
-              activeTab === 'menu-harian'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20 ring-1 ring-amber-500'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <Utensils className="w-4 h-4" />
-            <span>Menu Harian (1 Minggu)</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('riwayat')}
             className={`px-4 py-2.5 rounded-full text-xs font-semibold flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
               activeTab === 'riwayat'
@@ -1084,7 +881,7 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
               <div className="p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                 <span className="text-slate-400 font-semibold text-[10px] block">MENU UTAMA HARI INI</span>
                 <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">
-                  {menuHarianInput || 'Nasi, Ayam Lengkuas, Sayur Sop, Pisang'}
+                  {menuHarianInput || '-'}
                 </span>
               </div>
             </div>
@@ -1098,11 +895,20 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
                       <Utensils className="w-4.5 h-4.5" />
                     </div>
                     <div>
-                      <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        Input Menu Harian ({selectedDate})
+                      <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2">
+                        <span>Input Menu Harian ({selectedDate})</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            menuHarianInput
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {menuHarianInput ? 'Tersinkron dari Master Menu' : 'Master Menu Kosong'}
+                        </span>
                       </h3>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Isikan menu harian yang berlaku untuk seluruh divisi pada tanggal terpilih
+                        Menu harian tersinkronisasi otomatis dengan data Master Menu pada tanggal terpilih
                       </p>
                     </div>
                   </div>
@@ -1126,7 +932,7 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
                         handleSaveMenuHarian();
                       }
                     }}
-                    placeholder="Contoh: Nasi Putih, Ayam Goreng Lengkuas, Sayur Sop Bening, Buah Pisang"
+                    placeholder="Kosong (Belum ada menu di Master Menu untuk tanggal ini)"
                     className="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
                   />
                 </div>
@@ -1301,7 +1107,7 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
                           <span>MENU HARIAN</span>
                         </div>
                         <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate">
-                          {record.menuHarian || menuHarianInput || '-'}
+                          {menuHarianInput || '-'}
                         </span>
                       </div>
                     </div>
@@ -1382,537 +1188,6 @@ ${record.keterangan ? `${record.keterangan}\n` : ''}${taskListFormatted}`;
             </div>
             );
           })()}
-        </div>
-      )}
-
-      {/* TAB MENU HARIAN (SISTEM FORM PENGISIAN, EDIT & HAPUS BERDASARKAN TANGGAL) */}
-      {activeTab === 'menu-harian' && (
-        <div className="space-y-6">
-          {/* SECTION 1: DEDICATED FORM PENGISIAN & EDIT MENU HARIAN */}
-          <div className="bg-white dark:bg-slate-900 border border-amber-200/90 dark:border-amber-900/50 rounded-2xl p-6 shadow-sm space-y-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
-              <div className="flex items-start gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-                  <Utensils className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                      Form Pengisian & Edit Menu Harian
-                    </h2>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                      Form Sistem
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Pilih tanggal, kelola dan edit atau hapus menu harian secara detail dan presisi. Menu otomatis diperbarui pada tugas divisi tanggal terkait.
-                  </p>
-                </div>
-              </div>
-
-              {/* Date Selector for Form */}
-              <div className="flex flex-wrap items-center gap-2.5 bg-amber-50/60 dark:bg-amber-950/30 p-3 rounded-xl border border-amber-200/60 dark:border-amber-800/60">
-                <CalendarDays className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Pilih Tanggal:</span>
-                <input
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => loadFormForDate(e.target.value)}
-                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                />
-                
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => loadFormForDate(todayStr)}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition cursor-pointer ${
-                      formDate === todayStr 
-                        ? 'bg-amber-600 text-white' 
-                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-amber-100'
-                    }`}
-                  >
-                    Hari Ini
-                  </button>
-                  <button
-                    onClick={() => {
-                      const tom = new Date();
-                      tom.setDate(tom.getDate() + 1);
-                      loadFormForDate(tom.toISOString().split('T')[0]);
-                    }}
-                    className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-slate-700 dark:text-slate-300 text-[11px] font-semibold rounded-lg transition cursor-pointer"
-                  >
-                    Besok
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Presets Selector Bar */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Rekomendasi Paket Menu Bergizi SPPG:</span>
-              </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {menuPresets.map((preset, pIdx) => (
-                  <button
-                    key={pIdx}
-                    type="button"
-                    onClick={() => handleApplyPresetToForm(preset)}
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-amber-500 hover:text-white dark:hover:bg-amber-600 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition shrink-0 cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span>{preset.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Form Fields Inputs Grid - 5 Distinct Menu Items + Notes */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>1. Karbohidrat / Pokok</span>
-                  <span className="text-[10px] text-amber-600 font-mono">Item 1</span>
-                </label>
-                <input
-                  type="text"
-                  value={formKarbo}
-                  onChange={(e) => setFormKarbo(e.target.value)}
-                  placeholder="Nasi Putih, Nasi Kuning, Kentang..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>2. Lauk Hewani</span>
-                  <span className="text-[10px] text-amber-600 font-mono">Item 2</span>
-                </label>
-                <input
-                  type="text"
-                  value={formLaukHewani}
-                  onChange={(e) => setFormLaukHewani(e.target.value)}
-                  placeholder="Ayam Goreng, Ikan Bakar, Rendang..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>3. Lauk Nabati</span>
-                  <span className="text-[10px] text-amber-600 font-mono">Item 3</span>
-                </label>
-                <input
-                  type="text"
-                  value={formLaukNabati}
-                  onChange={(e) => setFormLaukNabati(e.target.value)}
-                  placeholder="Tahu Crispy, Tempe Bacem, Perkedel..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>4. Sayur / Sup</span>
-                  <span className="text-[10px] text-amber-600 font-mono">Item 4</span>
-                </label>
-                <input
-                  type="text"
-                  value={formSayur}
-                  onChange={(e) => setFormSayur(e.target.value)}
-                  placeholder="Sayur Sop Bening, Capcay, Kangkung..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>5. Buah / Susu / Extra</span>
-                  <span className="text-[10px] text-amber-600 font-mono">Item 5</span>
-                </label>
-                <input
-                  type="text"
-                  value={formBuahExtra}
-                  onChange={(e) => setFormBuahExtra(e.target.value)}
-                  placeholder="Pisang Ambon, Buah Jeruk, Susu UHT..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            </div>
-
-            {/* Optional Notes / Catatan Tambahan */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Catatan / Keterangan Khusus (Opsional):
-              </label>
-              <input
-                type="text"
-                value={formCatatan}
-                onChange={(e) => setFormCatatan(e.target.value)}
-                placeholder="Contoh: Sambal terpisah, ekstra kerupuk udang, porsi khusus..."
-                className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            {/* Combined Result Area / Custom Textarea */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Pratinjau Teks Menu Harian Lengkap (Tanggal: <span className="text-amber-600 dark:text-amber-400 font-mono">{formDate}</span>):
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const combined = [formKarbo, formLaukHewani, formLaukNabati, formSayur, formBuahExtra, formCatatan].map(s => s.trim()).filter(Boolean).join(', ');
-                    setFormMenuCombined(combined);
-                  }}
-                  className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Atur Ulang Teks dari 5 Item Di Atas</span>
-                </button>
-              </div>
-
-              <textarea
-                rows={2}
-                value={formMenuCombined || [formKarbo, formLaukHewani, formLaukNabati, formSayur, formBuahExtra, formCatatan].map(s => s.trim()).filter(Boolean).join(', ')}
-                onChange={(e) => setFormMenuCombined(e.target.value)}
-                placeholder="Rincian 5 item menu harian akan digabung otomatis di sini..."
-                className="w-full px-3.5 py-2.5 bg-amber-50/40 dark:bg-slate-950 border border-amber-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            {/* Form Action Controls: SIMPAN, HAPUS, RESET */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-2 transition cursor-pointer"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  <span>Reset Form</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDeleteMenuHarian(formDate)}
-                  className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/80 text-xs font-bold rounded-xl flex items-center gap-2 transition cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Hapus Menu Tanggal Ini</span>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSaveFormMenu}
-                disabled={isSavingForm}
-                className="px-6 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-md shadow-amber-500/20 transition cursor-pointer disabled:opacity-50"
-              >
-                {isSavingForm ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                <span>Simpan / Update Menu ({formDate})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* SECTION 2: JADWAL & DAFTAR PERENCANAAN MULTI-DAY */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-amber-500" />
-                  <span>Daftar & Jadwal Perencanaan Menu Harian</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Tinjau dan kelola rincian menu konsumsi per hari. Klik <span className="font-semibold text-amber-600">Edit di Form</span> untuk mengubah di form atas, atau klik <span className="font-semibold text-rose-600">Hapus</span> untuk mengosongkan.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={handleAutoFillWeeklyRotation}
-                  className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Auto-Isi Rotasi</span>
-                </button>
-
-                <button
-                  onClick={exportWeeklyMenuPDF}
-                  className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Cetak PDF</span>
-                </button>
-
-                <button
-                  onClick={handleSaveAllWeeklyMenus}
-                  disabled={isSavingWeekly}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer disabled:opacity-50"
-                >
-                  {isSavingWeekly ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Save className="w-3.5 h-3.5" />
-                  )}
-                  <span>Simpan Semua ({weeklyMenuItems.length} Hari)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Range Controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-slate-400" />
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tanggal Mulai:</span>
-                  <input
-                    type="date"
-                    value={weeklyStartDate}
-                    onChange={(e) => setWeeklyStartDate(e.target.value)}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Durasi:</span>
-                  <select
-                    value={weeklyNumDays}
-                    onChange={(e) => setWeeklyNumDays(Number(e.target.value))}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value={7}>7 Hari (1 Minggu)</option>
-                    <option value={10}>10 Hari</option>
-                    <option value={14}>14 Hari (2 Minggu)</option>
-                    <option value={30}>30 Hari (1 Bulan)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Range Quick Shortcuts */}
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                <button
-                  onClick={() => {
-                    setWeeklyStartDate(todayStr);
-                    setWeeklyNumDays(7);
-                  }}
-                  className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-500 text-slate-700 dark:text-slate-300 text-[11px] font-semibold rounded-lg transition cursor-pointer shrink-0"
-                >
-                  Minggu Ini
-                </button>
-
-                <button
-                  onClick={() => {
-                    const nextWeek = new Date();
-                    nextWeek.setDate(nextWeek.getDate() + 7);
-                    setWeeklyStartDate(nextWeek.toISOString().split('T')[0]);
-                    setWeeklyNumDays(7);
-                  }}
-                  className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-500 text-slate-700 dark:text-slate-300 text-[11px] font-semibold rounded-lg transition cursor-pointer shrink-0"
-                >
-                  Minggu Depan
-                </button>
-              </div>
-            </div>
-
-            {/* List / Grid of Days for Menu Planning */}
-            {isLoadingWeekly ? (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-12 text-center">
-                <RefreshCw className="w-8 h-8 text-amber-500 animate-spin mx-auto mb-3" />
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  Memuat data perencanaan menu harian...
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {weeklyMenuItems.map((item, idx) => {
-                  const dt = new Date(item.tanggal);
-                  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                  const dayName = days[dt.getDay()];
-                  const formattedDate = `${dayName}, ${dt.getDate()} ${dt.toLocaleString('id-ID', { month: 'long' })} ${dt.getFullYear()}`;
-
-                  const isToday = item.tanggal === todayStr;
-                  const isSelectedInForm = item.tanggal === formDate;
-                  const dateDiffDays = Math.round((new Date(item.tanggal).getTime() - new Date(todayStr).getTime()) / (1000 * 3600 * 24));
-
-                  let relativeTag = '';
-                  if (isToday) relativeTag = 'Hari Ini';
-                  else if (dateDiffDays === 1) relativeTag = 'Besok';
-                  else if (dateDiffDays === 2) relativeTag = 'Lusa';
-                  else if (dateDiffDays > 2) relativeTag = `+${dateDiffDays} Hari`;
-                  else if (dateDiffDays < 0) relativeTag = `${dateDiffDays} Hari`;
-
-                  return (
-                    <div
-                      key={item.tanggal}
-                      className={`bg-white dark:bg-slate-900 border transition-all rounded-2xl p-5 shadow-2xs space-y-3 ${
-                        isSelectedInForm
-                          ? 'ring-2 ring-amber-500 border-amber-500/80 dark:border-amber-500/80 bg-amber-50/20'
-                          : isToday
-                          ? 'ring-1 ring-amber-500/60 border-amber-400 dark:border-amber-700'
-                          : item.isPlanned
-                          ? 'border-slate-200 dark:border-slate-800'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/30'
-                      }`}
-                    >
-                      {/* Item Day Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                            isToday
-                              ? 'bg-amber-600 text-white'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}>
-                            {idx + 1}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                                {formattedDate}
-                              </span>
-                              {relativeTag && (
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                  isToday
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                                }`}>
-                                  {relativeTag}
-                                </span>
-                              )}
-                              {isSelectedInForm && (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-white">
-                                  Aktif di Form
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              {item.tanggal}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {item.isPlanned ? (
-                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Terisi</span>
-                            </span>
-                          ) : (
-                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1">
-                              <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Kosong</span>
-                            </span>
-                          )}
-
-                          <button
-                            onClick={() => {
-                              loadFormForDate(item.tanggal, item.menuHarian);
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                            className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition cursor-pointer"
-                            title="Edit menu harian tanggal ini di form atas"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                            <span>Edit di Form</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleSaveSingleWeeklyMenu(item.tanggal, item.menuHarian)}
-                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                            <span>Simpan</span>
-                          </button>
-
-                          {item.isPlanned && (
-                            <button
-                              onClick={() => handleDeleteMenuHarian(item.tanggal)}
-                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 text-xs font-semibold rounded-lg flex items-center gap-1 transition cursor-pointer"
-                              title="Hapus / Kosongkan menu harian tanggal ini"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Hapus</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Input Area */}
-                      <div className="space-y-2">
-                        <textarea
-                          rows={2}
-                          value={item.menuHarian}
-                          onChange={(e) => handleWeeklyItemChange(idx, e.target.value)}
-                          placeholder="Contoh: Nasi Putih, Ayam Goreng Lengkuas, Sayur Sop Bening, Buah Pisang Ambon..."
-                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                        />
-
-                        {/* Quick Fill Chips for this Day */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-400 mr-1">Quick Preset:</span>
-                            {menuPresets.slice(0, 4).map((preset, pIdx) => (
-                              <button
-                                key={pIdx}
-                                onClick={() => handleWeeklyItemChange(idx, preset.text)}
-                                className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-950 text-slate-600 dark:text-slate-300 hover:text-amber-900 dark:hover:text-amber-200 text-[10px] font-medium rounded-md transition cursor-pointer"
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                          </div>
-
-                          {idx > 0 && (
-                            <button
-                              onClick={() => {
-                                const prevMenu = weeklyMenuItems[idx - 1]?.menuHarian || '';
-                                if (prevMenu) {
-                                  handleWeeklyItemChange(idx, prevMenu);
-                                  showToast('success', 'Disalin dari hari sebelumnya.');
-                                } else {
-                                  showToast('error', 'Menu hari sebelumnya masih kosong.');
-                                }
-                              }}
-                              className="px-2 py-1 text-[10px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 transition cursor-pointer"
-                            >
-                              <Copy className="w-3 h-3" />
-                              <span>Salin Hari Sebelumnya</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Bottom Bulk Action Bar */}
-                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Total <span className="font-bold text-slate-900 dark:text-slate-100">{weeklyMenuItems.length} Hari</span> Terjadwal ({weeklyMenuItems.filter(i => i.isPlanned).length} Terisi)
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleSaveAllWeeklyMenus}
-                      disabled={isSavingWeekly}
-                      className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-md shadow-amber-500/20 transition cursor-pointer disabled:opacity-50"
-                    >
-                      {isSavingWeekly ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Save className="w-4 h-4" />
-                      )}
-                      <span>Simpan Semua Perencanaan Menu</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 

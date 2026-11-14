@@ -64,12 +64,9 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   const [masterMenus, setMasterMenus] = useState<MasterMenuRecord[]>(() => {
     try {
       const saved = localStorage.getItem('sppg_master_menus');
-      if (saved) {
+      if (saved !== null) {
         const parsed: MasterMenuRecord[] = JSON.parse(saved);
-        if (!parsed.some(m => m.tanggalPelaksanaan === '2026-10-26')) {
-          parsed.unshift(initialMasterMenuRecords[0]);
-        }
-        return parsed;
+        return Array.isArray(parsed) ? parsed : [];
       }
     } catch (e) {
       console.error('Failed reading master menus from localStorage:', e);
@@ -80,6 +77,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   useEffect(() => {
     try {
       localStorage.setItem('sppg_master_menus', JSON.stringify(masterMenus));
+      window.dispatchEvent(new CustomEvent('sppg-master-menu-updated', { detail: masterMenus }));
     } catch (e) {
       console.error('Failed saving master menus to localStorage:', e);
     }

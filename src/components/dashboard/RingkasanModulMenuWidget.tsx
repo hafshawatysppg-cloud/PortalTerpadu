@@ -104,7 +104,7 @@ export const RingkasanModulMenuWidget: React.FC<RingkasanModulMenuWidgetProps> =
       description: 'Form pengisian dan jadwal perencanaan menu harian 5 item (Karbo, Hewani, Nabati, Sayur, & Buah/Susu).',
       metrics: 'Jadwal Konsumsi',
       icon: <Utensils className="w-5 h-5 text-amber-600 dark:text-amber-400" />,
-      path: '/tugas-divisi/menu-harian'
+      path: '/gizi/master-menu'
     },
     {
       id: 'penerima-manfaat',

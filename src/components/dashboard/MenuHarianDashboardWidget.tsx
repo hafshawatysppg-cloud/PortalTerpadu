@@ -157,7 +157,7 @@ export const MenuHarianDashboardWidget: React.FC<MenuHarianDashboardWidgetProps>
           </div>
 
           <button
-            onClick={() => onNavigate && onNavigate('/tugas-divisi/menu-harian')}
+            onClick={() => onNavigate && onNavigate('/gizi/master-menu')}
             className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
           >
             <Edit3 className="w-3.5 h-3.5" />
