@@ -5,6 +5,8 @@
  * with the server persistent snapshot & Google Cloud Firestore (`app_state_sync` collection).
  */
 
+import { safeParseJson } from './safeJson';
+
 const PENDING_CACHE_KEY = 'sppg_fs_cache_pending_appstate';
 let initialized = false;
 let isApplyingCloudHydration = false;
@@ -115,7 +117,7 @@ export async function hydrateAppStateFromCloud(): Promise<void> {
     // 2. Fetch consolidated cloud app-state from server (backed by Firestore + persistent disk snapshot)
     const res = await fetch('/api/v1/cloud/app-state');
     if (!res.ok) return;
-    const json = await res.json();
+    const json = await safeParseJson<{ data?: Record<string, string> }>(res);
     const cloudData: Record<string, string> = (json && json.data) || {};
 
     // 3. Push any local-only `sppg_*` keys that are not yet in cloud

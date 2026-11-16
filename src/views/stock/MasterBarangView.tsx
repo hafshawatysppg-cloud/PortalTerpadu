@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Boxes, Plus, Search, QrCode, CheckCircle, Barcode, 
-  Edit, Trash2, Save, X, AlertTriangle, Archive, RotateCcw
+  Edit, Trash2, Save, X, AlertTriangle, FileDown
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { MasterBarang, MasterKategori, MasterGudang } from '../../types';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import { DAFTAR_SATUAN_BARANG } from '../../constants/satuanBarang';
 
 export const MasterBarangView: React.FC = () => {
   const { data: realtimeBarang } = useFirestoreRealtime<MasterBarang>('barang');
@@ -12,7 +15,7 @@ export const MasterBarangView: React.FC = () => {
   const [kategoriList, setKategoriList] = useState<MasterKategori[]>([]);
   const [gudangList, setGudangList] = useState<MasterGudang[]>([]);
   const [filter, setFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'aktif' | 'arsip' | 'semua'>('aktif');
+  const [statusFilter, setStatusFilter] = useState<'semua' | 'tersedia' | 'habis'>('semua');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedQR, setSelectedQR] = useState<MasterBarang | null>(null);
 
@@ -23,8 +26,9 @@ export const MasterBarangView: React.FC = () => {
     kategoriId: '',
     gudangId: '',
     satuan: 'Pcs',
+    customSatuan: '',
     stokSekarang: 0,
-    status: 'Aktif' as 'Aktif' | 'Tidak Aktif' | 'Arsip',
+    status: 'Aktif' as 'Aktif' | 'Tidak Aktif',
     hargaSatuan: 0,
     sumberSupplier: '',
     keterangan: ''
@@ -55,6 +59,7 @@ export const MasterBarangView: React.FC = () => {
     kategoriId: 'KAT-001',
     gudangId: 'GDG-001',
     satuan: 'Kg',
+    customSatuan: '',
     stokSekarang: 25,
     hargaSatuan: 150000,
     sumberSupplier: '',
@@ -85,11 +90,23 @@ export const MasterBarangView: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const resolvedSatuan =
+      form.satuan === 'Lainnya' ? (form.customSatuan.trim() || 'Pcs') : form.satuan;
     try {
       const res = await fetch('/api/v1/stock/barang', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, status: 'Aktif' })
+        body: JSON.stringify({
+          namaBarang: form.namaBarang,
+          kategoriId: form.kategoriId,
+          gudangId: form.gudangId,
+          satuan: resolvedSatuan,
+          stokSekarang: Number(form.stokSekarang) || 0,
+          hargaSatuan: Number(form.hargaSatuan) || 0,
+          sumberSupplier: form.sumberSupplier,
+          keterangan: form.keterangan,
+          status: 'Aktif'
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -98,7 +115,8 @@ export const MasterBarangView: React.FC = () => {
           namaBarang: '', 
           kategoriId: 'KAT-001', 
           gudangId: 'GDG-001', 
-          satuan: 'Kg', 
+          satuan: 'Kg',
+          customSatuan: '',
           stokSekarang: 25, 
           hargaSatuan: 150000,
           sumberSupplier: '',
@@ -117,14 +135,17 @@ export const MasterBarangView: React.FC = () => {
 
   // Open Edit Modal with Pre-populated Data
   const handleOpenEdit = (item: MasterBarang) => {
+    const rawSatuan = item.satuan || 'Pcs';
+    const isStandardSatuan = DAFTAR_SATUAN_BARANG.includes(rawSatuan);
     setEditingItem(item);
     setEditForm({
       namaBarang: item.namaBarang,
       kategoriId: item.kategoriId || 'KAT-001',
       gudangId: item.gudangId || 'GDG-001',
-      satuan: item.satuan || 'Pcs',
+      satuan: isStandardSatuan ? rawSatuan : 'Lainnya',
+      customSatuan: isStandardSatuan ? '' : rawSatuan,
       stokSekarang: Number(item.stokSekarang) || 0,
-      status: item.status || (Number(item.stokSekarang) <= 0 ? 'Arsip' : 'Aktif'),
+      status: item.status === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif',
       hargaSatuan: Number(item.hargaSatuan) || 0,
       sumberSupplier: item.sumberSupplier || '',
       keterangan: item.keterangan || ''
@@ -136,6 +157,11 @@ export const MasterBarangView: React.FC = () => {
     e.preventDefault();
     if (!editingItem) return;
 
+    const resolvedSatuan =
+      editForm.satuan === 'Lainnya'
+        ? (editForm.customSatuan.trim() || 'Pcs')
+        : editForm.satuan;
+
     setIsSavingEdit(true);
     try {
       const res = await fetch(`/api/v1/stock/barang/${editingItem.id}`, {
@@ -145,7 +171,7 @@ export const MasterBarangView: React.FC = () => {
           namaBarang: editForm.namaBarang,
           kategoriId: editForm.kategoriId,
           gudangId: editForm.gudangId,
-          satuan: editForm.satuan,
+          satuan: resolvedSatuan,
           stokSekarang: Number(editForm.stokSekarang),
           status: editForm.status,
           hargaSatuan: Number(editForm.hargaSatuan),
@@ -231,43 +257,169 @@ export const MasterBarangView: React.FC = () => {
     }
   };
 
-  // Restore an archived item back to active
-  const handleRestoreItem = async (item: MasterBarang) => {
-    try {
-      const res = await fetch(`/api/v1/stock/barang/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Aktif', petugas: 'Admin Master Stok' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setFeedback({ type: 'success', message: `Barang "${item.namaBarang}" berhasil diaktifkan kembali!` });
-        setTimeout(() => setFeedback(null), 4000);
-        fetchData();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Filter items by status and keyword
-  const activeCount = items.filter(i => (i.status === 'Aktif' || !i.status) && (Number(i.stokSekarang) || 0) > 0).length;
-  const arsipCount = items.filter(i => i.status === 'Arsip' || i.status === 'Tidak Aktif' || (Number(i.stokSekarang) || 0) <= 0).length;
+  // Filter items by availability & search keyword (tanpa konsep Arsip / Stok 0)
+  const availableCount = items.filter(i => (Number(i.stokSekarang) || 0) > 0 && i.status !== 'Tidak Aktif').length;
+  const zeroStockCount = items.filter(i => (Number(i.stokSekarang) || 0) <= 0 || i.status === 'Tidak Aktif').length;
 
   const filteredItems = items.filter(i => {
-    const isZeroOrArchived = i.status === 'Arsip' || i.status === 'Tidak Aktif' || (Number(i.stokSekarang) || 0) <= 0;
-    
-    if (statusFilter === 'aktif' && isZeroOrArchived) return false;
-    if (statusFilter === 'arsip' && !isZeroOrArchived) return false;
+    const isOutOfStockOrInactive = (Number(i.stokSekarang) || 0) <= 0 || i.status === 'Tidak Aktif';
 
+    if (statusFilter === 'tersedia' && isOutOfStockOrInactive) return false;
+    if (statusFilter === 'habis' && !isOutOfStockOrInactive) return false;
+
+    const kw = filter.toLowerCase();
     return (
-      i.namaBarang.toLowerCase().includes(filter.toLowerCase()) ||
-      i.kodeBarang.toLowerCase().includes(filter.toLowerCase()) ||
-      (i.barcode && i.barcode.includes(filter)) ||
-      (i.kategoriNama && i.kategoriNama.toLowerCase().includes(filter.toLowerCase())) ||
-      (i.gudangNama && i.gudangNama.toLowerCase().includes(filter.toLowerCase()))
+      !kw ||
+      i.namaBarang.toLowerCase().includes(kw) ||
+      i.kodeBarang.toLowerCase().includes(kw) ||
+      (i.barcode && i.barcode.toLowerCase().includes(kw)) ||
+      (i.kategoriNama && i.kategoriNama.toLowerCase().includes(kw)) ||
+      (i.gudangNama && i.gudangNama.toLowerCase().includes(kw)) ||
+      (i.satuan && i.satuan.toLowerCase().includes(kw))
     );
   });
+
+  // Export PDF Master Stok
+  const handleExportPdf = () => {
+    if (filteredItems.length === 0) {
+      setFeedback({ type: 'error', message: 'Tidak ada data barang untuk diekspor ke PDF.' });
+      setTimeout(() => setFeedback(null), 3500);
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const printedAt = new Date().toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    // Header Kop
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text('BADAN GIZI NASIONAL (NATIONAL NUTRITION AGENCY)', 14, 14);
+    doc.setFontSize(10.5);
+    doc.text('SPPG PROBOLINGGO KREJENGAN TEMENGGUNGAN — YAYASAN HAFSHAWATY ZAINUL HASAN', 14, 19.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Dusun Krajan RT/RW 003/004, Desa Temenggungan, Kec. Krejengan, Kab. Probolinggo', 14, 24);
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.5);
+    doc.line(14, 27, pageWidth - 14, 27);
+
+    // Document Title & Summary
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN DATA MASTER STOK PERSEDIAAN BARANG', 14, 34);
+
+    const totalAssetValue = filteredItems.reduce(
+      (sum, item) => sum + (Number(item.stokSekarang) || 0) * (Number(item.hargaSatuan) || 0),
+      0
+    );
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(
+      `Tanggal Cetak: ${printedAt} WIB   |   Total SKU Ditampilkan: ${filteredItems.length} Item   |   Total Nilai Persediaan: Rp ${totalAssetValue.toLocaleString('id-ID')}`,
+      14,
+      39.5
+    );
+
+    const tableRows = filteredItems.map((item, idx) => {
+      const qty = Number(item.stokSekarang) || 0;
+      const harga = Number(item.hargaSatuan) || 0;
+      const nilai = qty * harga;
+      const statusLabel =
+        item.status === 'Tidak Aktif' ? 'Tidak Aktif' : qty <= 0 ? 'Stok Habis' : 'Aktif';
+
+      return [
+        String(idx + 1),
+        item.kodeBarang || '-',
+        item.namaBarang || '-',
+        item.kategoriNama || '-',
+        item.gudangNama || '-',
+        `${qty.toLocaleString('id-ID')} ${item.satuan || 'Pcs'}`,
+        `Rp ${harga.toLocaleString('id-ID')}`,
+        `Rp ${nilai.toLocaleString('id-ID')}`,
+        statusLabel,
+        item.sumberSupplier || '-'
+      ];
+    });
+
+    tableRows.push([
+      { content: 'TOTAL NILAI PERSEDIAAN BARANG', colSpan: 7, styles: { halign: 'right', fontStyle: 'bold', fillColor: [241, 245, 249] } } as any,
+      { content: `Rp ${totalAssetValue.toLocaleString('id-ID')}`, styles: { halign: 'right', fontStyle: 'bold', fillColor: [241, 245, 249] } } as any,
+      { content: '', colSpan: 2, styles: { fillColor: [241, 245, 249] } } as any
+    ]);
+
+    autoTable(doc, {
+      startY: 43,
+      margin: { left: 14, right: 14 },
+      head: [[
+        'No',
+        'Kode SKU',
+        'Nama Barang',
+        'Kategori',
+        'Gudang',
+        'Stok Saat Ini',
+        'Harga Satuan',
+        'Total Nilai',
+        'Status',
+        'Supplier'
+      ]],
+      body: tableRows,
+      theme: 'grid',
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.2,
+        textColor: [15, 23, 42],
+        lineColor: [203, 213, 225],
+        lineWidth: 0.2,
+        valign: 'middle'
+      },
+      headStyles: {
+        fillColor: [217, 119, 6],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 28, fontStyle: 'bold' },
+        2: { cellWidth: 58 },
+        3: { cellWidth: 28 },
+        4: { cellWidth: 32 },
+        5: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+        6: { cellWidth: 26, halign: 'right' },
+        7: { cellWidth: 29, halign: 'right', fontStyle: 'bold' },
+        8: { cellWidth: 18, halign: 'center' },
+        9: { cellWidth: 'auto' }
+      },
+      didDrawPage: (data) => {
+        const pageCount = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          `Dicetak dari Sistem Manajemen SPPG • Halaman ${data.pageNumber} dari ${pageCount}`,
+          14,
+          doc.internal.pageSize.getHeight() - 8
+        );
+      }
+    });
+
+    doc.save(`Master_Stok_SPPG_${todayStr}.pdf`);
+    setFeedback({ type: 'success', message: `Laporan Master Stok (${filteredItems.length} item) berhasil diekspor ke PDF!` });
+    setTimeout(() => setFeedback(null), 4000);
+  };
 
   return (
     <div className="space-y-6">
@@ -279,23 +431,35 @@ export const MasterBarangView: React.FC = () => {
               Pusat Persediaan & SKU
             </span>
             <span className="text-xs text-slate-500">
-              {activeCount} Aktif &bull; {arsipCount} Arsip (Stok 0)
+              {items.length} Total SKU &bull; {availableCount} Tersedia
             </span>
           </div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Boxes className="w-5 h-5 text-amber-600" /> Master Stok Persediaan Barang
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Manajemen data barang dengan tombol Edit dan Hapus di setiap baris. Barang stok 0 otomatis terarsip dan tercatat di History Keluar.
+            Manajemen data master barang persediaan, satuan barang, harga satuan, lokasi gudang, dan ekspor laporan PDF.
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddOpen(true)}
-          className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Tambah Barang Baru
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer"
+            title="Export Data Master Stok ke PDF"
+          >
+            <FileDown className="w-4 h-4" /> Export PDF
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAddOpen(true)}
+            className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Tambah Barang Baru
+          </button>
+        </div>
       </div>
 
       {/* Feedback Toast */}
@@ -315,31 +479,10 @@ export const MasterBarangView: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs Filter Status & Search Bar */}
+      {/* Filter Status & Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Status Tab Toggle */}
         <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 self-start sm:self-auto text-xs font-bold">
-          <button
-            onClick={() => setStatusFilter('aktif')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-              statusFilter === 'aktif'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            Barang Aktif ({activeCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('arsip')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              statusFilter === 'arsip'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <Archive className="w-3.5 h-3.5 text-rose-500" />
-            <span>Arsip / Stok 0 ({arsipCount})</span>
-          </button>
           <button
             onClick={() => setStatusFilter('semua')}
             className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
@@ -348,8 +491,30 @@ export const MasterBarangView: React.FC = () => {
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
             }`}
           >
-            Semua ({items.length})
+            Semua Barang ({items.length})
           </button>
+          <button
+            onClick={() => setStatusFilter('tersedia')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              statusFilter === 'tersedia'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            Stok Tersedia ({availableCount})
+          </button>
+          {zeroStockCount > 0 && (
+            <button
+              onClick={() => setStatusFilter('habis')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                statusFilter === 'habis'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Stok Habis ({zeroStockCount})
+            </button>
+          )}
         </div>
 
         {/* Filter Keyword */}
@@ -357,7 +522,7 @@ export const MasterBarangView: React.FC = () => {
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
           <input
             type="text"
-            placeholder="Cari nama barang, kode SKU, kategori, atau barcode..."
+            placeholder="Cari nama barang, kode SKU, satuan, kategori, atau barcode..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none"
@@ -370,7 +535,7 @@ export const MasterBarangView: React.FC = () => {
         </div>
       </div>
 
-      {/* Table (Tanpa kolom Minimal Stok) */}
+      {/* Table */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
@@ -390,20 +555,19 @@ export const MasterBarangView: React.FC = () => {
             {filteredItems.length === 0 ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center text-slate-400 italic">
-                  {statusFilter === 'arsip'
-                    ? 'Tidak ada barang di arsip atau semua barang memiliki stok aktif.'
-                    : 'Tidak ada data barang ditemukan.'}
+                  Tidak ada data barang ditemukan.
                 </td>
               </tr>
             ) : (
               filteredItems.map((item, idx) => {
                 const isEditing = editingPriceId === item.id;
-                const isZeroStock = (item.stokSekarang || 0) <= 0 || item.status === 'Arsip' || item.status === 'Tidak Aktif';
+                const isZeroStock = (Number(item.stokSekarang) || 0) <= 0;
+                const isInactive = item.status === 'Tidak Aktif';
 
                 return (
                   <tr 
                     key={item.id} 
-                    className={`transition ${isZeroStock ? 'bg-slate-50/60 dark:bg-slate-800/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40'}`}
+                    className={`transition ${isZeroStock || isInactive ? 'bg-slate-50/60 dark:bg-slate-800/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40'}`}
                   >
                     <td className="p-3 text-center text-slate-400 font-medium">{idx + 1}</td>
                     <td className="p-3">
@@ -427,16 +591,20 @@ export const MasterBarangView: React.FC = () => {
                     <td className="p-3 text-right">
                       <span className={`font-black ${
                         isZeroStock 
-                          ? 'text-slate-400 dark:text-slate-500' 
+                          ? 'text-rose-600 dark:text-rose-400' 
                           : 'text-emerald-600 dark:text-emerald-400'
                       }`}>
                         {item.stokSekarang || 0} {item.satuan}
                       </span>
                     </td>
                     <td className="p-3 text-center">
-                      {isZeroStock ? (
+                      {isInactive ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          Tidak Aktif
+                        </span>
+                      ) : isZeroStock ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900">
-                          <Archive className="w-2.5 h-2.5" /> Arsip / Stok 0
+                          Stok Habis
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
@@ -518,7 +686,7 @@ export const MasterBarangView: React.FC = () => {
         </table>
       </div>
 
-      {/* MODAL EDIT DATA BARANG (Tanpa Minimal Stok) */}
+      {/* MODAL EDIT DATA BARANG */}
       {editingItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 my-8">
@@ -582,14 +750,26 @@ export const MasterBarangView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Satuan *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Kg, Pcs, Liter"
+                  <select
                     value={editForm.satuan}
                     onChange={(e) => setEditForm({ ...editForm, satuan: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  >
+                    {DAFTAR_SATUAN_BARANG.map(sat => (
+                      <option key={sat} value={sat}>{sat}</option>
+                    ))}
+                    <option value="Lainnya">+ Satuan Lainnya...</option>
+                  </select>
+                  {editForm.satuan === 'Lainnya' && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ketik satuan..."
+                      value={editForm.customSatuan}
+                      onChange={(e) => setEditForm({ ...editForm, customSatuan: e.target.value })}
+                      className="mt-1.5 w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-slate-100 focus:outline-none"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -597,14 +777,14 @@ export const MasterBarangView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
+                    step="any"
                     required
                     value={editForm.stokSekarang}
                     onChange={(e) => {
                       const val = Number(e.target.value);
                       setEditForm({ 
                         ...editForm, 
-                        stokSekarang: val,
-                        status: val <= 0 ? 'Arsip' : 'Aktif'
+                        stokSekarang: val
                       });
                     }}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -615,11 +795,11 @@ export const MasterBarangView: React.FC = () => {
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status Barang</label>
                   <select
                     value={editForm.status}
-                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as any })}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as 'Aktif' | 'Tidak Aktif' })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="Aktif">Aktif</option>
-                    <option value="Arsip">Arsip / Tidak Aktif</option>
+                    <option value="Tidak Aktif">Tidak Aktif</option>
                   </select>
                 </div>
               </div>
@@ -728,7 +908,7 @@ export const MasterBarangView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Tambah Barang Baru (Tanpa Minimal Stok) */}
+      {/* Modal Tambah Barang Baru */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 my-8">
@@ -785,20 +965,33 @@ export const MasterBarangView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Satuan *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Kg, Pcs, Liter"
+                  <select
                     value={form.satuan}
                     onChange={(e) => setForm({ ...form, satuan: e.target.value })}
                     className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
+                  >
+                    {DAFTAR_SATUAN_BARANG.map(sat => (
+                      <option key={sat} value={sat}>{sat}</option>
+                    ))}
+                    <option value="Lainnya">+ Satuan Lainnya...</option>
+                  </select>
+                  {form.satuan === 'Lainnya' && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ketik satuan khusus..."
+                      value={form.customSatuan}
+                      onChange={(e) => setForm({ ...form, customSatuan: e.target.value })}
+                      className="mt-1.5 w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Stok Awal *</label>
                   <input
                     type="number"
                     min="0"
+                    step="any"
                     required
                     value={form.stokSekarang}
                     onChange={(e) => setForm({ ...form, stokSekarang: Number(e.target.value) })}

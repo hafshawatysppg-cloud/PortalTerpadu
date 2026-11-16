@@ -935,70 +935,139 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   };
 
   // Helper to retrieve master group target and breakdown for an institution
-  const getMasterLembagaData = (namaInstansi: string) => {
-    const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const getMasterLembagaData = (namaInstansi: string, locationId?: string, groupId?: string) => {
+    const norm = (s: string) => (s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanName = norm(namaInstansi);
 
+    const buildFromGroupLembaga = (g: BeneficiaryGroup, l: NonNullable<BeneficiaryGroup['lembagaList']>[number]) => {
+      const lName = norm(l.namaInstansi);
+      const isCat3B =
+        (l.kategoriLembaga || g.kategoriLembaga || '').includes('3B') ||
+        lName.includes('posyandu') ||
+        lName.includes('3b') ||
+        cleanName.includes('posyandu') ||
+        cleanName.includes('3b');
+      const lBd = l.breakdownKelas || {};
+      const lBumil = Number(lBd.bumil_w ?? lBd.bumil) || 0;
+      const lBusui = Number(lBd.busui_w ?? lBd.busui) || 0;
+      const lBaduta = (Number(lBd.balita511_l) || 0) + (Number(lBd.balita511_p) || 0) || Number(lBd.baduta) || 0;
+      const lBalita = (Number(lBd.balita1259_l) || 0) + (Number(lBd.balita1259_p) || 0) || Number(lBd.balita) || 0;
+      const lKader = (Number(lBd.kader_l) || 0) + (Number(lBd.kader_p) || 0) || Number(lBd.kader) || 0;
+
+      const targetSiswa = isCat3B ? 0 : (Number(l.targetSiswa) || 0);
+      const targetGuru = isCat3B
+        ? (lKader || Number(l.targetKader) || Number(l.targetGuru) || 0)
+        : (Number(l.targetGuru) || 0);
+      const targetBalita = Number(l.targetBalita) || (lBaduta + lBalita) || 0;
+      const targetBumilBusui = Number(l.targetBumilBusui) || (lBumil + lBusui) || 0;
+
+      const totalMaster = isCat3B
+        ? (targetBalita + targetBumilBusui + targetGuru)
+        : (targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || 0);
+      return {
+        targetMaster: totalMaster,
+        kategoriLembaga: l.kategoriLembaga || g.kategoriLembaga,
+        breakdownKelas:
+          l.breakdownKelas && Object.keys(l.breakdownKelas).length > 0
+            ? l.breakdownKelas
+            : (cleanName.includes('temenggungan')
+                ? { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 }
+                : {}),
+        targetSiswa,
+        targetGuru,
+        targetBalita,
+        targetBumilBusui,
+        klasifikasiPorsi: l.klasifikasiPorsi || g.klasifikasiPorsi,
+        namaKelompok: g.nama
+      };
+    };
+
+    const buildFromLocation = (loc: BeneficiaryLocation) => {
+      const locName = norm(loc.namaInstansi);
+      const isLoc3B = (loc.kategoriLembaga || '').includes('3B') || locName.includes('posyandu') || locName.includes('3b');
+      const kb = loc.kategoriBreakdown || {};
+      const locBd = loc.breakdownKelas || kb.breakdownKelas || {};
+      const locKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || Number(locBd.kader) || Number(kb.kader) || 0;
+      const sumKb =
+        (Number(kb.siswa) || 0) +
+        (isLoc3B ? locKader : (Number(kb.guru) || 0)) +
+        (Number(kb.balita) || 0) +
+        (Number(kb.ibuHamil) || 0) +
+        (Number(kb.ibuMenyusui) || 0);
+      const totalMaster = sumKb > 0 ? sumKb : Number(loc.defaultJumlah) || 0;
+      return {
+        targetMaster: totalMaster,
+        kategoriLembaga: loc.kategoriLembaga,
+        breakdownKelas: locBd,
+        targetSiswa: isLoc3B ? 0 : (Number(kb.siswa) || 0),
+        targetGuru: isLoc3B ? locKader : (Number(kb.guru) || 0),
+        targetBalita: Number(kb.balita) || 0,
+        targetBumilBusui: (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0),
+        klasifikasiPorsi: loc.klasifikasiPorsi,
+        namaKelompok: loc.groupNama
+      };
+    };
+
+    // Pass 1: Strict match by locationId or exact normalized name inside groups
     if (groups && groups.length > 0) {
       for (const g of groups) {
         if (g.lembagaList && g.lembagaList.length > 0) {
           for (const l of g.lembagaList) {
-            const lName = norm(l.namaInstansi);
-            if (lName === cleanName || (cleanName.length > 3 && (lName.includes(cleanName) || cleanName.includes(lName)))) {
-              const isCat3B = (l.kategoriLembaga || g.kategoriLembaga || '').includes('3B') || cleanName.includes('posyandu') || cleanName.includes('3b');
-              const lBd = l.breakdownKelas || {};
-              const lBumil = Number(lBd.bumil_w ?? lBd.bumil) || 0;
-              const lBusui = Number(lBd.busui_w ?? lBd.busui) || 0;
-              const lBaduta = (Number(lBd.balita511_l) || 0) + (Number(lBd.balita511_p) || 0) || Number(lBd.baduta) || 0;
-              const lBalita = (Number(lBd.balita1259_l) || 0) + (Number(lBd.balita1259_p) || 0) || Number(lBd.balita) || 0;
-              const lKader = (Number(lBd.kader_l) || 0) + (Number(lBd.kader_p) || 0) || Number(lBd.kader) || 0;
-
-              let targetSiswa = isCat3B ? 0 : (Number(l.targetSiswa) || 0);
-              let targetGuru = isCat3B ? lKader : (Number(l.targetGuru) || 0);
-              let targetBalita = Number(l.targetBalita) || (lBaduta + lBalita) || 0;
-              let targetBumilBusui = Number(l.targetBumilBusui) || (lBumil + lBusui) || 0;
-
-              const totalMaster = isCat3B
-                ? (targetBalita + targetBumilBusui + targetGuru)
-                : (targetSiswa + targetGuru + targetBalita + targetBumilBusui || Number(l.total) || 0);
-              return {
-                targetMaster: totalMaster,
-                kategoriLembaga: l.kategoriLembaga || g.kategoriLembaga,
-                breakdownKelas: l.breakdownKelas || (cleanName.includes('temenggungan') ? { busui_w: 21, bumil_w: 30, balita511_l: 15, balita511_p: 18, balita1259_l: 17, balita1259_p: 18, kader_l: 0, kader_p: 0 } : {}),
-                targetSiswa,
-                targetGuru,
-                targetBalita,
-                targetBumilBusui,
-                klasifikasiPorsi: l.klasifikasiPorsi || g.klasifikasiPorsi,
-                namaKelompok: g.nama
-              };
+            if (locationId && l.id && l.id === locationId) {
+              return buildFromGroupLembaga(g, l);
+            }
+          }
+        }
+      }
+      for (const g of groups) {
+        if (g.lembagaList && g.lembagaList.length > 0) {
+          for (const l of g.lembagaList) {
+            if (cleanName && norm(l.namaInstansi) === cleanName && (!groupId || !g.id || g.id === groupId)) {
+              return buildFromGroupLembaga(g, l);
+            }
+          }
+        }
+      }
+      for (const g of groups) {
+        if (g.lembagaList && g.lembagaList.length > 0) {
+          for (const l of g.lembagaList) {
+            if (cleanName && norm(l.namaInstansi) === cleanName) {
+              return buildFromGroupLembaga(g, l);
             }
           }
         }
       }
     }
 
+    // Pass 2: Strict match inside locations by locationId or exact normalized name
     if (locations && locations.length > 0) {
+      if (locationId) {
+        const byId = locations.find(loc => loc.id === locationId);
+        if (byId) return buildFromLocation(byId);
+      }
+      const byExactName = locations.find(loc => cleanName && norm(loc.namaInstansi) === cleanName);
+      if (byExactName) return buildFromLocation(byExactName);
+    }
+
+    // Pass 3: Safe substring fallback across groups then locations (only if exact match didn't hit)
+    if (groups && groups.length > 0 && cleanName.length > 3) {
+      for (const g of groups) {
+        if (g.lembagaList && g.lembagaList.length > 0) {
+          for (const l of g.lembagaList) {
+            const lName = norm(l.namaInstansi);
+            if (lName.length > 3 && (lName.includes(cleanName) || cleanName.includes(lName))) {
+              return buildFromGroupLembaga(g, l);
+            }
+          }
+        }
+      }
+    }
+
+    if (locations && locations.length > 0 && cleanName.length > 3) {
       for (const loc of locations) {
         const locName = norm(loc.namaInstansi);
-        if (locName === cleanName || (cleanName.length > 3 && (locName.includes(cleanName) || cleanName.includes(locName)))) {
-          const isLoc3B = (loc.kategoriLembaga || '').includes('3B') || locName.includes('posyandu') || locName.includes('3b');
-          const kb = loc.kategoriBreakdown || {};
-          const locBd = loc.breakdownKelas || kb.breakdownKelas || {};
-          const locKader = (Number(locBd.kader_l) || 0) + (Number(locBd.kader_p) || 0) || Number(locBd.kader) || 0;
-          const sumKb = (Number(kb.siswa) || 0) + (isLoc3B ? locKader : (Number(kb.guru) || 0)) + (Number(kb.balita) || 0) + (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0);
-          const totalMaster = sumKb > 0 ? sumKb : Number(loc.defaultJumlah) || 0;
-          return {
-            targetMaster: totalMaster,
-            kategoriLembaga: loc.kategoriLembaga,
-            breakdownKelas: locBd,
-            targetSiswa: isLoc3B ? 0 : (Number(kb.siswa) || 0),
-            targetGuru: isLoc3B ? locKader : (Number(kb.guru) || 0),
-            targetBalita: Number(kb.balita) || 0,
-            targetBumilBusui: (Number(kb.ibuHamil) || 0) + (Number(kb.ibuMenyusui) || 0),
-            klasifikasiPorsi: loc.klasifikasiPorsi,
-            namaKelompok: loc.groupNama
-          };
+        if (locName.length > 3 && (locName.includes(cleanName) || cleanName.includes(locName))) {
+          return buildFromLocation(loc);
         }
       }
     }
@@ -1059,6 +1128,146 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
 
     return null;
   };
+
+  // Hitung Guru, Siswa Laki-laki, dan Siswa Perempuan secara akurat sesuai Master Lembaga & breakdown hari ini
+  const getRecordDemografiCounts = (item: DailyBeneficiaryRecord, allRecords: DailyBeneficiaryRecord[]) => {
+    if (item.statusKbm === 'Libur Full' || item.catatan?.includes('Libur Full') || item.totalPenerima === 0) {
+      return { guru: 0, siswaL: 0, siswaP: 0 };
+    }
+
+    const cleanInst = (item.namaInstansi || '').trim().toLowerCase();
+    // Handle legacy separate Guru/Staf rows
+    if (item.kategori === 'Guru / Staf' || cleanInst.includes('(guru)')) {
+      const gVal = Number(item.totalPenerima) || Number(item.rincianSasaran?.guru) || 0;
+      return { guru: gVal, siswaL: 0, siswaP: 0 };
+    }
+
+    const master = getMasterLembagaData(item.namaInstansi, item.locationId, item.groupId);
+    const rawCat = item.kategoriLembaga || master?.kategoriLembaga || inferKategoriFromText(item.namaInstansi, 'SD / MI');
+    const conf = getKategoriConfig(rawCat);
+    const is3B =
+      rawCat.includes('3B') ||
+      conf.id.includes('3B') ||
+      conf.targetCategory === '3B' ||
+      (item.groupNama || '').includes('3B') ||
+      cleanInst.includes('posyandu') ||
+      cleanInst.includes('3b');
+
+    const recBd: Record<string, any> = item.breakdownKelas || item.rincianSasaran?.breakdownKelas || {};
+    const masterBd: Record<string, any> = master?.breakdownKelas || {};
+    const hasGenderKeys = (obj: Record<string, any>) =>
+      Object.keys(obj).some(
+        (k) => (k.endsWith('_l') || k.endsWith('_p') || k.endsWith('_w')) && obj[k] !== undefined && obj[k] !== ''
+      );
+
+    let effectiveBd: Record<string, any> = recBd;
+    if (item.statusKbm !== 'Libur Sebagian') {
+      if (Object.keys(masterBd).length > 0 && (Object.keys(recBd).length === 0 || (!hasGenderKeys(recBd) && hasGenderKeys(masterBd)))) {
+        effectiveBd = masterBd;
+      } else if (Object.keys(recBd).length === 0) {
+        effectiveBd = masterBd;
+      }
+    } else if (Object.keys(recBd).length === 0) {
+      effectiveBd = masterBd;
+    }
+
+    if (is3B) {
+      const b511L = Number(effectiveBd.balita511_l || 0);
+      const b511P = Number(effectiveBd.balita511_p || 0);
+      const b1259L = Number(effectiveBd.balita1259_l || 0);
+      const b1259P = Number(effectiveBd.balita1259_p || 0);
+      const busuiW = Number(effectiveBd.busui_w ?? effectiveBd.busui) || Number(item.rincianSasaran?.ibuMenyusui) || 0;
+      const bumilW = Number(effectiveBd.bumil_w ?? effectiveBd.bumil) || Number(item.rincianSasaran?.ibuHamil) || 0;
+      const kL = Number(effectiveBd.kader_l || 0);
+      const kP = Number(effectiveBd.kader_p || 0);
+      const kader = (kL + kP) || Number(effectiveBd.kader) || Number(item.rincianSasaran?.guru) || Number(master?.targetGuru) || 0;
+
+      let siswaL = b511L + b1259L;
+      let siswaP = b511P + b1259P + busuiW + bumilW;
+
+      if (b511L + b511P + b1259L + b1259P === 0) {
+        const legacyBalita = (Number(effectiveBd.baduta) || 0) + (Number(effectiveBd.balita) || 0) || Number(item.rincianSasaran?.balita) || Number(master?.targetBalita) || 0;
+        if (legacyBalita > 0) {
+          siswaL += Math.ceil(legacyBalita / 2);
+          siswaP += Math.floor(legacyBalita / 2);
+        }
+      }
+
+      return { guru: kader, siswaL, siswaP };
+    }
+
+    // Sekolah / Pondok Pesantren / PAUD / Lainnya
+    let siswaL = 0;
+    let siswaP = 0;
+
+    conf.classes.forEach((cls) => {
+      const rawL = effectiveBd[`${cls.key}_l`];
+      const rawP = effectiveBd[`${cls.key}_p`];
+      if (rawL !== undefined || rawP !== undefined) {
+        siswaL += Number(rawL) || 0;
+        siswaP += Number(rawP) || 0;
+      } else if (effectiveBd[cls.key]) {
+        const totalCls = Number(effectiveBd[cls.key]) || 0;
+        siswaL += Math.ceil(totalCls / 2);
+        siswaP += Math.floor(totalCls / 2);
+      }
+    });
+
+    // Jika masih 0, periksa key gender lain pada breakdown (misal perubahan jenjang atau custom key)
+    if (siswaL === 0 && siswaP === 0 && Object.keys(effectiveBd).length > 0) {
+      const seenBases = new Set<string>();
+      Object.keys(effectiveBd).forEach((k) => {
+        const base = k.replace(/_(l|p|w)$/, '');
+        if (base === 'kader' || seenBases.has(base)) return;
+        seenBases.add(base);
+        const rawL = effectiveBd[`${base}_l`];
+        const rawP = effectiveBd[`${base}_p`];
+        if (rawL !== undefined || rawP !== undefined) {
+          siswaL += Number(rawL) || 0;
+          siswaP += Number(rawP) || 0;
+        } else if (effectiveBd[base]) {
+          const totalCls = Number(effectiveBd[base]) || 0;
+          siswaL += Math.ceil(totalCls / 2);
+          siswaP += Math.floor(totalCls / 2);
+        }
+      });
+    }
+
+    // Cegah double count guru jika sudah ada baris terpisah "(Guru)" di tanggal yang sama
+    const baseNameNorm = cleanInst.replace(/\(guru\)/g, '').trim();
+    const hasSeparateGuruRow = allRecords.some(
+      (r) =>
+        r.id !== item.id &&
+        (r.kategori === 'Guru / Staf' || (r.namaInstansi || '').toLowerCase().includes('(guru)')) &&
+        (r.namaInstansi || '').toLowerCase().replace(/\(guru\)/g, '').trim() === baseNameNorm
+    );
+
+    let guru = 0;
+    if (!hasSeparateGuruRow) {
+      if (item.rincianSasaran?.guru !== undefined && (Number(item.rincianSasaran.guru) > 0 || item.statusKbm === 'Libur Sebagian')) {
+        guru = Number(item.rincianSasaran.guru) || 0;
+      } else if (master?.targetGuru !== undefined && Number(master.targetGuru) > 0 && item.totalPenerima >= Number(master.targetGuru)) {
+        guru = Number(master.targetGuru) || 0;
+      } else {
+        guru = Number(item.rincianSasaran?.guru) || 0;
+      }
+    }
+
+    // Fallback terakhir jika belum ada breakdown per kelas sama sekali namun ada target siswa
+    if (siswaL === 0 && siswaP === 0) {
+      const fallbackSiswa =
+        item.statusKbm !== 'Libur Sebagian' && master?.targetSiswa && item.rincianSasaran?.siswa === undefined
+          ? Number(master.targetSiswa)
+          : Number(item.rincianSasaran?.siswa) || Math.max(0, (Number(item.totalPenerima) || 0) - guru);
+      if (fallbackSiswa > 0) {
+        siswaL = Math.ceil(fallbackSiswa / 2);
+        siswaP = Math.floor(fallbackSiswa / 2);
+      }
+    }
+
+    return { guru, siswaL, siswaP };
+  };
+
 
   // Calculate Selisih from Pengaturan Kelompok baseline master
   const getSelisihDataPorsi = (namaInstansi: string, currentSubtotal: number, statusKbm?: string) => {
@@ -1717,6 +1926,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
             const remaining = prev.filter((g) => g.id !== serverGroup.id);
             return [...remaining, serverGroup].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
           });
+          fetchDailyByDate(selectedDate);
         }
       } catch (netErr) {
         console.warn('Server REST API sync note:', netErr);
@@ -2472,8 +2682,38 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               </button>
 
               <button
-                onClick={() => handleExportCSV(dailyRecords, `Penerima_Manfaat_${selectedDate}`)}
-                disabled={dailyRecords.length === 0}
+                onClick={() => {
+                  const exportRows = filteredDailyRecords.map((r, i) => {
+                    const demografi = getRecordDemografiCounts(r, dailyRecords);
+                    const rs = r.rincianSasaran;
+                    const ap = calculateAutoPortion({
+                      kategoriLembaga: r.kategoriLembaga,
+                      namaInstansi: r.namaInstansi,
+                      breakdownKelas: r.breakdownKelas || rs?.breakdownKelas,
+                      targetSiswa: rs?.siswa ?? (r.kategori === 'Siswa' ? r.totalPenerima : 0),
+                      targetGuru: rs?.guru ?? (r.kategori === 'Guru / Staf' ? r.totalPenerima : 0),
+                      targetBalita: rs?.balita ?? (r.kategori === 'Balita' ? r.totalPenerima : 0),
+                      targetBumilBusui: ((rs?.ibuHamil || 0) + (rs?.ibuMenyusui || 0)) || (r.kategori === 'Ibu Hamil' || r.kategori === 'Ibu Menyusui' ? r.totalPenerima : 0),
+                      total: r.totalPenerima
+                    });
+                    return {
+                      No: i + 1,
+                      Kelompok: r.groupNama,
+                      'Nama Instansi / Lokasi': r.namaInstansi,
+                      Kategori: r.kategori,
+                      'Porsi Besar (PB)': ap.porsiBesar,
+                      'Porsi Kecil (PK)': ap.porsiKecil,
+                      Guru: demografi.guru,
+                      'Siswa Laki-laki': demografi.siswaL,
+                      'Siswa Perempuan': demografi.siswaP,
+                      Total: r.totalPenerima,
+                      Keterangan: r.keterangan || '-',
+                      Status: r.status
+                    };
+                  });
+                  handleExportCSV(exportRows, `Penerima_Manfaat_${selectedDate}`);
+                }}
+                disabled={filteredDailyRecords.length === 0}
                 className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 font-medium text-sm rounded-2xl border border-slate-200/80 transition-all cursor-pointer"
                 title="Ekspor CSV / Excel"
               >
@@ -2495,9 +2735,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                     <th className="py-3.5 px-4">Nama Instansi / Lokasi</th>
                     <th className="py-3.5 px-4">Kategori</th>
                     <th className="py-3.5 px-4 text-center">Porsi (PB/PK)</th>
-                    <th className="py-3.5 px-4 text-right">Awal</th>
-                    <th className="py-3.5 px-4 text-right text-emerald-600">Tambah (+)</th>
-                    <th className="py-3.5 px-4 text-right text-rose-600">Kurang (-)</th>
+                    <th className="py-3.5 px-4 text-right">Guru</th>
+                    <th className="py-3.5 px-4 text-right text-blue-600">Siswa Laki-laki</th>
+                    <th className="py-3.5 px-4 text-right text-rose-600">Siswa Perempuan</th>
                     <th className="py-3.5 px-4 text-right font-black text-slate-900">Total</th>
                     <th className="py-3.5 px-4">Keterangan</th>
                     <th className="py-3.5 px-4 text-center">Status</th>
@@ -2548,6 +2788,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                       }
 
                       const totalBumilBusuiVal = bumilVal + busuiVal;
+                      const demografi = getRecordDemografiCounts(item, dailyRecords);
 
                       return (
                       <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -2633,14 +2874,14 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                             );
                           })()}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-medium text-slate-700">
-                          {item.jumlahAwal.toLocaleString('id-ID')}
+                        <td className="py-3.5 px-4 text-right font-semibold text-slate-700">
+                          {demografi.guru.toLocaleString('id-ID')}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-semibold text-emerald-600">
-                          {item.penambahan > 0 ? `+${item.penambahan}` : '0'}
+                        <td className="py-3.5 px-4 text-right font-semibold text-blue-600">
+                          {demografi.siswaL.toLocaleString('id-ID')}
                         </td>
                         <td className="py-3.5 px-4 text-right font-semibold text-rose-600">
-                          {item.pengurangan > 0 ? `-${item.pengurangan}` : '0'}
+                          {demografi.siswaP.toLocaleString('id-ID')}
                         </td>
                         <td className="py-3.5 px-4 text-right font-extrabold text-slate-900 bg-emerald-50/30">
                           {item.totalPenerima.toLocaleString('id-ID')}
@@ -2698,14 +2939,20 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                           <span className="text-teal-800">PK: {overallPorsiKecil.toLocaleString('id-ID')}</span>
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-slate-700">
-                        {filteredDailyRecords.reduce((s, c) => s + (c.jumlahAwal || 0), 0).toLocaleString('id-ID')}
+                      <td className="py-3 px-4 text-right font-bold text-slate-800">
+                        {filteredDailyRecords
+                          .reduce((s, c) => s + getRecordDemografiCounts(c, dailyRecords).guru, 0)
+                          .toLocaleString('id-ID')}
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600">
-                        +{filteredDailyRecords.reduce((s, c) => s + (c.penambahan || 0), 0).toLocaleString('id-ID')}
+                      <td className="py-3 px-4 text-right font-bold text-blue-700">
+                        {filteredDailyRecords
+                          .reduce((s, c) => s + getRecordDemografiCounts(c, dailyRecords).siswaL, 0)
+                          .toLocaleString('id-ID')}
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-rose-600">
-                        -{filteredDailyRecords.reduce((s, c) => s + (c.pengurangan || 0), 0).toLocaleString('id-ID')}
+                      <td className="py-3 px-4 text-right font-bold text-rose-700">
+                        {filteredDailyRecords
+                          .reduce((s, c) => s + getRecordDemografiCounts(c, dailyRecords).siswaP, 0)
+                          .toLocaleString('id-ID')}
                       </td>
                       <td className="py-3 px-4 text-right font-black text-slate-900 text-sm bg-emerald-100/60">
                         {filteredDailyRecords.reduce((s, c) => s + (c.totalPenerima || 0), 0).toLocaleString('id-ID')}

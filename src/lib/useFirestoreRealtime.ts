@@ -1,6 +1,7 @@
 import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { getDb } from './firebase';
+import { safeParseJson } from './safeJson';
 
 interface CollectionStoreEntry<T> {
   data: T[];
@@ -51,7 +52,7 @@ async function fetchServerCollectionFallback<T>(collectionName: string): Promise
   try {
     const res = await fetch(`/api/v1/cloud/collection/${encodeURIComponent(collectionName)}`);
     if (!res.ok) return null;
-    const json = await res.json();
+    const json = await safeParseJson<{ data?: T[] }>(res);
     if (json && Array.isArray(json.data)) {
       return json.data as T[];
     }

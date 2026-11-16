@@ -319,9 +319,24 @@ async function updateGroupHandler(id: string, body: any, res: Response): Promise
       );
 
       if (recIdx !== -1) {
-        dbStore.dailyBeneficiaryRecords[recIdx].jumlahAwal = locData.defaultJumlah;
-        dbStore.dailyBeneficiaryRecords[recIdx].totalPenerima = locData.defaultJumlah + dbStore.dailyBeneficiaryRecords[recIdx].penambahan - dbStore.dailyBeneficiaryRecords[recIdx].pengurangan;
-        await syncSaveDoc('dailyBeneficiaryRecords', dbStore.dailyBeneficiaryRecords[recIdx].id, dbStore.dailyBeneficiaryRecords[recIdx]);
+        const existingRec = dbStore.dailyBeneficiaryRecords[recIdx];
+        if (existingRec.statusKbm !== 'Libur Full') {
+          existingRec.namaInstansi = locData.namaInstansi;
+          existingRec.kategoriLembaga = locData.kategoriLembaga;
+          existingRec.klasifikasiPorsi = locData.klasifikasiPorsi;
+          existingRec.breakdownKelas = locData.breakdownKelas;
+          existingRec.rincianSasaran = {
+            siswa,
+            guru: targetGuru,
+            balita,
+            ibuHamil,
+            ibuMenyusui,
+            breakdownKelas: locData.breakdownKelas
+          };
+          existingRec.jumlahAwal = locData.defaultJumlah;
+          existingRec.totalPenerima = Math.max(0, locData.defaultJumlah + (existingRec.penambahan || 0) - (existingRec.pengurangan || 0));
+          await syncSaveDoc('dailyBeneficiaryRecords', existingRec.id, existingRec);
+        }
       }
     }
 
@@ -738,7 +753,30 @@ router.post('/plan', (req: Request, res: Response): void => {
         siswa = 0;
         kategori = 'Balita';
       } else {
-        const sumClasses: number = (Object.values(bd) as (number | string)[]).reduce<number>((sum, val) => sum + (Number(val) || 0), 0);
+        const computeBreakdownTotal = (breakdown: Record<string, any>): number => {
+          if (!breakdown || typeof breakdown !== 'object') return 0;
+          const baseKeys = new Set<string>();
+          for (const k of Object.keys(breakdown)) {
+            baseKeys.add(k.replace(/_(l|p|w)$/, ''));
+          }
+          let total = 0;
+          for (const base of baseKeys) {
+            const hasGender =
+              breakdown[`${base}_l`] !== undefined ||
+              breakdown[`${base}_p`] !== undefined ||
+              breakdown[`${base}_w`] !== undefined;
+            if (hasGender) {
+              total +=
+                (Number(breakdown[`${base}_l`]) || 0) +
+                (Number(breakdown[`${base}_p`]) || 0) +
+                (Number(breakdown[`${base}_w`]) || 0);
+            } else {
+              total += Number(breakdown[base]) || 0;
+            }
+          }
+          return total;
+        };
+        const sumClasses: number = computeBreakdownTotal(bd);
         if (sumClasses > 0) {
           if (itemCat === 'Balita / Posyandu' || itemKlas === 'Porsi Balita') {
             balita = sumClasses;
@@ -1335,6 +1373,44 @@ router.get('/bast', (req: Request, res: Response): void => {
   }
 });
 
+// GET /api/v1/penerima-manfaat/bast/config
+router.get('/bast/config', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    data: dbStore.bastNumberConfig
+  });
+});
+
+// POST /api/v1/penerima-manfaat/bast/config
+router.post('/bast/config', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const updated = dbStore.saveBastNumberConfig(req.body);
+    await syncSaveDoc('configs', 'bastNumberConfig', updated);
+    dbStore.addLog('USR-ADMIN', req.body.adminName || 'Admin SPPG', 'BAST', 'Konfigurasi Nomor BAST', `Memperbarui konfigurasi nomor surat BAST: Mulai ${updated.startNumber}, Digit ${updated.digitCount}, Instansi ${updated.kodeInstansi}`);
+    res.json({
+      success: true,
+      message: 'Konfigurasi nomor urut surat BAST berhasil disimpan',
+      data: updated
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menyimpan konfigurasi nomor BAST', error: error.message });
+  }
+});
+
+// GET /api/v1/penerima-manfaat/bast/next-number
+router.get('/bast/next-number', (req: Request, res: Response): void => {
+  const tanggal = (req.query.tanggal as string) || new Date().toISOString().split('T')[0];
+  const nextNumber = dbStore.generateBastNumber(tanggal);
+  res.json({
+    success: true,
+    data: {
+      tanggal,
+      nextNumber,
+      config: dbStore.bastNumberConfig
+    }
+  });
+});
+
 // GET /api/v1/penerima-manfaat/bast/:id
 router.get('/bast/:id', (req: Request, res: Response): void => {
   try {
@@ -1386,44 +1462,6 @@ router.post('/bast', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Gagal menyimpan BAST', error: error.message });
   }
-});
-
-// GET /api/v1/penerima-manfaat/bast/config
-router.get('/bast/config', (req: Request, res: Response): void => {
-  res.json({
-    success: true,
-    data: dbStore.bastNumberConfig
-  });
-});
-
-// POST /api/v1/penerima-manfaat/bast/config
-router.post('/bast/config', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const updated = dbStore.saveBastNumberConfig(req.body);
-    await syncSaveDoc('configs', 'bastNumberConfig', updated);
-    dbStore.addLog('USR-ADMIN', req.body.adminName || 'Admin SPPG', 'BAST', 'Konfigurasi Nomor BAST', `Memperbarui konfigurasi nomor surat BAST: Mulai ${updated.startNumber}, Digit ${updated.digitCount}, Instansi ${updated.kodeInstansi}`);
-    res.json({
-      success: true,
-      message: 'Konfigurasi nomor urut surat BAST berhasil disimpan',
-      data: updated
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: 'Gagal menyimpan konfigurasi nomor BAST', error: error.message });
-  }
-});
-
-// GET /api/v1/penerima-manfaat/bast/next-number
-router.get('/bast/next-number', (req: Request, res: Response): void => {
-  const tanggal = (req.query.tanggal as string) || new Date().toISOString().split('T')[0];
-  const nextNumber = dbStore.generateBastNumber(tanggal);
-  res.json({
-    success: true,
-    data: {
-      tanggal,
-      nextNumber,
-      config: dbStore.bastNumberConfig
-    }
-  });
 });
 
 // PUT /api/v1/penerima-manfaat/bast/:id

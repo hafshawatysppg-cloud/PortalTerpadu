@@ -6,6 +6,7 @@ import {
   MasterSignature
 } from '../types/documentTemplate';
 import { useAuth } from '../context/AuthContext';
+import { safeParseJson } from '../lib/safeJson';
 
 interface DocumentTemplateContextType {
   config: MasterDocumentTemplateConfig;
@@ -63,8 +64,8 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     try {
       const res = await fetch('/api/v1/document-template');
       if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
+        const json = await safeParseJson<{ success?: boolean; data?: MasterDocumentTemplateConfig }>(res);
+        if (json?.success && json.data) {
           updateLocalConfig(json.data);
         }
       }

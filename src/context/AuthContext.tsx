@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, MenuItem, NotificationItem, PortalSettings, UserRole } from '../types';
+import { safeParseJson } from '../lib/safeJson';
 
 interface AuthContextType {
   user: User | null;
@@ -52,8 +53,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const res = await fetch('/api/v1/auth/me', {
             headers: { Authorization: `Bearer ${storedToken}` }
           });
-          const data = await res.json();
-          if (data.success && data.data) {
+          const data = await safeParseJson<{ success?: boolean; data?: User }>(res);
+          if (data?.success && data.data) {
             setUser(data.data);
             setToken(storedToken);
           } else {
@@ -100,8 +101,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshMenus = async () => {
     try {
       const res = await fetch('/api/v1/menus');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
+      const data = await safeParseJson<{ success?: boolean; data?: MenuItem[] }>(res);
+      if (data?.success && Array.isArray(data.data)) {
         setMenus(data.data);
       }
     } catch (err) {
@@ -112,8 +113,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshNotifications = async () => {
     try {
       const res = await fetch('/api/v1/notifications');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
+      const data = await safeParseJson<{ success?: boolean; data?: NotificationItem[] }>(res);
+      if (data?.success && Array.isArray(data.data)) {
         setNotifications(data.data);
       }
     } catch (err) {
@@ -124,8 +125,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshSettings = async () => {
     try {
       const res = await fetch('/api/v1/settings');
-      const data = await res.json();
-      if (data.success && data.data) {
+      const data = await safeParseJson<{ success?: boolean; data?: PortalSettings }>(res);
+      if (data?.success && data.data) {
         setSettings(data.data);
       }
     } catch (err) {
@@ -164,8 +165,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
-      const data = await res.json();
-      if (data.success && data.data?.token && data.data?.user) {
+      const data = await safeParseJson<{ success?: boolean; data?: { token?: string; user?: User } }>(res);
+      if (data?.success && data.data?.token && data.data?.user) {
         setToken(data.data.token);
         setUser(data.data.user);
         localStorage.setItem('pat_sso_token', data.data.token);

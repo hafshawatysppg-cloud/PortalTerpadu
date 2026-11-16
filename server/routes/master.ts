@@ -211,7 +211,7 @@ router.get('/gudang', (req: Request, res: Response): void => {
 });
 
 router.post('/gudang', async (req: Request, res: Response): Promise<void> => {
-  const { nama, kode, lokasi, penanggungJawab, kapasitasM3 } = req.body;
+  const { nama, kode, lokasi, penanggungJawab, kapasitasM3, status } = req.body;
   if (!nama) {
     res.status(400).json({ success: false, message: 'Nama gudang wajib diisi.' });
     return;

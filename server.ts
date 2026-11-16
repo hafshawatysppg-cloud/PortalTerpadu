@@ -242,6 +242,26 @@ async function startServer() {
   app.use('/api/v1/petugas', petugasRoutes);
   app.use('/api/petugas', petugasRoutes);
 
+  // Prevent any unmatched /api/* endpoint from falling through to Vite/SPA HTML (index.html)
+  app.all('/api/*', (req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      message: `Endpoint API tidak ditemukan: ${req.method} ${req.originalUrl}`
+    });
+  });
+
+  // Global JSON error handler for /api/* routes
+  app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+    if (req.path.startsWith('/api')) {
+      res.status(err?.status || 500).json({
+        success: false,
+        message: err?.message || 'Terjadi kesalahan internal pada server API'
+      });
+      return;
+    }
+    next(err);
+  });
+
   // Development vs Production Environment Setup
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');

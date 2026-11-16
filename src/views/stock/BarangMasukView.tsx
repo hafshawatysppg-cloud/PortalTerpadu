@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { MasterBarang } from '../../types';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import { DAFTAR_SATUAN_BARANG } from '../../constants/satuanBarang';
 
 interface RowData {
   id: string;
@@ -22,10 +23,7 @@ interface RowData {
   isNewBahan?: boolean;
 }
 
-const SATUAN_OPTIONS = [
-  'Pcs', 'Kg', 'Gram', 'Liter', 'Kardus', 'Bungkus', 'Botol', 'Karung', 
-  'Box', 'Pack', 'Unit', 'Sack', 'Dus', 'Kaleng', 'Ikat', 'Butir'
-];
+const SATUAN_OPTIONS = DAFTAR_SATUAN_BARANG;
 
 const KATEGORI_OPTIONS = [
   'Bahan Baku', 'Operasional'
@@ -777,6 +775,9 @@ Daun Jeruk,0.25,Kg,Bahan Baku,,Gudang Utama,Import Excel (TEMPLATE)`;
                           onChange={(e) => handleRowChange(row.id, 'satuan', e.target.value)}
                           className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         >
+                          {row.satuan && !SATUAN_OPTIONS.includes(row.satuan) && (
+                            <option value={row.satuan}>{row.satuan}</option>
+                          )}
                           {SATUAN_OPTIONS.map(s => (
                             <option key={s} value={s}>{s}</option>
                           ))}

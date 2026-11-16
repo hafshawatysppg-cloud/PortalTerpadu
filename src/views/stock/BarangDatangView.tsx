@@ -35,6 +35,7 @@ import autoTable from 'jspdf-autotable';
 const logoImg = '/badan-gizi-nasional-seeklogo.png';
 import { BarangDatang, JenisBarangDatang, KualitasProdukBarangDatang } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { DAFTAR_SATUAN_BARANG } from '../../constants/satuanBarang';
 
 interface BarangDatangViewProps {
   currentPath?: string;
@@ -98,21 +99,7 @@ const SARAN_OPERASIONAL = [
   'Disinfektan Cair Lantai 5L'
 ];
 
-const DAFTAR_SATUAN = [
-  'Kg',
-  'Gram',
-  'Liter',
-  'Pcs',
-  'Tabung',
-  'Roll',
-  'Dus',
-  'Jerigen',
-  'Ikat',
-  'Tray',
-  'Pack',
-  'Karung',
-  'Botol'
-];
+const DAFTAR_SATUAN = DAFTAR_SATUAN_BARANG;
 
 /**
  * Kompresi dan optimasi foto secara client-side menggunakan HTML5 Canvas.
