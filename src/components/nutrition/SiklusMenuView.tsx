@@ -23,7 +23,12 @@ import {
   FileText
 } from 'lucide-react';
 import { MasterMenuRecord } from '../../types/masterMenu';
-import { exportSiklusMenuToExcel, exportSiklusMenuToPdf } from '../../utils/giziExportHelper';
+import {
+  exportSiklusMenuRangeToExcel,
+  exportSiklusMenuRangeToPdf,
+  printSiklusMenuA4,
+  SiklusMenuPrintEntry
+} from '../../utils/giziExportHelper';
 
 export interface SiklusIngredientRow {
   id: string;
@@ -107,6 +112,10 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
   const [activeTab, setActiveTab] = useState<'both' | 'porsiKecil' | 'porsiBesar'>('both');
   const [showToast, setShowToast] = useState<string | null>(null);
 
+  // Date Range state for Export PDF & Print Out
+  const [rangeStartDate, setRangeStartDate] = useState<string>('');
+  const [rangeEndDate, setRangeEndDate] = useState<string>('');
+
   // Lock State: Locked by default when viewing saved data, editable when unlocked
   const [isLocked, setIsLocked] = useState<boolean>(true);
 
@@ -151,6 +160,47 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     return masterMenus.find(m => m.tanggalPelaksanaan === selectedDate) || null;
   }, [masterMenus, selectedDate]);
 
+  // Shared deterministic row generator from Master Menu items
+  const buildDefaultRowsFromMaster = (dateStr: string, menuItems: string[]): { pk: SiklusIngredientRow[]; pb: SiklusIngredientRow[] } => {
+    const pkRows: SiklusIngredientRow[] = [];
+    const pbRows: SiklusIngredientRow[] = [];
+
+    menuItems.forEach((dish, dIdx) => {
+      const pairKey = `pair_${dateStr}_${dIdx}`;
+      const bahanDefault = dish.split(' ')[0] || dish;
+
+      pkRows.push({
+        id: `pk_${pairKey}`,
+        pairKey,
+        namaMasakan: dish,
+        bahanMasakan: bahanDefault,
+        beratBersih: 75,
+        energi: 90,
+        protein: 3.5,
+        lemak: 2,
+        karbohidrat: 14,
+        serat: 0.8,
+        customFields: {}
+      });
+
+      pbRows.push({
+        id: `pb_${pairKey}`,
+        pairKey,
+        namaMasakan: dish,
+        bahanMasakan: bahanDefault,
+        beratBersih: 100,
+        energi: 120,
+        protein: 5,
+        lemak: 3,
+        karbohidrat: 18,
+        serat: 1,
+        customFields: {}
+      });
+    });
+
+    return { pk: pkRows, pb: pbRows };
+  };
+
   // Current cycle data for the selected date
   const currentCycleData = useMemo<SiklusMenuData | null>(() => {
     // If master menu DOES NOT exist for this date, the data in siklus menu MUST BE EMPTY
@@ -162,48 +212,7 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
       return savedCycles[selectedDate];
     }
 
-    // Auto-generate starting rows from the dishes in Master Menu if not previously saved
-    const generateRowsFromMaster = (menuItems: string[]): { pk: SiklusIngredientRow[]; pb: SiklusIngredientRow[] } => {
-      const pkRows: SiklusIngredientRow[] = [];
-      const pbRows: SiklusIngredientRow[] = [];
-
-      menuItems.forEach((dish, dIdx) => {
-        const pairKey = `pair_${dIdx}_${Date.now()}`;
-        const bahanDefault = dish.split(' ')[0] || dish;
-
-        pkRows.push({
-          id: `pk_${pairKey}`,
-          pairKey,
-          namaMasakan: dish,
-          bahanMasakan: bahanDefault,
-          beratBersih: 75,
-          energi: 90,
-          protein: 3.5,
-          lemak: 2,
-          karbohidrat: 14,
-          serat: 0.8,
-          customFields: {}
-        });
-
-        pbRows.push({
-          id: `pb_${pairKey}`,
-          pairKey,
-          namaMasakan: dish,
-          bahanMasakan: bahanDefault,
-          beratBersih: 100,
-          energi: 120,
-          protein: 5,
-          lemak: 3,
-          karbohidrat: 18,
-          serat: 1,
-          customFields: {}
-        });
-      });
-
-      return { pk: pkRows, pb: pbRows };
-    };
-
-    const initialGenerated = generateRowsFromMaster(currentMasterMenu.menuItems);
+    const initialGenerated = buildDefaultRowsFromMaster(selectedDate, currentMasterMenu.menuItems);
 
     return {
       tanggal: selectedDate,
@@ -488,35 +497,117 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     triggerToast('Mode edit aktif. Anda dapat mengubah data bahan masakan dan nilai gizi.');
   };
 
-  // Export handlers for Excel (.xlsx) and PDF (.pdf)
+  // Resolve cycle entries either by selected date range (Dari Tanggal - Sampai Tanggal) or active date
+  const resolvedEntriesForExport = useMemo<SiklusMenuPrintEntry[]>(() => {
+    const hasRange = Boolean(rangeStartDate || rangeEndDate);
+    if (!hasRange) {
+      if (!currentMasterMenu) return [];
+      return [
+        {
+          tanggal: selectedDate,
+          porsiKecil: localPorsiKecil,
+          porsiBesar: localPorsiBesar,
+          customColumns,
+          masterMenuDishes: currentMasterMenu.menuItems || []
+        }
+      ];
+    }
+
+    const startBound = rangeStartDate || '0000-00-00';
+    const endBound = rangeEndDate || '9999-99-99';
+
+    const dateSet = new Set<string>();
+    masterMenus.forEach(m => {
+      if (m.tanggalPelaksanaan >= startBound && m.tanggalPelaksanaan <= endBound) {
+        dateSet.add(m.tanggalPelaksanaan);
+      }
+    });
+    Object.keys(savedCycles).forEach(dt => {
+      if (dt >= startBound && dt <= endBound) {
+        dateSet.add(dt);
+      }
+    });
+
+    const sortedDates = Array.from(dateSet).sort((a, b) => a.localeCompare(b));
+    return sortedDates.map((dt) => {
+      const mm = masterMenus.find(m => m.tanggalPelaksanaan === dt);
+      if (dt === selectedDate && currentMasterMenu) {
+        return {
+          tanggal: dt,
+          porsiKecil: localPorsiKecil,
+          porsiBesar: localPorsiBesar,
+          customColumns,
+          masterMenuDishes: currentMasterMenu.menuItems || []
+        };
+      }
+      if (savedCycles[dt]) {
+        return {
+          tanggal: dt,
+          porsiKecil: savedCycles[dt].porsiKecil || [],
+          porsiBesar: savedCycles[dt].porsiBesar || [],
+          customColumns: savedCycles[dt].customColumns || [],
+          masterMenuDishes: mm?.menuItems || []
+        };
+      }
+      const generated = buildDefaultRowsFromMaster(dt, mm?.menuItems || []);
+      return {
+        tanggal: dt,
+        porsiKecil: generated.pk,
+        porsiBesar: generated.pb,
+        customColumns: [],
+        masterMenuDishes: mm?.menuItems || []
+      };
+    });
+  }, [
+    rangeStartDate,
+    rangeEndDate,
+    selectedDate,
+    currentMasterMenu,
+    localPorsiKecil,
+    localPorsiBesar,
+    customColumns,
+    masterMenus,
+    savedCycles
+  ]);
+
+  // Export & Print handlers (single date or date range)
   const handleExportExcel = () => {
-    if (!currentMasterMenu) {
-      triggerToast('Gagal ekspor: Belum ada data Master Menu pada tanggal ini.');
+    if (resolvedEntriesForExport.length === 0) {
+      triggerToast('Tidak ada data Siklus Menu pada tanggal / rentang tanggal ini.');
       return;
     }
-    exportSiklusMenuToExcel(
-      selectedDate,
-      localPorsiKecil,
-      localPorsiBesar,
-      customColumns,
-      currentMasterMenu.menuItems || []
-    );
-    triggerToast(`Data Siklus Menu ${formatDateIndo(selectedDate)} berhasil diekspor ke Excel (.xlsx)!`);
+    exportSiklusMenuRangeToExcel(resolvedEntriesForExport, {
+      startDate: rangeStartDate || undefined,
+      endDate: rangeEndDate || undefined,
+      dateFilter: !rangeStartDate && !rangeEndDate ? selectedDate : undefined
+    });
+    triggerToast(`Berhasil mengekspor ${resolvedEntriesForExport.length} jadwal Siklus Menu ke Excel (.xlsx)!`);
   };
 
-  const handleExportPdf = () => {
-    if (!currentMasterMenu) {
-      triggerToast('Gagal ekspor: Belum ada data Master Menu pada tanggal ini.');
+  const handleExportPdf = async () => {
+    if (resolvedEntriesForExport.length === 0) {
+      triggerToast('Tidak ada data Siklus Menu pada tanggal / rentang tanggal ini.');
       return;
     }
-    exportSiklusMenuToPdf(
-      selectedDate,
-      localPorsiKecil,
-      localPorsiBesar,
-      customColumns,
-      currentMasterMenu.menuItems || []
-    );
-    triggerToast(`Laporan analisis AKG Siklus Menu ${formatDateIndo(selectedDate)} berhasil diekspor ke PDF (.pdf)!`);
+    await exportSiklusMenuRangeToPdf(resolvedEntriesForExport, {
+      startDate: rangeStartDate || undefined,
+      endDate: rangeEndDate || undefined,
+      dateFilter: !rangeStartDate && !rangeEndDate ? selectedDate : undefined
+    });
+    triggerToast(`Laporan AKG Siklus Menu (${resolvedEntriesForExport.length} hari) berhasil diekspor ke PDF (.pdf)!`);
+  };
+
+  const handlePrintOut = async () => {
+    if (resolvedEntriesForExport.length === 0) {
+      triggerToast('Tidak ada data Siklus Menu pada tanggal / rentang tanggal ini untuk dicetak.');
+      return;
+    }
+    await printSiklusMenuA4(resolvedEntriesForExport, {
+      startDate: rangeStartDate || undefined,
+      endDate: rangeEndDate || undefined,
+      dateFilter: !rangeStartDate && !rangeEndDate ? selectedDate : undefined
+    });
+    triggerToast(`Menyiapkan Print Out A4 Siklus Menu (${resolvedEntriesForExport.length} hari)...`);
   };
 
   // Calculate totals
@@ -1065,29 +1156,81 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
               )
             )}
 
-            {/* Export Buttons: Excel & PDF */}
-            {currentMasterMenu && (
-              <div className="flex items-center gap-1.5 border-l border-slate-200 dark:border-slate-700 pl-2">
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-2xl text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
-                  title="Download tabel siklus menu & kandungan gizi format Excel (.xlsx)"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Ekspor Excel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportPdf}
-                  className="px-3.5 py-2 bg-rose-700 hover:bg-rose-800 active:bg-rose-900 text-white font-bold rounded-2xl text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
-                  title="Download laporan resmi analisis AKG siklus menu format PDF (.pdf)"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Ekspor PDF</span>
-                </button>
-              </div>
+            {/* Export & Print Buttons: Excel, PDF, and Print Out */}
+            <div className="flex items-center gap-1.5 border-l border-slate-200 dark:border-slate-700 pl-2">
+              <button
+                type="button"
+                onClick={handlePrintOut}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                title="Cetak Print Out lembar siklus menu & kandungan gizi"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Out</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-2xl text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                title="Download tabel siklus menu & kandungan gizi format Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Ekspor Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                className="px-3.5 py-2 bg-rose-700 hover:bg-rose-800 active:bg-rose-900 text-white font-bold rounded-2xl text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                title="Download laporan resmi analisis AKG siklus menu format PDF (.pdf)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Ekspor PDF</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Date Range Filter Row for Export PDF & Print Out */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="font-extrabold text-slate-600 dark:text-slate-300">
+              Rentang Tanggal Export PDF &amp; Print Out:
+            </span>
+            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1">
+              <span className="text-[11px] font-bold text-slate-500">Dari Tanggal:</span>
+              <input
+                type="date"
+                value={rangeStartDate}
+                onChange={(e) => setRangeStartDate(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1">
+              <span className="text-[11px] font-bold text-slate-500">Sampai Tanggal:</span>
+              <input
+                type="date"
+                value={rangeEndDate}
+                onChange={(e) => setRangeEndDate(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+              />
+            </div>
+            {(rangeStartDate || rangeEndDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRangeStartDate('');
+                  setRangeEndDate('');
+                }}
+                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <X className="w-3 h-3" />
+                <span>Reset Rentang</span>
+              </button>
             )}
+          </div>
+          <div className="text-[11px] text-slate-500 font-semibold">
+            {rangeStartDate || rangeEndDate
+              ? `Terpilih ${resolvedEntriesForExport.length} hari jadwal dalam rentang untuk Ekspor / Print Out`
+              : `Menggunakan tanggal aktif: ${selectedDate}`}
           </div>
         </div>
 

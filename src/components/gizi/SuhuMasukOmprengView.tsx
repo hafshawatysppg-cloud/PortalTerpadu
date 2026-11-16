@@ -70,7 +70,7 @@ export interface DailySuhuOmprengRecord {
 }
 
 // Seed data with realistic suhu masuk ompreng (above danger zone >= 60°C)
-const SEED_DAILY_OMPRENG_RECORDS: DailySuhuOmprengRecord[] = [
+export const SEED_DAILY_OMPRENG_RECORDS: DailySuhuOmprengRecord[] = [
   {
     id: '2026-10-26',
     tanggal: '2026-10-26',
@@ -705,6 +705,15 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
             >
               <ImageIcon className="w-4 h-4" />
               <span>Dokumentasi Suhu Masuk Ompreng</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('/gizi/suhu/makanan/cetak-laporan')}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-slate-700 dark:text-slate-200 hover:text-emerald-700 hover:bg-white/70 dark:hover:bg-slate-700/60"
+            >
+              <Printer className="w-4 h-4 text-emerald-600" />
+              <span>Cetak Laporan</span>
             </button>
           </div>
 

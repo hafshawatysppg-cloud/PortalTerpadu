@@ -134,6 +134,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                   { title: 'Tabel Suhu Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng/tabel', icon: Icons.TableProperties },
                   { title: 'Dokumentasi Masuk Ompreng', path: '/gizi/suhu/makanan/masuk-ompreng/dokumentasi', icon: Icons.Image }
                 ]
+              },
+              {
+                title: 'Cetak Laporan',
+                path: '/gizi/suhu/makanan/cetak-laporan',
+                icon: Icons.Printer
               }
             ]
           }

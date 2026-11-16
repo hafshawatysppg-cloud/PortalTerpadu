@@ -35,9 +35,10 @@ import { PerencanaanBahanView } from '../../components/nutrition/PerencanaanBaha
 import { SiklusMenuView } from '../../components/nutrition/SiklusMenuView';
 import { SuhuPengolahanView } from '../../components/gizi/SuhuPengolahanView';
 import { SuhuMasukOmprengView } from '../../components/gizi/SuhuMasukOmprengView';
+import { LaporanMakananView } from '../../components/gizi/LaporanMakananView';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
-import { exportMasterMenuToExcel, exportMasterMenuToPdf } from '../../utils/giziExportHelper';
+import { exportMasterMenuToExcel, exportMasterMenuToPdf, printMasterMenuA4 } from '../../utils/giziExportHelper';
 
 export type { MasterMenuRecord };
 export { initialMasterMenuRecords };
@@ -56,6 +57,8 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPeriod, setFilterPeriod] = useState('Semua');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
+  const [masterStartDate, setMasterStartDate] = useState<string>('');
+  const [masterEndDate, setMasterEndDate] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showToast, setShowToast] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -180,37 +183,54 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
 
   const handleExportMasterMenuExcel = () => {
     if (filteredMasterMenus.length === 0) {
-      triggerToast('Tidak ada data Master Menu untuk diekspor.');
+      triggerToast('Tidak ada data Master Menu pada rentang tanggal ini untuk diekspor.');
       return;
     }
     exportMasterMenuToExcel(filteredMasterMenus, {
-      dateFilter: selectedDateFilter,
+      startDate: masterStartDate || undefined,
+      endDate: masterEndDate || undefined,
       searchTerm
     });
     triggerToast(`Berhasil mengekspor ${filteredMasterMenus.length} data Master Menu ke Excel (.xlsx)!`);
     setIsExportMenuOpen(false);
   };
 
-  const handleExportMasterMenuPdf = () => {
+  const handleExportMasterMenuPdf = async () => {
     if (filteredMasterMenus.length === 0) {
-      triggerToast('Tidak ada data Master Menu untuk diekspor.');
+      triggerToast('Tidak ada data Master Menu pada rentang tanggal ini untuk diekspor.');
       return;
     }
-    exportMasterMenuToPdf(filteredMasterMenus, {
-      dateFilter: selectedDateFilter,
+    await exportMasterMenuToPdf(filteredMasterMenus, {
+      startDate: masterStartDate || undefined,
+      endDate: masterEndDate || undefined,
       searchTerm
     });
     triggerToast(`Berhasil mengekspor ${filteredMasterMenus.length} data Master Menu ke PDF (.pdf)!`);
     setIsExportMenuOpen(false);
   };
 
+  const handlePrintMasterMenu = async () => {
+    if (filteredMasterMenus.length === 0) {
+      triggerToast('Tidak ada data Master Menu pada rentang tanggal ini untuk dicetak.');
+      return;
+    }
+    await printMasterMenuA4(filteredMasterMenus, {
+      startDate: masterStartDate || undefined,
+      endDate: masterEndDate || undefined,
+      searchTerm
+    });
+    triggerToast(`Menyiapkan Print Out ${filteredMasterMenus.length} data Master Menu...`);
+    setIsExportMenuOpen(false);
+  };
+
   const filteredMasterMenus = masterMenus.filter(m => {
-    const matchDate = !selectedDateFilter || m.tanggalPelaksanaan === selectedDateFilter;
+    const matchStart = !masterStartDate || m.tanggalPelaksanaan >= masterStartDate;
+    const matchEnd = !masterEndDate || m.tanggalPelaksanaan <= masterEndDate;
     const q = searchTerm.toLowerCase();
-    const matchSearch = !searchTerm || 
+    const matchSearch = !searchTerm ||
       m.tanggalPelaksanaan.includes(q) ||
       m.menuItems.some(item => item.toLowerCase().includes(q));
-    return matchDate && matchSearch;
+    return matchStart && matchEnd && matchSearch;
   });
 
   const triggerToast = (msg: string) => {
@@ -411,6 +431,21 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
       };
     }
 
+    if (currentPath.includes('/gizi/suhu/makanan/cetak-laporan')) {
+      return {
+        key: 'suhu-makanan-cetak-laporan',
+        title: 'Cetak Laporan Suhu & Dokumentasi Makanan',
+        badge: 'CETAK LAPORAN',
+        icon: Printer,
+        color: 'emerald',
+        breadcrumbs: ['GIZI', 'SUHU', 'MAKANAN', 'CETAK LAPORAN'],
+        description: 'Preview dokumen resmi SPPG yang menggabungkan Tabel Suhu Pengolahan, Tabel Suhu Masuk Ompreng, Dokumentasi Suhu Pengolahan, dan Dokumentasi Masuk Ompreng siap Print Out dan Export PDF.',
+        kpis: [],
+        columns: [],
+        rows: []
+      };
+    }
+
     if (currentPath.includes('/gizi/suhu/makanan/masuk-ompreng')) {
       return {
         key: 'suhu-makanan-masuk-ompreng',
@@ -496,6 +531,7 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   const HeaderIcon = config.icon;
   const isSuhuPengolahan = currentPath.includes('/gizi/suhu/makanan/pengolahan');
   const isSuhuMasukOmpreng = currentPath.includes('/gizi/suhu/makanan/masuk-ompreng');
+  const isMakananCetakLaporan = currentPath.includes('/gizi/suhu/makanan/cetak-laporan');
   const isOrganoleptik = currentPath.includes('/gizi/organoleptik');
 
   // Filtered rows
@@ -559,70 +595,93 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
-            <button
-              onClick={() => {
-                if (isSuhuPengolahan) {
-                  onNavigate('/gizi/suhu/makanan/pengolahan/form');
-                } else if (config.key === 'master-menu') {
-                  handleOpenAddMasterMenu();
-                } else {
-                  setIsModalOpen(true);
-                }
-              }}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{isSuhuPengolahan ? '+ Form Suhu Baru' : '+ Input Data Baru'}</span>
-            </button>
-            {config.key === 'master-menu' ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsExportMenuOpen(prev => !prev)}
-                  className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
-                  title="Ekspor Data Master Menu"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Ekspor Menu</span>
-                </button>
-                {isExportMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95">
-                    <button
-                      type="button"
-                      onClick={handleExportMasterMenuExcel}
-                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 flex items-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                      <span>Ekspor Excel (.xlsx)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleExportMasterMenuPdf}
-                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 flex items-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <Download className="w-4 h-4 text-rose-600" />
-                      <span>Ekspor PDF (.pdf)</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
+            {!isMakananCetakLaporan && (
               <button
-                onClick={() => triggerToast(`Data laporan ${config.badge} berhasil diekspor!`)}
-                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                title="Download Rekapitulasi Data"
+                onClick={() => {
+                  if (isSuhuPengolahan) {
+                    onNavigate('/gizi/suhu/makanan/pengolahan/form');
+                  } else if (config.key === 'master-menu') {
+                    handleOpenAddMasterMenu();
+                  } else {
+                    setIsModalOpen(true);
+                  }
+                }}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export</span>
+                <Plus className="w-4 h-4" />
+                <span>{isSuhuPengolahan ? '+ Form Suhu Baru' : '+ Input Data Baru'}</span>
               </button>
             )}
-            <button
-              onClick={() => triggerToast('Mencetak lembar logbook resmi SPPG Badan Gizi Nasional...')}
-              className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-              title="Cetak Logbook"
-            >
-              <Printer className="w-3.5 h-3.5" />
-            </button>
+            {config.key === 'master-menu' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintMasterMenu}
+                  className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  title="Cetak Print Out A4 Daftar Master Menu"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Out</span>
+                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsExportMenuOpen(prev => !prev)}
+                    className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    title="Ekspor Data Master Menu"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Ekspor Menu</span>
+                  </button>
+                  {isExportMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95">
+                      <button
+                        type="button"
+                        onClick={handleExportMasterMenuExcel}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                        <span>Ekspor Excel (.xlsx)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExportMasterMenuPdf}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Download className="w-4 h-4 text-rose-600" />
+                        <span>Ekspor PDF (.pdf)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePrintMasterMenu}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Printer className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+                        <span>Print Out (A4)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : !isMakananCetakLaporan ? (
+              <>
+                <button
+                  onClick={() => triggerToast(`Data laporan ${config.badge} berhasil diekspor!`)}
+                  className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Download Rekapitulasi Data"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+                <button
+                  onClick={() => triggerToast('Mencetak lembar logbook resmi SPPG Badan Gizi Nasional...')}
+                  className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Cetak Logbook"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -692,68 +751,137 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
             >
               📦 Suhu Masuk Ompreng
             </button>
+            <button
+              onClick={() => onNavigate('/gizi/suhu/makanan/cetak-laporan')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
+                isMakananCetakLaporan
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              🖨️ Cetak Laporan Makanan
+            </button>
           </div>
         </div>
 
         {/* Quick Date Filter Toolbar on Modul Gizi */}
-        {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isOrganoleptik && (
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
-                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Filter Tanggal:</span>
-                <input
-                  type="date"
-                  value={selectedDateFilter}
-                  onChange={(e) => setSelectedDateFilter(e.target.value)}
-                  className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
-                />
+        {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isMakananCetakLaporan && !isOrganoleptik && (
+          config.key === 'master-menu' ? (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Dari Tanggal:</span>
+                  <input
+                    type="date"
+                    value={masterStartDate}
+                    onChange={(e) => setMasterStartDate(e.target.value)}
+                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Sampai Tanggal:</span>
+                  <input
+                    type="date"
+                    value={masterEndDate}
+                    onChange={(e) => setMasterEndDate(e.target.value)}
+                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setMasterStartDate(today);
+                    setMasterEndDate(today);
+                  }}
+                  className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Hari Ini
+                </button>
+
+                {(masterStartDate || masterEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMasterStartDate('');
+                      setMasterEndDate('');
+                    }}
+                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-bold rounded-xl text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                    <span>Tampilkan Semua Tanggal</span>
+                  </button>
+                )}
               </div>
 
-              {selectedDateFilter ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs">
-                    <span>Aktif: {formatDateIndo(selectedDateFilter)}</span>
-                    <button
-                      onClick={() => setSelectedDateFilter('')}
-                      className="hover:bg-emerald-700 p-0.5 rounded-full cursor-pointer"
-                      title="Hapus filter tanggal"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDateFilter('')}
-                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                  >
-                    Tampilkan Semua Tanggal
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDateFilter(new Date().toISOString().split('T')[0])}
-                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                  >
-                    Hari Ini
-                  </button>
-                </div>
-              )}
+              <div className="text-[11px] text-slate-500 font-semibold">
+                {masterStartDate || masterEndDate
+                  ? `Rentang Export PDF & Print Out: ${masterStartDate || '...'} s/d ${masterEndDate || '...'} (${filteredMasterMenus.length} data)`
+                  : `Menampilkan seluruh jadwal Master Menu (${filteredMasterMenus.length} data)`}
+              </div>
             </div>
+          ) : config.key !== 'siklus-menu' ? (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-extrabold text-emerald-950 dark:text-emerald-200 text-xs">Filter Tanggal:</span>
+                  <input
+                    type="date"
+                    value={selectedDateFilter}
+                    onChange={(e) => setSelectedDateFilter(e.target.value)}
+                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                  />
+                </div>
 
-            <div className="text-[11px] text-slate-400 font-medium">
-              {selectedDateFilter
-                ? `Menyaring menu & logbook harian khusus ${selectedDateFilter}`
-                : 'Menampilkan seluruh jadwal & logbook SPPG'}
+                {selectedDateFilter ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs">
+                      <span>Aktif: {formatDateIndo(selectedDateFilter)}</span>
+                      <button
+                        onClick={() => setSelectedDateFilter('')}
+                        className="hover:bg-emerald-700 p-0.5 rounded-full cursor-pointer"
+                        title="Hapus filter tanggal"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDateFilter('')}
+                      className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Tampilkan Semua Tanggal
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDateFilter(new Date().toISOString().split('T')[0])}
+                      className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Hari Ini
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="text-[11px] text-slate-400 font-medium">
+                {selectedDateFilter
+                  ? `Menyaring menu & logbook harian khusus ${selectedDateFilter}`
+                  : 'Menampilkan seluruh jadwal & logbook SPPG'}
+              </div>
             </div>
-          </div>
+          ) : null
         )}
       </div>
 
       {/* KPI Statistic Cards */}
-      {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isOrganoleptik && (
+      {!isSuhuPengolahan && !isSuhuMasukOmpreng && !isMakananCetakLaporan && !isOrganoleptik && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {config.kpis.map((kpi, idx) => (
             <div
@@ -778,6 +906,11 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
       {/* Main Content Section */}
       {isOrganoleptik ? (
         <OrganoleptikView masterMenus={masterMenus} />
+      ) : isMakananCetakLaporan ? (
+        <LaporanMakananView
+          currentPath={currentPath}
+          onNavigate={onNavigate}
+        />
       ) : isSuhuPengolahan ? (
         <SuhuPengolahanView
           currentPath={currentPath}
@@ -836,9 +969,18 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
               <option value="Bulan Ini">Bulan Ini</option>
             </select>
 
-            {/* Quick Export Buttons for Master Menu */}
+            {/* Quick Print & Export Buttons for Master Menu */}
             {config.key === 'master-menu' && (
               <div className="flex items-center gap-1.5 border-l border-slate-200 dark:border-slate-700 pl-2">
+                <button
+                  type="button"
+                  onClick={handlePrintMasterMenu}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap"
+                  title="Print Out daftar master menu"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Out</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleExportMasterMenuExcel}

@@ -68,7 +68,7 @@ export interface DailySuhuPengolahanRecord {
 }
 
 // Seed data matching the user's uploaded images (Image 1 & Image 2)
-const SEED_DAILY_RECORDS: DailySuhuPengolahanRecord[] = [
+export const SEED_DAILY_RECORDS: DailySuhuPengolahanRecord[] = [
   {
     id: '2026-10-26',
     tanggal: '2026-10-26',
@@ -706,6 +706,15 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
             >
               <ImageIcon className="w-4 h-4" />
               <span>Dokumentasi Suhu Pengolahan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('/gizi/suhu/makanan/cetak-laporan')}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-slate-700 dark:text-slate-200 hover:text-emerald-700 hover:bg-white/70 dark:hover:bg-slate-700/60"
+            >
+              <Printer className="w-4 h-4 text-emerald-600" />
+              <span>Cetak Laporan</span>
             </button>
           </div>
 
