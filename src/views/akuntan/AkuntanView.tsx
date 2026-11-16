@@ -84,6 +84,7 @@ import {
   exportTableToExcel
 } from '../../utils/akuntanDocGenerator';
 import { DashboardAkuntan } from '../../components/akuntan/DashboardAkuntan';
+import { CetakLaporanAkuntanView } from '../../components/akuntan/CetakLaporanAkuntanView';
 import { calculateDailyRecordsPortion } from '../../utils/portionHelper';
 import { INITIAL_PDF_INGREDIENTS } from '../../components/nutrition/nutritionData';
 
@@ -431,6 +432,154 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   });
 
+  // Per-date Lock State Maps untuk Realisasi Bahan Baku & Realisasi Operasional
+  const [realisasiBbLockedMap, setRealisasiBbLockedMap] = useState<Record<string, boolean>>(() => {
+    try {
+      const s = localStorage.getItem('sppg_akuntan_realisasi_bb_locked_map');
+      return s ? JSON.parse(s) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [realisasiOpLockedMap, setRealisasiOpLockedMap] = useState<Record<string, boolean>>(() => {
+    try {
+      const s = localStorage.getItem('sppg_akuntan_realisasi_op_locked_map');
+      return s ? JSON.parse(s) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const isRealisasiBbLocked = Boolean(realisasiBbLockedMap[selectedDate]);
+  const isRealisasiOpLocked = Boolean(realisasiOpLockedMap[selectedDate]);
+
+  // Filter Realisasi strictly by selectedDate
+  const filteredRealisasiBb = useMemo(
+    () => realisasiBahanBaku.filter((item) => item.tanggal === selectedDate),
+    [realisasiBahanBaku, selectedDate]
+  );
+
+  const filteredRealisasiOp = useMemo(
+    () => realisasiOperasional.filter((item) => item.tanggal === selectedDate),
+    [realisasiOperasional, selectedDate]
+  );
+
+  const getHargaRiilOperasional = (item: RealisasiOperasionalItem): number => {
+    if (item.hargaSatuanRiil !== undefined && item.hargaSatuanRiil !== null) {
+      return Number(item.hargaSatuanRiil) || 0;
+    }
+    const qty = Number(item.jumlahRiil) || 0;
+    if (qty > 0) {
+      return Math.round((Number(item.biayaRiil) || 0) / qty);
+    }
+    return Number(item.biayaRiil) || 0;
+  };
+
+  const handleUpdateHargaRiilBb = (itemId: string, newHarga: number) => {
+    if (isRealisasiBbLocked) {
+      triggerToast('Data Realisasi Bahan Baku tanggal ini sudah dikunci. Klik "Edit Data" untuk merevisi.');
+      return;
+    }
+    const sanitized = Math.max(0, Number.isFinite(newHarga) ? newHarga : 0);
+    setRealisasiBahanBaku((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const qtyRiil = Number(item.jumlahRealisasi) || 0;
+        const totalRealisasi = Math.round(qtyRiil * sanitized);
+        const totalRencana = Number(item.totalRencana) || 0;
+        const selisih = totalRealisasi - totalRencana;
+        const persentaseRealisasi = totalRencana > 0 ? Number(((totalRealisasi / totalRencana) * 100).toFixed(1)) : 100;
+        let statusKesesuaian: RealisasiBahanBakuItem['statusKesesuaian'] = 'Sesuai';
+        if (totalRealisasi === totalRencana) {
+          statusKesesuaian = 'Sesuai';
+        } else if (sanitized !== item.hargaSatuanRencana && item.jumlahRealisasi === item.jumlahRencana) {
+          statusKesesuaian = 'Harga Berubah';
+        } else if (totalRealisasi > totalRencana) {
+          statusKesesuaian = 'Lebih';
+        } else {
+          statusKesesuaian = 'Kurang';
+        }
+        return {
+          ...item,
+          hargaSatuanRiil: sanitized,
+          totalRealisasi,
+          selisih,
+          persentaseRealisasi,
+          statusKesesuaian
+        };
+      })
+    );
+  };
+
+  const handleSimpanRealisasiBb = () => {
+    const updatedMap = { ...realisasiBbLockedMap, [selectedDate]: true };
+    setRealisasiBbLockedMap(updatedMap);
+    try {
+      localStorage.setItem('sppg_akuntan_realisasi_bb_locked_map', JSON.stringify(updatedMap));
+      localStorage.setItem('sppg_akuntan_realisasi_bb', JSON.stringify(realisasiBahanBaku));
+      localStorage.setItem(
+        `sppg_akuntan_realisasi_bb_${selectedDate}`,
+        JSON.stringify(realisasiBahanBaku.filter((item) => item.tanggal === selectedDate))
+      );
+    } catch (_) {}
+    triggerToast(`Realisasi Bahan Baku tanggal ${selectedDate} berhasil disimpan dan dikunci!`);
+  };
+
+  const handleEditRealisasiBb = () => {
+    const updatedMap = { ...realisasiBbLockedMap, [selectedDate]: false };
+    setRealisasiBbLockedMap(updatedMap);
+    try {
+      localStorage.setItem('sppg_akuntan_realisasi_bb_locked_map', JSON.stringify(updatedMap));
+    } catch (_) {}
+    triggerToast(`Mode revisi Realisasi Bahan Baku tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+  };
+
+  const handleUpdateHargaRiilOp = (itemId: string, newHarga: number) => {
+    if (isRealisasiOpLocked) {
+      triggerToast('Data Realisasi Operasional tanggal ini sudah dikunci. Klik "Edit Data" untuk merevisi.');
+      return;
+    }
+    const sanitized = Math.max(0, Number.isFinite(newHarga) ? newHarga : 0);
+    setRealisasiOperasional((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const qtyRiil = Number(item.jumlahRiil) || 0;
+        const biayaRiil = qtyRiil > 0 ? Math.round(qtyRiil * sanitized) : Math.round(sanitized);
+        const anggaranRab = Number(item.anggaranRab) || 0;
+        return {
+          ...item,
+          hargaSatuanRiil: sanitized,
+          biayaRiil,
+          selisih: biayaRiil - anggaranRab
+        };
+      })
+    );
+  };
+
+  const handleSimpanRealisasiOp = () => {
+    const updatedMap = { ...realisasiOpLockedMap, [selectedDate]: true };
+    setRealisasiOpLockedMap(updatedMap);
+    try {
+      localStorage.setItem('sppg_akuntan_realisasi_op_locked_map', JSON.stringify(updatedMap));
+      localStorage.setItem('sppg_akuntan_realisasi_op', JSON.stringify(realisasiOperasional));
+      localStorage.setItem(
+        `sppg_akuntan_realisasi_op_${selectedDate}`,
+        JSON.stringify(realisasiOperasional.filter((item) => item.tanggal === selectedDate))
+      );
+    } catch (_) {}
+    triggerToast(`Realisasi Operasional tanggal ${selectedDate} berhasil disimpan dan dikunci!`);
+  };
+
+  const handleEditRealisasiOp = () => {
+    const updatedMap = { ...realisasiOpLockedMap, [selectedDate]: false };
+    setRealisasiOpLockedMap(updatedMap);
+    try {
+      localStorage.setItem('sppg_akuntan_realisasi_op_locked_map', JSON.stringify(updatedMap));
+    } catch (_) {}
+    triggerToast(`Mode revisi Realisasi Operasional tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+  };
+
   // Save changes to localStorage
   useEffect(() => {
     localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(rabBahanBaku));
@@ -474,78 +623,218 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   const [filterKategori, setFilterKategori] = useState('Semua');
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Auto Data Integration / Sync function: "Tarik Data Kedatangan Barang"
-  const handleTarikDataKedatanganBarang = async (targetJenis: 'Bahan Baku' | 'Operasional') => {
-    try {
-      setIsSyncing(true);
-      // Attempt pulling from API /api/v1/barang-datang
-      const res = await fetch('/api/v1/barang-datang');
-      let incomingItems: any[] = [];
+  // Auto Data Integration / Sync function: "Tarik Data Kedatangan Barang" tersinkron per tanggal aktif
+  const handleTarikDataKedatanganBarang = React.useCallback(
+    async (
+      targetJenis: 'Bahan Baku' | 'Operasional',
+      isAuto: boolean = false,
+      targetDateParam?: string
+    ) => {
+      const targetDate = targetDateParam || selectedDate;
+      const lockedForDate =
+        targetJenis === 'Bahan Baku'
+          ? Boolean(realisasiBbLockedMap[targetDate])
+          : Boolean(realisasiOpLockedMap[targetDate]);
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          incomingItems = json.data;
+      if (lockedForDate) {
+        if (!isAuto) {
+          triggerToast(
+            `Data ${targetJenis} tanggal ${targetDate} sudah terkunci. Klik "Edit Data" terlebih dahulu untuk menyinkronkan ulang.`
+          );
         }
+        return;
       }
 
-      // If API returns empty (mock fallback or newly created items in localStorage)
-      if (incomingItems.length === 0) {
-        const local = localStorage.getItem('sppg_barang_datang_items');
-        if (local) {
-          try {
-            incomingItems = JSON.parse(local);
-          } catch (_) {}
-        }
-      }
+      try {
+        if (!isAuto) setIsSyncing(true);
+        let incomingItems: any[] = [];
 
-      if (targetJenis === 'Bahan Baku') {
-        const filtered = incomingItems.filter((item: any) => item.jenisBarang === 'Bahan Baku' || !item.jenisBarang);
-        if (filtered.length === 0) {
-          triggerToast('Berhasil menarik data kedatangan: Seluruh 3 data riil bahan baku telah sinkron!');
-        } else {
-          // Merge incoming into realisasi
-          const newRealisasi: RealisasiBahanBakuItem[] = filtered.map((item: any, idx: number) => {
-            const matchedRab = rabBahanBaku.find(r => r.namaBarang.toLowerCase().includes(item.namaBarang.toLowerCase())) || rabBahanBaku[0];
-            const qtyRiil = Number(item.jumlahMasuk) || 280;
-            const hargaSatuan = matchedRab ? matchedRab.hargaSatuan : 15000;
-            const totalRiil = qtyRiil * hargaSatuan;
-            const totalRencana = (matchedRab?.totalAnggaran) || totalRiil;
-            return {
-              id: `RLS-SYNC-${Date.now()}-${idx}`,
-              idKedatangan: item.id || `BD-${Date.now()}-${idx}`,
-              tanggal: item.tanggalMasuk || new Date().toISOString().split('T')[0],
-              namaBarang: item.namaBarang,
-              satuan: item.satuan || 'Kg',
-              jumlahRencana: matchedRab?.totalKebutuhanKg || qtyRiil,
-              jumlahRealisasi: qtyRiil,
-              hargaSatuanRencana: hargaSatuan,
-              hargaSatuanRiil: hargaSatuan,
-              totalRencana,
-              totalRealisasi: totalRiil,
-              selisih: totalRiil - totalRencana,
-              persentaseRealisasi: Number(((totalRiil / (totalRencana || 1)) * 100).toFixed(1)),
-              kualitas: item.kualitasProduk || 'Baik',
-              supplier: item.keterangan?.includes('Supplier') ? item.keterangan : 'Penyedia Bahan SPPG',
-              petugasPenerima: item.petugas || 'Petugas Gudang',
-              statusKesesuaian: totalRiil === totalRencana ? 'Sesuai' : totalRiil > totalRencana ? 'Lebih' : 'Kurang'
-            };
+        try {
+          const res = await fetch('/api/v1/barang-datang');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              incomingItems = json.data;
+            }
+          }
+        } catch (_) {}
+
+        // Merge/fallback dengan localStorage sppg_barang_datang_items
+        try {
+          const local = localStorage.getItem('sppg_barang_datang_items');
+          if (local) {
+            const parsedLocal = JSON.parse(local);
+            if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+              if (incomingItems.length === 0) {
+                incomingItems = parsedLocal;
+              } else {
+                const existingIds = new Set(incomingItems.map((it: any) => it.id));
+                parsedLocal.forEach((it: any) => {
+                  if (!existingIds.has(it.id)) incomingItems.push(it);
+                });
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (targetJenis === 'Bahan Baku') {
+          const filtered = incomingItems.filter((item: any) => {
+            const itemDate = item.tanggal || item.tanggalMasuk || '';
+            const isBb = item.jenisBarang === 'Bahan Baku' || !item.jenisBarang;
+            return isBb && itemDate === targetDate;
           });
 
-          setRealisasiBahanBaku(prev => [...newRealisasi, ...prev.filter(p => !newRealisasi.some(n => n.namaBarang === p.namaBarang))]);
-          triggerToast(`Berhasil menyinkronkan ${filtered.length} item kedatangan bahan baku secara real-time!`);
+          if (filtered.length === 0) {
+            if (!isAuto) {
+              triggerToast(`Belum ada data kedatangan Bahan Baku pada tanggal ${targetDate}.`);
+            }
+          } else {
+            setRealisasiBahanBaku((prev) => {
+              const otherDates = prev.filter((p) => p.tanggal !== targetDate);
+              const existingForDate = prev.filter((p) => p.tanggal === targetDate);
+
+              const syncedForDate: RealisasiBahanBakuItem[] = filtered.map((item: any, idx: number) => {
+                const nama = item.namaBarang || 'Bahan Baku';
+                const existingMatch = existingForDate.find(
+                  (e) => e.idKedatangan === item.id || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
+                );
+                const matchedRab = rabBahanBaku.find((r) =>
+                  r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
+                  nama.toLowerCase().includes(r.namaBarang.toLowerCase())
+                );
+                const qtyRiil = Number(item.jumlahMasuk) || 0;
+                const qtyRencana =
+                  matchedRab?.pembulatan !== undefined
+                    ? Number(matchedRab.pembulatan)
+                    : matchedRab?.totalKebutuhanKg || existingMatch?.jumlahRencana || qtyRiil;
+                const hargaRencana = matchedRab?.hargaSatuan ?? existingMatch?.hargaSatuanRencana ?? 0;
+                const hargaRiil =
+                  existingMatch && existingMatch.hargaSatuanRiil > 0
+                    ? existingMatch.hargaSatuanRiil
+                    : hargaRencana;
+                const totalRencana = matchedRab?.totalAnggaran ?? Math.round(qtyRencana * hargaRencana);
+                const totalRiil = Math.round(qtyRiil * hargaRiil);
+                const selisih = totalRiil - totalRencana;
+
+                let statusKesesuaian: RealisasiBahanBakuItem['statusKesesuaian'] = 'Sesuai';
+                if (totalRiil === totalRencana) statusKesesuaian = 'Sesuai';
+                else if (hargaRiil !== hargaRencana && qtyRiil === qtyRencana) statusKesesuaian = 'Harga Berubah';
+                else if (totalRiil > totalRencana) statusKesesuaian = 'Lebih';
+                else statusKesesuaian = 'Kurang';
+
+                return {
+                  id: existingMatch?.id || `RLS-BB-${targetDate}-${item.id || idx}`,
+                  idKedatangan: item.id || `BD-${targetDate}-${idx}`,
+                  tanggal: targetDate,
+                  namaBarang: nama,
+                  satuan: item.satuan || matchedRab?.satuan || 'Kg',
+                  jumlahRencana: qtyRencana,
+                  jumlahRealisasi: qtyRiil,
+                  hargaSatuanRencana: hargaRencana,
+                  hargaSatuanRiil: hargaRiil,
+                  totalRencana,
+                  totalRealisasi: totalRiil,
+                  selisih,
+                  persentaseRealisasi: totalRencana > 0 ? Number(((totalRiil / totalRencana) * 100).toFixed(1)) : 100,
+                  kualitas: item.kualitas || item.kualitasProduk || 'Baik',
+                  supplier:
+                    item.supplier ||
+                    (item.keterangan?.includes('Supplier') ? item.keterangan : 'Penyedia Bahan SPPG'),
+                  petugasPenerima: item.petugas || 'Petugas Gudang',
+                  statusKesesuaian
+                };
+              });
+
+              const untouchedManualRows = existingForDate.filter(
+                (e) =>
+                  !syncedForDate.some(
+                    (s) => s.idKedatangan === e.idKedatangan || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
+                  )
+              );
+              return [...syncedForDate, ...untouchedManualRows, ...otherDates];
+            });
+
+            if (!isAuto) {
+              triggerToast(
+                `Berhasil menyinkronkan ${filtered.length} item kedatangan Bahan Baku tanggal ${targetDate}!`
+              );
+            }
+          }
+        } else {
+          const filtered = incomingItems.filter((item: any) => {
+            const itemDate = item.tanggal || item.tanggalMasuk || '';
+            return item.jenisBarang === 'Operasional' && itemDate === targetDate;
+          });
+
+          if (filtered.length === 0) {
+            if (!isAuto) {
+              triggerToast(`Belum ada data kedatangan Operasional pada tanggal ${targetDate}.`);
+            }
+          } else {
+            setRealisasiOperasional((prev) => {
+              const otherDates = prev.filter((p) => p.tanggal !== targetDate);
+              const existingForDate = prev.filter((p) => p.tanggal === targetDate);
+
+              const syncedForDate: RealisasiOperasionalItem[] = filtered.map((item: any, idx: number) => {
+                const nama = item.namaBarang || 'Barang Operasional';
+                const existingMatch = existingForDate.find(
+                  (e) => e.id === `RLS-OP-${targetDate}-${item.id}` || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
+                );
+                const matchedRab = rabOperasionalBarang.find((r) =>
+                  r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
+                  nama.toLowerCase().includes(r.namaBarang.toLowerCase())
+                );
+                const qtyRiil = Number(item.jumlahMasuk) || 0;
+                const existingHarga = existingMatch ? getHargaRiilOperasional(existingMatch) : 0;
+                const hargaRiil = existingHarga > 0 ? existingHarga : matchedRab?.hargaSatuan ?? 0;
+                const biayaRiil = qtyRiil > 0 ? Math.round(qtyRiil * hargaRiil) : Math.round(hargaRiil);
+                const anggaranRab = matchedRab?.totalAnggaran ?? existingMatch?.anggaranRab ?? 0;
+
+                return {
+                  id: existingMatch?.id || `RLS-OP-${targetDate}-${item.id || idx}`,
+                  tanggal: targetDate,
+                  namaBarang: nama,
+                  kategori: matchedRab?.kategori || 'Operasional Dapur',
+                  jumlahRiil: qtyRiil,
+                  satuan: item.satuan || matchedRab?.satuan || 'Pcs',
+                  hargaSatuanRiil: hargaRiil,
+                  biayaRiil,
+                  anggaranRab,
+                  selisih: biayaRiil - anggaranRab,
+                  supplierPetugas: item.petugas || item.supplier || 'Petugas Gudang / Penyedia',
+                  keterangan: item.keterangan || 'Sinkronisasi Kedatangan Barang'
+                };
+              });
+
+              const untouchedManualRows = existingForDate.filter(
+                (e) =>
+                  !syncedForDate.some(
+                    (s) => s.id === e.id || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
+                  )
+              );
+              return [...syncedForDate, ...untouchedManualRows, ...otherDates];
+            });
+
+            if (!isAuto) {
+              triggerToast(
+                `Berhasil menyinkronkan ${filtered.length} item kedatangan Operasional tanggal ${targetDate}!`
+              );
+            }
+          }
         }
-      } else {
-        const filtered = incomingItems.filter((item: any) => item.jenisBarang === 'Operasional');
-        triggerToast(`Berhasil menyinkronkan data kedatangan operasional real-time!`);
+      } catch (err) {
+        console.error('Error syncing:', err);
+        if (!isAuto) {
+          triggerToast('Sinkronisasi selesai: Data kedatangan barang telah diperbarui.');
+        }
+      } finally {
+        if (!isAuto) {
+          setTimeout(() => setIsSyncing(false), 500);
+        }
       }
-    } catch (err) {
-      console.error('Error syncing:', err);
-      triggerToast('Sinkronisasi selesai: Data kedatangan barang telah diperbarui.');
-    } finally {
-      setTimeout(() => setIsSyncing(false), 600);
-    }
-  };
+    },
+    [selectedDate, realisasiBbLockedMap, realisasiOpLockedMap, rabBahanBaku, rabOperasionalBarang]
+  );
 
   // Sinkronisasi Pagu Formula dari target PM
   const handleTarikDataPaguFormula = () => {
@@ -1222,9 +1511,11 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   }, []);
 
-  // Auto-sinkronisasi Food Cost saat tanggal aktif berubah (Kosongkan jika Food Cost belum direncanakan)
+  // Auto-sinkronisasi Food Cost & Realisasi saat tanggal aktif berubah
   useEffect(() => {
     syncRabBahanBakuWithFoodCost(selectedDate, false);
+    handleTarikDataKedatanganBarang('Bahan Baku', true, selectedDate);
+    handleTarikDataKedatanganBarang('Operasional', true, selectedDate);
     const isGkConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured') === 'true';
     if (isGkConfigured) {
       syncGajiKaryawanFromPetugas(selectedDate, true);
@@ -1233,7 +1524,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     if (isPicConfigured) {
       handleSyncPicDariPenerimaManfaat(selectedDate, false);
     }
-  }, [selectedDate, syncRabBahanBakuWithFoodCost, syncGajiKaryawanFromPetugas, handleSyncPicDariPenerimaManfaat]);
+  }, [
+    selectedDate,
+    syncRabBahanBakuWithFoodCost,
+    handleTarikDataKedatanganBarang,
+    syncGajiKaryawanFromPetugas,
+    handleSyncPicDariPenerimaManfaat
+  ]);
 
   // Determine current route configuration
   const routeMeta = useMemo(() => {
@@ -1382,6 +1679,17 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       };
     }
 
+    if (path.includes('/akuntan/cetak-laporan')) {
+      return {
+        key: 'cetak-laporan',
+        title: 'Cetak Laporan Keuangan Terpadu Akuntan',
+        badge: 'CETAK LAPORAN',
+        icon: Printer,
+        breadcrumbs: ['AKUNTAN', 'CETAK LAPORAN'],
+        description: 'Preview dokumen lengkap serta Cetak A4 dan Export PDF seluruh data Akuntan: RAB Bahan Baku, RAB Operasional (seluruh sub menu), Realisasi Bahan Baku, dan Realisasi Operasional.'
+      };
+    }
+
     // Default Akuntan Dashboard Overview
     return {
       key: 'overview',
@@ -1492,7 +1800,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   const sisaPaguOperasional = paguOperasionalValid - totalAkumulasiOperasional;
   const isMelebihiPaguOperasional = sisaPaguOperasional < 0;
 
-  const totalRealisasiBb = useMemo(() => realisasiBahanBaku.reduce((acc, c) => acc + c.totalRealisasi, 0), [realisasiBahanBaku]);
+  const totalRealisasiBb = useMemo(() => filteredRealisasiBb.reduce((acc, c) => acc + c.totalRealisasi, 0), [filteredRealisasiBb]);
   const efisiensiBb = useMemo(() => totalAnggaranRabBb - totalRealisasiBb, [totalAnggaranRabBb, totalRealisasiBb]);
 
   // Komponen Pagu Harian Operasional SPPG & Sinkronisasi Komponen Operasional
@@ -1757,22 +2065,34 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             )}
 
             {/* Realisasi Sync Button (Spesifikasi Teknis #3) */}
-            {(routeMeta.key === 'realisasi-bahan-baku' || routeMeta.key === 'realisasi-operasional') && (
-              <button
-                type="button"
-                onClick={() =>
-                  handleTarikDataKedatanganBarang(
-                    routeMeta.key === 'realisasi-bahan-baku' ? 'Bahan Baku' : 'Operasional'
-                  )
-                }
-                disabled={isSyncing}
-                className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-500/20 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                title="Tarik data kedatangan barang dan PO dari gudang secara real-time"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Kedatangan Barang'}</span>
-              </button>
-            )}
+            {(routeMeta.key === 'realisasi-bahan-baku' || routeMeta.key === 'realisasi-operasional') && (() => {
+              const isLockedNow =
+                routeMeta.key === 'realisasi-bahan-baku' ? isRealisasiBbLocked : isRealisasiOpLocked;
+              return (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleTarikDataKedatanganBarang(
+                      routeMeta.key === 'realisasi-bahan-baku' ? 'Bahan Baku' : 'Operasional'
+                    )
+                  }
+                  disabled={isSyncing || isLockedNow}
+                  className={`px-4 py-2 font-bold rounded-2xl text-xs shadow-md flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 ${
+                    isLockedNow
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-teal-500/20'
+                  }`}
+                  title={
+                    isLockedNow
+                      ? 'Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menyinkronkan ulang'
+                      : `Tarik data kedatangan barang tanggal ${selectedDate} secara real-time`
+                  }
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Menyinkronkan...' : '⚡ Tarik Data Kedatangan Barang'}</span>
+                </button>
+              );
+            })()}
 
             {/* Tombol Sinkronisasi Pagu Sewa Fasilitas Dapur */}
             {(routeMeta.key === 'berita-acara-fasilitas' || routeMeta.key === 'rekap-fasilitas') && (
@@ -1917,6 +2237,16 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               }`}
             >
               🚚 Realisasi Operasional
+            </button>
+            <button
+              onClick={() => onNavigate('/akuntan/cetak-laporan')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs ${
+                currentPath.includes('/akuntan/cetak-laporan')
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              🖨️ Cetak Laporan
             </button>
           </div>
         </div>
@@ -4299,184 +4629,523 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       )}
 
       {/* VIEW 9: REALISASI BAHAN BAKU (TARIK DATA KEDATANGAN BARANG) */}
-      {routeMeta.key === 'realisasi-bahan-baku' && (
-        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <PackageCheck className="w-5 h-5 text-teal-600" />
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
-                Realisasi Belanja Bahan Baku vs Rencana (Data PO & Kedatangan Barang)
-              </h2>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                {realisasiBahanBaku.length} Riwayat Realisasi
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleTarikDataKedatanganBarang('Bahan Baku')}
-                disabled={isSyncing}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>Tarik Data Kedatangan Barang</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const headers = ['No', 'Tanggal', 'Nama Barang', 'Satuan', 'Qty Rencana', 'Qty Realisasi', 'Harga Rencana (Rp)', 'Harga Riil (Rp)', 'Total Rencana (Rp)', 'Total Realisasi (Rp)', 'Selisih (Rp)', 'Kesesuaian', 'Supplier'];
-                  const data = realisasiBahanBaku.map((r, i) => [i + 1, r.tanggal, r.namaBarang, r.satuan, r.jumlahRencana, r.jumlahRealisasi, r.hargaSatuanRencana, r.hargaSatuanRiil, r.totalRencana, r.totalRealisasi, r.selisih, r.statusKesesuaian, r.supplier]);
-                  exportTableToExcel(data, headers, 'Realisasi_Bahan_Baku_SPPG', 'Realisasi Bahan Baku');
-                  triggerToast('Realisasi Bahan Baku berhasil diekspor!');
-                }}
-                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Export Excel</span>
-              </button>
-            </div>
-          </div>
+      {routeMeta.key === 'realisasi-bahan-baku' && (() => {
+        const totalRencanaTgl = filteredRealisasiBb.reduce((s, r) => s + (r.totalRencana || 0), 0);
+        const totalRealisasiTgl = filteredRealisasiBb.reduce((s, r) => s + (r.totalRealisasi || 0), 0);
+        const totalSelisihTgl = totalRealisasiTgl - totalRencanaTgl;
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-3 w-10 text-center">No</th>
-                  <th className="py-3 px-3">Tanggal Datang</th>
-                  <th className="py-3 px-3">Nama Bahan Baku</th>
-                  <th className="py-3 px-3 text-right">Rencana Qty</th>
-                  <th className="py-3 px-3 text-right">Realisasi Qty</th>
-                  <th className="py-3 px-3 text-right">Harga Riil</th>
-                  <th className="py-3 px-3 text-right">Total Realisasi</th>
-                  <th className="py-3 px-3 text-right">Selisih Deviasi</th>
-                  <th className="py-3 px-3 text-center">Kesesuaian</th>
-                  <th className="py-3 px-3">Supplier & Petugas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {realisasiBahanBaku.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                      {item.tanggal}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</div>
-                      <div className="text-[10px] text-slate-400">Kualitas: {item.kualitas}</div>
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-500 font-medium">
-                      {item.jumlahRencana} {item.satuan}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
-                      {item.jumlahRealisasi} {item.satuan}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium">{formatRupiah(item.hargaSatuanRiil)}</td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                      {formatRupiah(item.totalRealisasi)}
-                    </td>
-                    <td className={`py-2.5 px-3 text-right font-bold ${item.selisih > 0 ? 'text-amber-600' : item.selisih < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-                      {item.selisih > 0 ? `+${formatRupiah(item.selisih)}` : item.selisih < 0 ? `-${formatRupiah(Math.abs(item.selisih))}` : 'Rp 0'}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        item.statusKesesuaian === 'Sesuai'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : item.statusKesesuaian === 'Lebih'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}>
-                        {item.statusKesesuaian}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
-                      <div className="font-medium text-slate-800 dark:text-slate-200">{item.supplier}</div>
-                      <div className="text-[10px] text-slate-400">Penerima: {item.petugasPenerima}</div>
-                    </td>
+        return (
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
+            {/* Status Alert Banner: Terkunci vs Mode Edit */}
+            {isRealisasiBbLocked ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                    <Lock className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-amber-900 dark:text-amber-200">
+                      Status Data Tanggal {selectedDate}: Terkunci (Tersimpan)
+                    </div>
+                    <div className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                      Harga Riil Realisasi Bahan Baku tanggal {selectedDate} telah tersimpan dan dikunci. Klik tombol <strong>"Edit / Revisi Data"</strong> untuk mengubah harga riil kembali.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleEditRealisasiBb}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit / Revisi Data</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-teal-50 to-emerald-50/50 dark:from-teal-950/40 dark:to-emerald-950/20 border border-teal-200/80 dark:border-teal-800/60 rounded-2xl text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                    <Unlock className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-teal-900 dark:text-teal-200">
+                      Status Data Tanggal {selectedDate}: Mode Edit Aktif
+                    </div>
+                    <div className="text-[11px] text-teal-700/90 dark:text-teal-300/80">
+                      Anda dapat mengisi dan mengubah <strong>Harga Riil</strong> per barang pada tanggal <strong>{selectedDate}</strong>. Klik <strong>"Simpan Data"</strong> untuk mengunci hasil realisasi.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSimpanRealisasiBb}
+                  className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Data</span>
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <PackageCheck className="w-5 h-5 text-teal-600" />
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
+                  Realisasi Belanja Bahan Baku ({selectedDate})
+                </h2>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                  {filteredRealisasiBb.length} Item Tanggal {selectedDate}
+                </span>
+                {isRealisasiBbLocked ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <Lock className="w-3 h-3" />
+                    Terkunci
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                    <Unlock className="w-3 h-3" />
+                    Dapat Diedit
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {isRealisasiBbLocked ? (
+                  <button
+                    type="button"
+                    onClick={handleEditRealisasiBb}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit Data</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSimpanRealisasiBb}
+                    className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan Data</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleTarikDataKedatanganBarang('Bahan Baku')}
+                  disabled={isSyncing || isRealisasiBbLocked}
+                  className={`px-3.5 py-1.5 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all ${
+                    isRealisasiBbLocked
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 text-white'
+                  }`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Tarik Data Kedatangan Barang</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const headers = ['No', 'Tanggal', 'Nama Barang', 'Satuan', 'Qty Rencana', 'Qty Realisasi', 'Harga Rencana (Rp)', 'Harga Riil (Rp)', 'Total Rencana (Rp)', 'Total Realisasi (Rp)', 'Selisih (Rp)', 'Kesesuaian', 'Supplier'];
+                    const data = filteredRealisasiBb.map((r, i) => [i + 1, r.tanggal, r.namaBarang, r.satuan, r.jumlahRencana, r.jumlahRealisasi, r.hargaSatuanRencana, r.hargaSatuanRiil, r.totalRencana, r.totalRealisasi, r.selisih, r.statusKesesuaian, r.supplier]);
+                    exportTableToExcel(data, headers, `Realisasi_Bahan_Baku_${selectedDate}`, 'Realisasi Bahan Baku');
+                    triggerToast(`Realisasi Bahan Baku (${selectedDate}) berhasil diekspor!`);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Export Excel</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-3 w-10 text-center">No</th>
+                    <th className="py-3 px-3">Tanggal Datang</th>
+                    <th className="py-3 px-3">Nama Bahan Baku</th>
+                    <th className="py-3 px-3 text-right">Rencana Qty</th>
+                    <th className="py-3 px-3 text-right">Realisasi Qty</th>
+                    <th className="py-3 px-3 text-right min-w-[160px]">
+                      {isRealisasiBbLocked ? 'Harga Riil (Rp)' : 'Harga Riil (Rp) [Editable]'}
+                    </th>
+                    <th className="py-3 px-3 text-right">Total Realisasi</th>
+                    <th className="py-3 px-3 text-right">Selisih Deviasi</th>
+                    <th className="py-3 px-3 text-center">Kesesuaian</th>
+                    <th className="py-3 px-3">Supplier &amp; Petugas</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredRealisasiBb.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 px-4 text-center">
+                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center">
+                            <PackageCheck className="w-5 h-5" />
+                          </div>
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            Belum Ada Data Realisasi Bahan Baku pada Tanggal {selectedDate}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Tabel ini menampilkan data khusus untuk tanggal <strong>{selectedDate}</strong>. Klik tombol Tarik Data Kedatangan Barang atau ubah pilihan tanggal di bagian atas.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRealisasiBb.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                          {item.tanggal}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</div>
+                          <div className="text-[10px] text-slate-400">Kualitas: {item.kualitas}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-slate-500 font-medium tabular-nums">
+                          {item.jumlahRencana} {item.satuan}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {item.jumlahRealisasi} {item.satuan}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {isRealisasiBbLocked ? (
+                            <div className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+                              <span>{formatRupiah(item.hargaSatuanRiil)}</span>
+                              <Lock className="w-3 h-3 text-amber-500 shrink-0" />
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500/20">
+                              <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="500"
+                                value={item.hargaSatuanRiil === 0 ? '' : item.hargaSatuanRiil}
+                                placeholder="0"
+                                onChange={(e) => handleUpdateHargaRiilBb(item.id, parseFloat(e.target.value) || 0)}
+                                className="w-24 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden tabular-nums"
+                              />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100 tabular-nums">
+                          {formatRupiah(item.totalRealisasi)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-bold tabular-nums ${item.selisih > 0 ? 'text-amber-600' : item.selisih < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                          {item.selisih > 0 ? `+${formatRupiah(item.selisih)}` : item.selisih < 0 ? `-${formatRupiah(Math.abs(item.selisih))}` : 'Rp 0'}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            item.statusKesesuaian === 'Sesuai'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : item.statusKesesuaian === 'Lebih'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {item.statusKesesuaian}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
+                          <div className="font-medium text-slate-800 dark:text-slate-200">{item.supplier}</div>
+                          <div className="text-[10px] text-slate-400">Penerima: {item.petugasPenerima}</div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {filteredRealisasiBb.length > 0 && (
+                  <tfoot className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 font-black text-xs">
+                    <tr>
+                      <td colSpan={6} className="py-3 px-4 text-right uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                        Total Realisasi Bahan Baku ({selectedDate}):
+                      </td>
+                      <td className="py-3 px-3 text-right text-sm text-teal-800 dark:text-teal-300 tabular-nums">
+                        {formatRupiah(totalRealisasiTgl)}
+                      </td>
+                      <td className={`py-3 px-3 text-right text-xs tabular-nums ${totalSelisihTgl > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        {totalSelisihTgl > 0 ? `+${formatRupiah(totalSelisihTgl)}` : totalSelisihTgl < 0 ? `-${formatRupiah(Math.abs(totalSelisihTgl))}` : 'Rp 0'}
+                      </td>
+                      <td colSpan={2} className="py-3 px-3 text-[10px] font-bold text-slate-500">
+                        Total Rencana: {formatRupiah(totalRencanaTgl)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* VIEW 10: REALISASI OPERASIONAL (TARIK DATA KEDATANGAN BARANG) */}
-      {routeMeta.key === 'realisasi-operasional' && (
-        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Truck className="w-5 h-5 text-teal-600" />
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
-                Realisasi Belanja Operasional Riil (Barang & Energi)
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleTarikDataKedatanganBarang('Operasional')}
-                disabled={isSyncing}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>Tarik Data Kedatangan Barang</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const headers = ['No', 'Tanggal', 'Nama Barang Operasional', 'Kategori', 'Jumlah Riil', 'Satuan', 'Biaya Riil (Rp)', 'Anggaran RAB (Rp)', 'Supplier / Petugas'];
-                  const data = realisasiOperasional.map((r, i) => [i + 1, r.tanggal, r.namaBarang, r.kategori, r.jumlahRiil, r.satuan, r.biayaRiil, r.anggaranRab, r.supplierPetugas]);
-                  exportTableToExcel(data, headers, 'Realisasi_Operasional_SPPG', 'Realisasi Operasional');
-                  triggerToast('Realisasi Operasional berhasil diekspor!');
-                }}
-                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Export Excel</span>
-              </button>
-            </div>
-          </div>
+      {routeMeta.key === 'realisasi-operasional' && (() => {
+        const totalBiayaRiilOpTgl = filteredRealisasiOp.reduce((s, r) => s + (r.biayaRiil || 0), 0);
+        const totalAnggaranOpTgl = filteredRealisasiOp.reduce((s, r) => s + (r.anggaranRab || 0), 0);
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-3 w-10 text-center">No</th>
-                  <th className="py-3 px-3">Tanggal</th>
-                  <th className="py-3 px-3">Nama Barang Operasional</th>
-                  <th className="py-3 px-3">Kategori</th>
-                  <th className="py-3 px-3 text-right">Jumlah Riil</th>
-                  <th className="py-3 px-3 text-right">Biaya Riil (Rp)</th>
-                  <th className="py-3 px-3 text-right">Anggaran RAB (Rp)</th>
-                  <th className="py-3 px-3">Petugas / Penyedia</th>
-                  <th className="py-3 px-3">Keterangan</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {realisasiOperasional.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{item.tanggal}</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                        {item.kategori}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
-                      {item.jumlahRiil} {item.satuan}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                      {formatRupiah(item.biayaRiil)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-slate-500">{formatRupiah(item.anggaranRab)}</td>
-                    <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">{item.supplierPetugas}</td>
-                    <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
+        return (
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
+            {/* Status Alert Banner: Terkunci vs Mode Edit */}
+            {isRealisasiOpLocked ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                    <Lock className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-amber-900 dark:text-amber-200">
+                      Status Data Tanggal {selectedDate}: Terkunci (Tersimpan)
+                    </div>
+                    <div className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                      Harga Riil Realisasi Operasional tanggal {selectedDate} telah tersimpan dan dikunci. Klik tombol <strong>"Edit / Revisi Data"</strong> untuk merevisi kembali.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleEditRealisasiOp}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit / Revisi Data</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-teal-50 to-emerald-50/50 dark:from-teal-950/40 dark:to-emerald-950/20 border border-teal-200/80 dark:border-teal-800/60 rounded-2xl text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                    <Unlock className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-teal-900 dark:text-teal-200">
+                      Status Data Tanggal {selectedDate}: Mode Edit Aktif
+                    </div>
+                    <div className="text-[11px] text-teal-700/90 dark:text-teal-300/80">
+                      Anda dapat mengisi dan mengubah <strong>Harga Riil</strong> per item operasional pada tanggal <strong>{selectedDate}</strong>. Klik <strong>"Simpan Data"</strong> untuk mengunci data.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSimpanRealisasiOp}
+                  className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Data</span>
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Truck className="w-5 h-5 text-teal-600" />
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
+                  Realisasi Belanja Operasional Riil ({selectedDate})
+                </h2>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                  {filteredRealisasiOp.length} Item Tanggal {selectedDate}
+                </span>
+                {isRealisasiOpLocked ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <Lock className="w-3 h-3" />
+                    Terkunci
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                    <Unlock className="w-3 h-3" />
+                    Dapat Diedit
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {isRealisasiOpLocked ? (
+                  <button
+                    type="button"
+                    onClick={handleEditRealisasiOp}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit Data</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSimpanRealisasiOp}
+                    className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan Data</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleTarikDataKedatanganBarang('Operasional')}
+                  disabled={isSyncing || isRealisasiOpLocked}
+                  className={`px-3.5 py-1.5 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all ${
+                    isRealisasiOpLocked
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 text-white'
+                  }`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Tarik Data Kedatangan Barang</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const headers = ['No', 'Tanggal', 'Nama Barang Operasional', 'Kategori', 'Jumlah Riil', 'Satuan', 'Harga Riil (Rp)', 'Total Biaya Riil (Rp)', 'Anggaran RAB (Rp)', 'Supplier / Petugas'];
+                    const data = filteredRealisasiOp.map((r, i) => [
+                      i + 1,
+                      r.tanggal,
+                      r.namaBarang,
+                      r.kategori,
+                      r.jumlahRiil,
+                      r.satuan,
+                      getHargaRiilOperasional(r),
+                      r.biayaRiil,
+                      r.anggaranRab,
+                      r.supplierPetugas
+                    ]);
+                    exportTableToExcel(data, headers, `Realisasi_Operasional_${selectedDate}`, 'Realisasi Operasional');
+                    triggerToast(`Realisasi Operasional (${selectedDate}) berhasil diekspor!`);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Export Excel</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-3 w-10 text-center">No</th>
+                    <th className="py-3 px-3">Tanggal</th>
+                    <th className="py-3 px-3">Nama Barang Operasional</th>
+                    <th className="py-3 px-3">Kategori</th>
+                    <th className="py-3 px-3 text-right">Jumlah Riil</th>
+                    <th className="py-3 px-3 text-right min-w-[160px]">
+                      {isRealisasiOpLocked ? 'Harga Riil (Rp)' : 'Harga Riil (Rp) [Editable]'}
+                    </th>
+                    <th className="py-3 px-3 text-right">Total Biaya Riil (Rp)</th>
+                    <th className="py-3 px-3 text-right">Anggaran RAB (Rp)</th>
+                    <th className="py-3 px-3">Petugas / Penyedia</th>
+                    <th className="py-3 px-3">Keterangan</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredRealisasiOp.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 px-4 text-center">
+                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center">
+                            <Truck className="w-5 h-5" />
+                          </div>
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            Belum Ada Data Realisasi Operasional pada Tanggal {selectedDate}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Tabel ini menampilkan data khusus untuk tanggal <strong>{selectedDate}</strong>. Klik tombol Tarik Data Kedatangan Barang atau ubah pilihan tanggal di bagian atas.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRealisasiOp.map((item, idx) => {
+                      const hargaRiilVal = getHargaRiilOperasional(item);
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                          <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{item.tanggal}</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-slate-100">{item.namaBarang}</td>
+                          <td className="py-2.5 px-3">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                              {item.kategori}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                            {item.jumlahRiil} {item.satuan}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {isRealisasiOpLocked ? (
+                              <div className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+                                <span>{formatRupiah(hargaRiilVal)}</span>
+                                <Lock className="w-3 h-3 text-amber-500 shrink-0" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-teal-500 rounded-lg px-2 py-1 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500/20">
+                                <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="500"
+                                  value={hargaRiilVal === 0 ? '' : hargaRiilVal}
+                                  placeholder="0"
+                                  onChange={(e) => handleUpdateHargaRiilOp(item.id, parseFloat(e.target.value) || 0)}
+                                  className="w-24 text-right text-xs font-bold text-slate-900 dark:text-slate-100 bg-transparent outline-hidden tabular-nums"
+                                />
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100 tabular-nums">
+                            {formatRupiah(item.biayaRiil)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-medium text-slate-500 tabular-nums">
+                            {formatRupiah(item.anggaranRab)}
+                          </td>
+                          <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">{item.supplierPetugas}</td>
+                          <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.keterangan}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {filteredRealisasiOp.length > 0 && (
+                  <tfoot className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 font-black text-xs">
+                    <tr>
+                      <td colSpan={6} className="py-3 px-4 text-right uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                        Total Realisasi Operasional ({selectedDate}):
+                      </td>
+                      <td className="py-3 px-3 text-right text-sm text-teal-800 dark:text-teal-300 tabular-nums">
+                        {formatRupiah(totalBiayaRiilOpTgl)}
+                      </td>
+                      <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400 tabular-nums">
+                        {formatRupiah(totalAnggaranOpTgl)}
+                      </td>
+                      <td colSpan={2} className="py-3 px-3 text-[10px] font-bold text-slate-500">
+                        Selisih: {formatRupiah(totalBiayaRiilOpTgl - totalAnggaranOpTgl)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
-        </div>
+        );
+      })()}
+
+      {/* VIEW 12: CETAK LAPORAN TERPADU MODUL AKUNTAN */}
+      {routeMeta.key === 'cetak-laporan' && (
+        <CetakLaporanAkuntanView
+          selectedDate={selectedDate}
+          beneficiaryInfo={beneficiaryInfo}
+          rabBahanBaku={rabBahanBaku}
+          rabOperasionalBarang={rabOperasionalBarang}
+          gajiKaryawan={gajiKaryawan}
+          insentifPicLembaga={insentifPicLembaga}
+          insentifPicPosyandu={insentifPicPosyandu}
+          gajiStaf={gajiStaf}
+          operasionalLainnya={operasionalLainnya}
+          insentifFasilitas={insentifFasilitas}
+          realisasiBahanBaku={filteredRealisasiBb}
+          realisasiOperasional={filteredRealisasiOp}
+          isRealisasiBbLocked={isRealisasiBbLocked}
+          isRealisasiOpLocked={isRealisasiOpLocked}
+          onToast={triggerToast}
+        />
       )}
 
       {/* VIEW 11: OVERVIEW DASHBOARD UTAMA AKUNTAN (REAL-TIME RECHARTS VISUALS) */}
@@ -4491,8 +5160,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             gajiStaf={gajiStaf}
             operasionalLainnya={operasionalLainnya}
             insentifFasilitas={insentifFasilitas}
-            realisasiBahanBaku={realisasiBahanBaku}
-            realisasiOperasional={realisasiOperasional}
+            realisasiBahanBaku={filteredRealisasiBb}
+            realisasiOperasional={filteredRealisasiOp}
             onNavigate={onNavigate}
             onRefreshData={() => handleTarikDataKedatanganBarang('Bahan Baku')}
           />

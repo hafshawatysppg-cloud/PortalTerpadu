@@ -18,7 +18,8 @@ export type AkuntanSubPath =
   | '/akuntan/insentif-fasilitas/berita-acara'
   | '/akuntan/insentif-fasilitas/rekap'
   | '/akuntan/realisasi-bahan-baku'
-  | '/akuntan/realisasi-operasional';
+  | '/akuntan/realisasi-operasional'
+  | '/akuntan/cetak-laporan';
 
 export interface RabBahanBakuItem {
   id: string;
@@ -175,6 +176,7 @@ export interface RealisasiOperasionalItem {
   kategori: string;
   satuan: string;
   jumlahRiil: number;
+  hargaSatuanRiil?: number;
   biayaRiil: number;
   anggaranRab: number;
   selisih: number;

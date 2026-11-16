@@ -251,6 +251,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
         title: 'Realisasi Operasional (Tarik Data Kedatangan Barang)',
         path: '/akuntan/realisasi-operasional',
         icon: Icons.Truck
+      },
+      {
+        title: 'Cetak Laporan',
+        path: '/akuntan/cetak-laporan',
+        icon: Icons.Printer
       }
     ]
   };
