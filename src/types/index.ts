@@ -936,6 +936,10 @@ export interface DistributionReport {
   jamPenjemputan: string; // HH:mm
   dokPengiriman?: string; // photo base64/URL
   dokPenjemputan?: string; // photo base64/URL
+  dokPengirimanDriveId?: string;
+  dokPengirimanDriveUrl?: string;
+  dokPenjemputanDriveId?: string;
+  dokPenjemputanDriveUrl?: string;
   catatan?: string;
   status?: 'Selesai' | 'Dalam Proses' | 'Dibatalkan';
   createdBy?: string;

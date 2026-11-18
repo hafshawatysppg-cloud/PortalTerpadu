@@ -129,6 +129,10 @@ router.post('/reports', async (req: Request, res: Response): Promise<void> => {
     jamPenjemputan,
     dokPengiriman,
     dokPenjemputan,
+    dokPengirimanDriveId,
+    dokPengirimanDriveUrl,
+    dokPenjemputanDriveId,
+    dokPenjemputanDriveUrl,
     catatan,
     status
   } = req.body;
@@ -152,6 +156,10 @@ router.post('/reports', async (req: Request, res: Response): Promise<void> => {
     jamPenjemputan: jamPenjemputan || '12:00',
     dokPengiriman: dokPengiriman || '',
     dokPenjemputan: dokPenjemputan || '',
+    dokPengirimanDriveId: dokPengirimanDriveId || '',
+    dokPengirimanDriveUrl: dokPengirimanDriveUrl || '',
+    dokPenjemputanDriveId: dokPenjemputanDriveId || '',
+    dokPenjemputanDriveUrl: dokPenjemputanDriveUrl || '',
     catatan: catatan || '',
     status: status || 'Selesai',
     createdBy: driverNama || 'Petugas Distribusi',
