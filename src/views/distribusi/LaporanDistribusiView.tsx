@@ -36,6 +36,48 @@ import { GlobalReportHeader } from '../../components/document/GlobalReportHeader
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../../components/document/DocumentSignatures';
 
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/MASUKKAN_URL_DEPLOYMENT_ANDA/exec';
+
+function compressImageToBase64(
+  file: File,
+  maxWidth = 1024,
+  quality = 0.75
+): Promise<{ base64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = (event.target?.result as string) || '';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context tidak tersedia'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        const base64String = dataUrl.split(',')[1] || '';
+        resolve({ base64: base64String, mimeType: 'image/jpeg' });
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+}
+
 interface LaporanDistribusiViewProps {
   currentPath?: string;
   onNavigate?: (path: string) => void;
@@ -104,6 +146,9 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
   const [dailyBeneficiaries, setDailyBeneficiaries] = useState<DailyBeneficiaryRecord[]>([]);
   const [isSyncedFromDaily, setIsSyncedFromDaily] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [dokPengirimanFile, setDokPengirimanFile] = useState<File | null>(null);
+  const [dokPenjemputanFile, setDokPenjemputanFile] = useState<File | null>(null);
+  const [waSubmitStatus, setWaSubmitStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // --- DATA DISTRIBUSI FILTER STATE ---
   const [filterStartDate, setFilterStartDate] = useState<string>(todayStr);
@@ -301,6 +346,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
       return;
     }
 
+    if (field === 'dokPengiriman') {
+      setDokPengirimanFile(file);
+    } else {
+      setDokPenjemputanFile(file);
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
@@ -310,9 +361,84 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     reader.readAsDataURL(file);
   };
 
+  // Kirim Laporan beserta Foto Terkompresi ke Google Apps Script -> WhatsApp (via Fonnte)
+  async function kirimLaporanKeWA(
+    formDataObj: {
+      tanggal: string;
+      tujuan: string;
+      porsi: number;
+      keterangan: string;
+    },
+    fileFoto: File | null
+  ): Promise<boolean> {
+    try {
+      let base64 = '';
+      let mimeType = 'image/jpeg';
+
+      if (fileFoto) {
+        const compressed = await compressImageToBase64(fileFoto);
+        base64 = compressed.base64;
+        mimeType = compressed.mimeType;
+      }
+
+      const payload = {
+        tanggal: formDataObj.tanggal,
+        tujuan: formDataObj.tujuan,
+        porsi: formDataObj.porsi,
+        keterangan: formDataObj.keterangan,
+        imageBase64: base64,
+        mimeType: mimeType
+      };
+
+      const response = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (result.status === 'success') {
+        const successMsg = `Laporan Distribusi untuk ${formDataObj.tujuan} berhasil dikirim ke grup WhatsApp!`;
+        setWaSubmitStatus({ type: 'success', text: successMsg });
+        showToast(successMsg, 'success');
+        setFormData({
+          tanggal: todayStr,
+          driverId: drivers[0]?.id || '',
+          instansiId: '',
+          namaInstansi: '',
+          jumlahPenerimaManfaat: 0,
+          jamPengiriman: '07:30',
+          jamPenjemputan: '11:30',
+          dokPengiriman: '',
+          dokPenjemputan: '',
+          catatan: '',
+          status: 'Selesai'
+        });
+        setDokPengirimanFile(null);
+        setDokPenjemputanFile(null);
+        setSelectedLocationDetail('');
+        return true;
+      } else {
+        throw new Error(result.message || 'Gagal mengirim ke WhatsApp');
+      }
+    } catch (error: any) {
+      console.error('Error:', error);
+      const errMsg = error?.message
+        ? `Gagal mengirim ke WhatsApp: ${error.message}`
+        : 'Gagal mengirim laporan ke WhatsApp.';
+      setWaSubmitStatus({ type: 'error', text: errMsg });
+      showToast(errMsg, 'error');
+      return false;
+    }
+  }
+
   // Submit Form Distribusi
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    setWaSubmitStatus(null);
 
     if (!formData.tanggal) {
       showToast('Tanggal pengiriman wajib diisi.', 'error');
@@ -351,37 +477,38 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
       const json = await res.json();
 
       if (json.success && json.data) {
-        showToast(`Laporan Distribusi untuk ${formData.namaInstansi} berhasil disimpan!`, 'success');
-
-        // Update local state
         setReports(prev => [json.data, ...prev]);
 
-        // Reset form
-        setFormData({
-          tanggal: todayStr,
-          driverId: drivers[0]?.id || '',
-          instansiId: '',
-          namaInstansi: '',
-          jumlahPenerimaManfaat: 0,
-          jamPengiriman: '07:30',
-          jamPenjemputan: '11:30',
-          dokPengiriman: '',
-          dokPenjemputan: '',
-          catatan: '',
-          status: 'Selesai'
-        });
-        setSelectedLocationDetail('');
+        const keteranganWa = formData.catatan?.trim()
+          ? `${formData.catatan.trim()} | Driver: ${driverNama} (${driverKendaraan}) | Antar: ${formData.jamPengiriman} | Jemput: ${formData.jamPenjemputan}`
+          : `Driver: ${driverNama} (${driverKendaraan}) | Antar: ${formData.jamPengiriman} | Jemput: ${formData.jamPenjemputan}`;
 
-        // Option to switch to Data Distribusi tab
-        setTimeout(() => {
-          handleTabChange('data');
-        }, 1200);
+        const fileFoto = dokPengirimanFile || dokPenjemputanFile;
+        const waSuccess = await kirimLaporanKeWA(
+          {
+            tanggal: formData.tanggal,
+            tujuan: formData.namaInstansi,
+            porsi: formData.jumlahPenerimaManfaat,
+            keterangan: keteranganWa
+          },
+          fileFoto
+        );
+
+        if (waSuccess) {
+          setTimeout(() => {
+            handleTabChange('data');
+          }, 1200);
+        }
       } else {
-        showToast(json.message || 'Gagal menyimpan laporan.', 'error');
+        const failMsg = json.message || 'Gagal menyimpan laporan.';
+        setWaSubmitStatus({ type: 'error', text: failMsg });
+        showToast(failMsg, 'error');
       }
     } catch (err) {
       console.error('Error saving distribution report:', err);
-      showToast('Terjadi kesalahan jaringan saat menyimpan laporan.', 'error');
+      const netMsg = 'Terjadi kesalahan jaringan saat menyimpan laporan.';
+      setWaSubmitStatus({ type: 'error', text: netMsg });
+      showToast(netMsg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -551,6 +678,11 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     const samplePengiriman = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=500';
     const samplePenjemputan = 'https://images.unsplash.com/photo-1580674684081-7617fbf3d745?w=500';
     const photo = type === 'pengiriman' ? samplePengiriman : samplePenjemputan;
+    if (field === 'dokPengiriman') {
+      setDokPengirimanFile(null);
+    } else {
+      setDokPenjemputanFile(null);
+    }
     setFormData(prev => ({ ...prev, [field]: photo }));
     showToast(`Dokumentasi ${type} sampel berhasil dipilih.`, 'info');
   };
@@ -566,7 +698,11 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
             ? 'bg-rose-600 text-white border-rose-500'
             : 'bg-blue-600 text-white border-blue-500'
         }`}>
-          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          {toastMessage.type === 'error' ? (
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          )}
           <span className="text-sm font-medium">{toastMessage.text}</span>
         </div>
       )}
@@ -853,7 +989,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, dokPengiriman: '' }))}
+                      onClick={() => {
+                        setDokPengirimanFile(null);
+                        setFormData(prev => ({ ...prev, dokPengiriman: '' }));
+                      }}
                       className="absolute top-2 right-2 bg-rose-600 text-white p-1.5 rounded-lg shadow hover:bg-rose-700 transition"
                       title="Hapus Foto"
                     >
@@ -900,7 +1039,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, dokPenjemputan: '' }))}
+                      onClick={() => {
+                        setDokPenjemputanFile(null);
+                        setFormData(prev => ({ ...prev, dokPenjemputan: '' }));
+                      }}
                       className="absolute top-2 right-2 bg-rose-600 text-white p-1.5 rounded-lg shadow hover:bg-rose-700 transition"
                       title="Hapus Foto"
                     >
@@ -940,17 +1082,35 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
               />
             </div>
 
+            {/* Notifikasi Status Pengiriman ke WhatsApp */}
+            {waSubmitStatus && (
+              <div
+                className={`flex items-start gap-2.5 p-3.5 rounded-xl border text-xs font-medium ${
+                  waSubmitStatus.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                    : 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                }`}
+              >
+                {waSubmitStatus.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <span>{waSubmitStatus.text}</span>
+              </div>
+            )}
+
             {/* Prominent Save Button at Bottom */}
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all text-base disabled:opacity-50"
+                className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all text-base disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-5 h-5 animate-spin" />
-                    Menyimpan Laporan...
+                    Mengirim ke WA...
                   </>
                 ) : (
                   <>
