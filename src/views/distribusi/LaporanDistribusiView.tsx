@@ -36,7 +36,7 @@ import { GlobalReportHeader } from '../../components/document/GlobalReportHeader
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../../components/document/DocumentSignatures';
 
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/MASUKKAN_URL_DEPLOYMENT_ANDA/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwgdnw6oZl3-Nji0JZbE7jCDgLr2Uw_DP9wQBrhcShq3CXTXqQdK016eA-jLjWrme8/exec';
 
 function compressImageToBase64(
   file: File,
