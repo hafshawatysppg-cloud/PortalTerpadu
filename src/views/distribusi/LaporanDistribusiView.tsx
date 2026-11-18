@@ -28,31 +28,13 @@ import {
   ChevronRight,
   ShieldCheck,
   RefreshCw,
-  Sparkles,
-  ExternalLink,
-  FolderOpen,
-  CloudUpload,
-  LogOut
+  Sparkles
 } from 'lucide-react';
-import type { User as FirebaseUser } from 'firebase/auth';
 import { DriverStaff, DistributionReport, BeneficiaryLocation, DailyBeneficiaryRecord } from '../../types';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 import { GlobalReportHeader } from '../../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../../components/document/DocumentSignatures';
-import { GoogleSignInButton } from '../../components/common/GoogleSignInButton';
-import {
-  DISTRIBUTION_DRIVE_FOLDER_ID,
-  DISTRIBUTION_DRIVE_FOLDER_URL,
-  DriveUploadedFile,
-  initGoogleDriveAuth,
-  googleDriveSignIn,
-  googleDriveLogout,
-  getGoogleDriveAccessToken,
-  dataUrlToCompressedJpeg,
-  uploadImageToDriveFolder,
-  listDriveFolderFiles
-} from '../../lib/googleDrive';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/MASUKKAN_URL_DEPLOYMENT_ANDA/exec';
 
@@ -168,16 +150,6 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
   const [dokPenjemputanFile, setDokPenjemputanFile] = useState<File | null>(null);
   const [waSubmitStatus, setWaSubmitStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // --- GOOGLE DRIVE INTEGRATION STATE ---
-  const [needsDriveAuth, setNeedsDriveAuth] = useState<boolean>(!getGoogleDriveAccessToken());
-  const [driveUser, setDriveUser] = useState<FirebaseUser | null>(null);
-  const [isDriveLoggingIn, setIsDriveLoggingIn] = useState<boolean>(false);
-  const [driveUploadStatus, setDriveUploadStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
-  const [isDriveGalleryOpen, setIsDriveGalleryOpen] = useState<boolean>(false);
-  const [driveFiles, setDriveFiles] = useState<DriveUploadedFile[]>([]);
-  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState<boolean>(false);
-  const [syncingReportId, setSyncingReportId] = useState<string | null>(null);
-
   // --- DATA DISTRIBUSI FILTER STATE ---
   const [filterStartDate, setFilterStartDate] = useState<string>(todayStr);
   const [filterEndDate, setFilterEndDate] = useState<string>(todayStr);
@@ -203,21 +175,6 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
   // Load Initial Data from API
   useEffect(() => {
     fetchInitialData();
-  }, []);
-
-  // Initialize Google Drive Auth Listener (in-memory token only)
-  useEffect(() => {
-    const unsubscribe = initGoogleDriveAuth(
-      (user) => {
-        setDriveUser(user);
-        setNeedsDriveAuth(false);
-      },
-      () => {
-        setDriveUser(null);
-        setNeedsDriveAuth(true);
-      }
-    );
-    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -478,180 +435,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     }
   }
 
-  const handleDriveLogin = async () => {
-    setIsDriveLoggingIn(true);
-    try {
-      const { user } = await googleDriveSignIn();
-      setDriveUser(user);
-      setNeedsDriveAuth(false);
-      setDriveUploadStatus({
-        type: 'success',
-        text: `Terhubung ke Google Drive (${user.email || user.displayName || 'Akun Google'}). Foto dokumentasi akan otomatis tersimpan ke folder tujuan.`
-      });
-      showToast('Berhasil terhubung ke Google Drive.', 'success');
-    } catch (err: any) {
-      console.error('Google Drive login failed:', err);
-      const errMsg = err?.message || 'Gagal menghubungkan akun Google Drive.';
-      setDriveUploadStatus({ type: 'error', text: errMsg });
-      showToast(errMsg, 'error');
-    } finally {
-      setIsDriveLoggingIn(false);
-    }
-  };
-
-  const handleDriveLogout = async () => {
-    await googleDriveLogout();
-    setDriveUser(null);
-    setNeedsDriveAuth(true);
-    setDriveFiles([]);
-    setDriveUploadStatus(null);
-    showToast('Koneksi Google Drive diputuskan.', 'info');
-  };
-
-  const loadDriveFolderGallery = async () => {
-    if (!getGoogleDriveAccessToken()) {
-      setNeedsDriveAuth(true);
-      showToast('Silakan Sign in with Google terlebih dahulu untuk melihat isi folder Drive.', 'info');
-      return;
-    }
-    setIsLoadingDriveFiles(true);
-    try {
-      const files = await listDriveFolderFiles(DISTRIBUTION_DRIVE_FOLDER_ID);
-      setDriveFiles(files);
-    } catch (err: any) {
-      console.error('Failed to list Drive folder files:', err);
-      if (err?.message === 'AUTH_REQUIRED' || err?.message === 'TOKEN_EXPIRED') {
-        setNeedsDriveAuth(true);
-        showToast('Sesi Google Drive berakhir. Silakan Sign in with Google kembali.', 'error');
-      } else {
-        showToast(`Gagal memuat folder Drive: ${err?.message || 'Unknown error'}`, 'error');
-      }
-    } finally {
-      setIsLoadingDriveFiles(false);
-    }
-  };
-
-  const handleOpenDriveGallery = async () => {
-    setIsDriveGalleryOpen(true);
-    if (getGoogleDriveAccessToken()) {
-      await loadDriveFolderGallery();
-    }
-  };
-
-  const uploadSinglePhotoToDrive = async (params: {
-    file: File | null;
-    dataUrlOrUrl: string;
-    fileName: string;
-    description: string;
-  }) => {
-    let base64 = '';
-    let mimeType = 'image/jpeg';
-
-    if (params.file) {
-      const compressed = await compressImageToBase64(params.file);
-      base64 = compressed.base64;
-      mimeType = compressed.mimeType;
-    } else if (params.dataUrlOrUrl) {
-      const compressed = await dataUrlToCompressedJpeg(params.dataUrlOrUrl);
-      base64 = compressed.base64;
-      mimeType = compressed.mimeType;
-    }
-
-    if (!base64) {
-      throw new Error('Data foto tidak valid untuk diunggah ke Google Drive.');
-    }
-
-    return uploadImageToDriveFolder({
-      base64,
-      mimeType,
-      fileName: params.fileName,
-      description: params.description,
-      folderId: DISTRIBUTION_DRIVE_FOLDER_ID
-    });
-  };
-
-  const handleSyncReportPhotosToDrive = async (report: DistributionReport) => {
-    if (!getGoogleDriveAccessToken()) {
-      setNeedsDriveAuth(true);
-      showToast('Hubungkan Google Drive (Sign in with Google) terlebih dahulu untuk mengunggah foto.', 'error');
-      return;
-    }
-
-    const needKirim = Boolean(report.dokPengiriman && !report.dokPengirimanDriveUrl);
-    const needJemput = Boolean(report.dokPenjemputan && !report.dokPenjemputanDriveUrl);
-    if (!needKirim && !needJemput) {
-      showToast('Semua foto laporan ini sudah tersimpan di Google Drive.', 'info');
-      return;
-    }
-
-    setSyncingReportId(report.id);
-    const sanitize = (val: string) =>
-      val.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'Lokasi';
-
-    try {
-      let dokPengirimanDriveId = report.dokPengirimanDriveId || '';
-      let dokPengirimanDriveUrl = report.dokPengirimanDriveUrl || '';
-      let dokPenjemputanDriveId = report.dokPenjemputanDriveId || '';
-      let dokPenjemputanDriveUrl = report.dokPenjemputanDriveUrl || '';
-
-      if (needKirim && report.dokPengiriman) {
-        const uploaded = await uploadSinglePhotoToDrive({
-          file: null,
-          dataUrlOrUrl: report.dokPengiriman,
-          fileName: `${report.tanggal}_${sanitize(report.namaInstansi)}_Pengiriman_${Date.now()}.jpg`,
-          description: `Dokumentasi Pengiriman - ${report.namaInstansi} | Tanggal: ${report.tanggal} | Driver: ${report.driverNama} | Porsi: ${report.jumlahPenerimaManfaat}`
-        });
-        dokPengirimanDriveId = uploaded.id;
-        dokPengirimanDriveUrl = uploaded.webViewLink;
-      }
-
-      if (needJemput && report.dokPenjemputan) {
-        const uploaded = await uploadSinglePhotoToDrive({
-          file: null,
-          dataUrlOrUrl: report.dokPenjemputan,
-          fileName: `${report.tanggal}_${sanitize(report.namaInstansi)}_Penjemputan_${Date.now()}.jpg`,
-          description: `Dokumentasi Penjemputan - ${report.namaInstansi} | Tanggal: ${report.tanggal} | Driver: ${report.driverNama} | Porsi: ${report.jumlahPenerimaManfaat}`
-        });
-        dokPenjemputanDriveId = uploaded.id;
-        dokPenjemputanDriveUrl = uploaded.webViewLink;
-      }
-
-      const res = await fetch(`/api/v1/distribusi/reports/${report.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dokPengirimanDriveId,
-          dokPengirimanDriveUrl,
-          dokPenjemputanDriveId,
-          dokPenjemputanDriveUrl
-        })
-      });
-      const json = await res.json();
-      if (json.success && json.data) {
-        setReports(prev => prev.map(r => (r.id === report.id ? json.data : r)));
-        if (selectedReportDetail?.id === report.id) {
-          setSelectedReportDetail(json.data);
-        }
-        showToast(`Foto dokumentasi ${report.namaInstansi} berhasil disimpan ke Google Drive!`, 'success');
-      }
-    } catch (err: any) {
-      console.error('Error syncing report photos to Drive:', err);
-      if (err?.message === 'AUTH_REQUIRED' || err?.message === 'TOKEN_EXPIRED') {
-        setNeedsDriveAuth(true);
-        showToast('Sesi Google Drive berakhir. Silakan Sign in with Google kembali.', 'error');
-      } else {
-        showToast(`Gagal mengunggah foto ke Google Drive: ${err?.message || 'Error'}`, 'error');
-      }
-    } finally {
-      setSyncingReportId(null);
-    }
-  };
-
   // Submit Form Distribusi
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     setWaSubmitStatus(null);
-    setDriveUploadStatus(null);
 
     if (!formData.tanggal) {
       showToast('Tanggal pengiriman wajib diisi.', 'error');
@@ -673,86 +460,11 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
 
     setIsSubmitting(true);
 
-    let dokPengirimanDriveId = '';
-    let dokPengirimanDriveUrl = '';
-    let dokPenjemputanDriveId = '';
-    let dokPenjemputanDriveUrl = '';
-    const uploadedDriveLinks: string[] = [];
-
-    const hasPhotos = Boolean(formData.dokPengiriman || formData.dokPenjemputan);
-    const sanitize = (val: string) =>
-      val.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'Lokasi';
-
-    // 1. Upload photos directly to Google Drive target folder if connected
-    if (hasPhotos) {
-      if (getGoogleDriveAccessToken()) {
-        try {
-          const uploadedLabels: string[] = [];
-
-          if (formData.dokPengiriman) {
-            const uploaded = await uploadSinglePhotoToDrive({
-              file: dokPengirimanFile,
-              dataUrlOrUrl: formData.dokPengiriman,
-              fileName: `${formData.tanggal}_${sanitize(formData.namaInstansi)}_Pengiriman_${Date.now()}.jpg`,
-              description: `Dokumentasi Pengiriman - ${formData.namaInstansi} | Tanggal: ${formData.tanggal} | Driver: ${driverNama} (${driverKendaraan}) | Porsi: ${formData.jumlahPenerimaManfaat}`
-            });
-            dokPengirimanDriveId = uploaded.id;
-            dokPengirimanDriveUrl = uploaded.webViewLink;
-            uploadedDriveLinks.push(`Pengiriman: ${uploaded.webViewLink}`);
-            uploadedLabels.push('Pengiriman');
-          }
-
-          if (formData.dokPenjemputan) {
-            const uploaded = await uploadSinglePhotoToDrive({
-              file: dokPenjemputanFile,
-              dataUrlOrUrl: formData.dokPenjemputan,
-              fileName: `${formData.tanggal}_${sanitize(formData.namaInstansi)}_Penjemputan_${Date.now()}.jpg`,
-              description: `Dokumentasi Penjemputan - ${formData.namaInstansi} | Tanggal: ${formData.tanggal} | Driver: ${driverNama} (${driverKendaraan}) | Porsi: ${formData.jumlahPenerimaManfaat}`
-            });
-            dokPenjemputanDriveId = uploaded.id;
-            dokPenjemputanDriveUrl = uploaded.webViewLink;
-            uploadedDriveLinks.push(`Penjemputan: ${uploaded.webViewLink}`);
-            uploadedLabels.push('Penjemputan');
-          }
-
-          if (uploadedLabels.length > 0) {
-            setDriveUploadStatus({
-              type: 'success',
-              text: `Foto dokumentasi (${uploadedLabels.join(' & ')}) berhasil tersimpan langsung ke folder Google Drive!`
-            });
-          }
-        } catch (driveErr: any) {
-          console.error('Google Drive upload error:', driveErr);
-          if (driveErr?.message === 'AUTH_REQUIRED' || driveErr?.message === 'TOKEN_EXPIRED') {
-            setNeedsDriveAuth(true);
-            setDriveUploadStatus({
-              type: 'error',
-              text: 'Sesi Google Drive berakhir. Silakan klik "Sign in with Google" lalu sinkronkan foto di tab Data Distribusi.'
-            });
-          } else {
-            setDriveUploadStatus({
-              type: 'error',
-              text: `Gagal mengunggah foto ke Google Drive: ${driveErr?.message || 'Terjadi kesalahan'}`
-            });
-          }
-        }
-      } else {
-        setDriveUploadStatus({
-          type: 'error',
-          text: 'Foto belum tersimpan ke Google Drive karena akun Google belum dihubungkan. Klik "Sign in with Google" untuk mengaktifkan upload langsung ke folder Drive.'
-        });
-      }
-    }
-
     const payload = {
       ...formData,
       driverNama,
       driverFoto,
-      driverKendaraan,
-      dokPengirimanDriveId,
-      dokPengirimanDriveUrl,
-      dokPenjemputanDriveId,
-      dokPenjemputanDriveUrl
+      driverKendaraan
     };
 
     try {
@@ -767,14 +479,9 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
       if (json.success && json.data) {
         setReports(prev => [json.data, ...prev]);
 
-        const baseKeterangan = formData.catatan?.trim()
+        const keteranganWa = formData.catatan?.trim()
           ? `${formData.catatan.trim()} | Driver: ${driverNama} (${driverKendaraan}) | Antar: ${formData.jamPengiriman} | Jemput: ${formData.jamPenjemputan}`
           : `Driver: ${driverNama} (${driverKendaraan}) | Antar: ${formData.jamPengiriman} | Jemput: ${formData.jamPenjemputan}`;
-
-        const keteranganWa =
-          uploadedDriveLinks.length > 0
-            ? `${baseKeterangan} | Google Drive: ${uploadedDriveLinks.join(', ')}`
-            : baseKeterangan;
 
         const fileFoto = dokPengirimanFile || dokPenjemputanFile;
         const waSuccess = await kirimLaporanKeWA(
@@ -1258,65 +965,6 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
               </div>
             </div>
 
-            {/* Google Drive Integration Status Bar */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  needsDriveAuth
-                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
-                    : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
-                }`}>
-                  <FolderOpen className="w-5 h-5" />
-                </div>
-                <div className="space-y-0.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
-                      Penyimpanan Google Drive Otomatis
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      needsDriveAuth
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                    }`}>
-                      {needsDriveAuth ? 'Belum Terhubung' : 'Terhubung'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {needsDriveAuth
-                      ? 'Hubungkan akun Google agar foto pengiriman & penjemputan otomatis tersimpan ke folder Google Drive tujuan.'
-                      : `Foto dokumentasi otomatis tersimpan ke folder tujuan sebagai ${driveUser?.email || driveUser?.displayName || 'Akun Google'}.`}
-                  </p>
-                  <a
-                    href={DISTRIBUTION_DRIVE_FOLDER_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline pt-0.5"
-                  >
-                    <span>Buka Folder Google Drive Tujuan</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                {needsDriveAuth ? (
-                  <GoogleSignInButton
-                    onClick={handleDriveLogin}
-                    isLoading={isDriveLoggingIn}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleDriveLogout}
-                    className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Putuskan Drive
-                  </button>
-                )}
-              </div>
-            </div>
-
             {/* Row 4: Dokumentasi Pengiriman & Dokumentasi Penjemputan */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
               {/* Dokumentasi Pengiriman */}
@@ -1434,26 +1082,6 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
               />
             </div>
 
-            {/* Notifikasi Status Upload Google Drive */}
-            {driveUploadStatus && (
-              <div
-                className={`flex items-start gap-2.5 p-3.5 rounded-xl border text-xs font-medium ${
-                  driveUploadStatus.type === 'success'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
-                    : driveUploadStatus.type === 'info'
-                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200'
-                    : 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
-                }`}
-              >
-                {driveUploadStatus.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                )}
-                <span>{driveUploadStatus.text}</span>
-              </div>
-            )}
-
             {/* Notifikasi Status Pengiriman ke WhatsApp */}
             {waSubmitStatus && (
               <div
@@ -1565,26 +1193,8 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Google Drive, Export & Print Out */}
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={DISTRIBUTION_DRIVE_FOLDER_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                  Buka Folder Drive
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-                <button
-                  type="button"
-                  onClick={handleOpenDriveGallery}
-                  className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <ImageIcon className="w-4 h-4 text-blue-600" />
-                  Galeri Drive
-                </button>
+              {/* Action Buttons: Export & Print Out */}
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsPrintModalOpen(true)}
                   className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition cursor-pointer"
@@ -1694,62 +1304,24 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                           </div>
                         </td>
                         <td className="p-3.5 text-center">
-                          <div className="flex flex-col items-center justify-center gap-1">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {rep.dokPengiriman ? (
-                                rep.dokPengirimanDriveUrl ? (
-                                  <a
-                                    href={rep.dokPengirimanDriveUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold inline-flex items-center gap-1 hover:underline"
-                                    title="Lihat Foto Pengiriman di Google Drive"
-                                  >
-                                    Drive Kirim <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                                    Kirim ✓
-                                  </span>
-                                )
-                              ) : (
-                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px]">
-                                  No Kirim
-                                </span>
-                              )}
-                              {rep.dokPenjemputan ? (
-                                rep.dokPenjemputanDriveUrl ? (
-                                  <a
-                                    href={rep.dokPenjemputanDriveUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold inline-flex items-center gap-1 hover:underline"
-                                    title="Lihat Foto Penjemputan di Google Drive"
-                                  >
-                                    Drive Jemput <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
-                                    Jemput ✓
-                                  </span>
-                                )
-                              ) : (
-                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px]">
-                                  No Jemput
-                                </span>
-                              )}
-                            </div>
-                            {((rep.dokPengiriman && !rep.dokPengirimanDriveUrl) ||
-                              (rep.dokPenjemputan && !rep.dokPenjemputanDriveUrl)) && (
-                              <button
-                                type="button"
-                                onClick={() => handleSyncReportPhotosToDrive(rep)}
-                                disabled={syncingReportId === rep.id}
-                                className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
-                              >
-                                <CloudUpload className="w-3 h-3" />
-                                {syncingReportId === rep.id ? 'Mengunggah...' : 'Simpan ke Drive'}
-                              </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            {rep.dokPengiriman ? (
+                              <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                                Kirim ✓
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px]">
+                                No Kirim
+                              </span>
+                            )}
+                            {rep.dokPenjemputan ? (
+                              <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                                Jemput ✓
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px]">
+                                No Jemput
+                              </span>
                             )}
                           </div>
                         </td>
@@ -1956,36 +1528,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
 
               {/* Documentation Photos */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Dokumentasi Serah Terima Ompreng</h4>
-                  {((selectedReportDetail.dokPengiriman && !selectedReportDetail.dokPengirimanDriveUrl) ||
-                    (selectedReportDetail.dokPenjemputan && !selectedReportDetail.dokPenjemputanDriveUrl)) && (
-                    <button
-                      type="button"
-                      onClick={() => handleSyncReportPhotosToDrive(selectedReportDetail)}
-                      disabled={syncingReportId === selectedReportDetail.id}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-                    >
-                      <CloudUpload className="w-3.5 h-3.5" />
-                      {syncingReportId === selectedReportDetail.id ? 'Mengunggah...' : 'Simpan Foto ke Google Drive'}
-                    </button>
-                  )}
-                </div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Dokumentasi Serah Terima Ompreng</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">1. Foto Pengiriman</span>
-                      {selectedReportDetail.dokPengirimanDriveUrl && (
-                        <a
-                          href={selectedReportDetail.dokPengirimanDriveUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1"
-                        >
-                          Lihat di Drive <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
+                    <span className="text-xs font-semibold block mb-1.5 text-slate-700 dark:text-slate-300">1. Foto Pengiriman</span>
                     {selectedReportDetail.dokPengiriman ? (
                       <img src={selectedReportDetail.dokPengiriman} alt="Foto Pengiriman" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
                     ) : (
@@ -1995,19 +1541,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                     )}
                   </div>
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">2. Foto Penjemputan</span>
-                      {selectedReportDetail.dokPenjemputanDriveUrl && (
-                        <a
-                          href={selectedReportDetail.dokPenjemputanDriveUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
-                        >
-                          Lihat di Drive <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
+                    <span className="text-xs font-semibold block mb-1.5 text-slate-700 dark:text-slate-300">2. Foto Penjemputan</span>
                     {selectedReportDetail.dokPenjemputan ? (
                       <img src={selectedReportDetail.dokPenjemputan} alt="Foto Penjemputan" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
                     ) : (
@@ -2027,17 +1561,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
               )}
             </div>
 
-            <div className="p-4 bg-slate-100 dark:bg-slate-800 flex items-center justify-between">
-              <a
-                href={DISTRIBUTION_DRIVE_FOLDER_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
-              >
-                <FolderOpen className="w-4 h-4" />
-                Buka Folder Google Drive
-                <ExternalLink className="w-3 h-3" />
-              </a>
+            <div className="p-4 bg-slate-100 dark:bg-slate-800 flex justify-end">
               <button
                 onClick={() => setSelectedReportDetail(null)}
                 className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-900"
@@ -2316,150 +1840,6 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL: GALERI FOLDER GOOGLE DRIVE DISTRIBUSI */}
-      {/* ========================================================================= */}
-      {isDriveGalleryOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-8">
-            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <FolderOpen className="w-5 h-5" />
-                <div>
-                  <h3 className="font-bold text-base">Galeri Folder Google Drive Distribusi</h3>
-                  <p className="text-[11px] text-emerald-100">
-                    Arsip langsung dokumentasi foto Laporan Distribusi
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={DISTRIBUTION_DRIVE_FOLDER_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition"
-                >
-                  Buka Folder <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setIsDriveGalleryOpen(false)}
-                  className="p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-              {needsDriveAuth ? (
-                <div className="text-center py-10 space-y-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
-                  <FolderOpen className="w-12 h-12 text-amber-500 mx-auto" />
-                  <div className="space-y-1 max-w-md mx-auto">
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                      Hubungkan Google Drive untuk Melihat Arsip Foto
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Masuk dengan akun Google yang memiliki akses ke folder dokumentasi distribusi.
-                    </p>
-                  </div>
-                  <div className="flex justify-center">
-                    <GoogleSignInButton
-                      onClick={async () => {
-                        await handleDriveLogin();
-                        await loadDriveFolderGallery();
-                      }}
-                      isLoading={isDriveLoggingIn}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-                    <div className="text-xs text-slate-600 dark:text-slate-300">
-                      Akun terhubung: <span className="font-bold">{driveUser?.email || 'Google Account'}</span>
-                      <span className="ml-2 text-slate-400">({driveFiles.length} file terbaru)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={loadDriveFolderGallery}
-                      disabled={isLoadingDriveFiles}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDriveFiles ? 'animate-spin' : ''}`} />
-                      Muat Ulang
-                    </button>
-                  </div>
-
-                  {isLoadingDriveFiles ? (
-                    <div className="py-12 text-center text-xs text-slate-500">
-                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-600" />
-                      Memuat daftar foto dari Google Drive...
-                    </div>
-                  ) : driveFiles.length === 0 ? (
-                    <div className="py-12 text-center text-xs text-slate-500 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                      Belum ada file di folder Google Drive ini, atau akun belum memiliki izin akses folder.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {driveFiles.map((file) => (
-                        <div
-                          key={file.id}
-                          className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-800/50 flex flex-col"
-                        >
-                          <div className="h-36 bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
-                            {file.thumbnailLink ? (
-                              <img
-                                src={file.thumbnailLink}
-                                alt={file.name}
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <ImageIcon className="w-8 h-8 text-slate-400" />
-                            )}
-                          </div>
-                          <div className="p-3 flex-1 flex flex-col justify-between gap-2">
-                            <div>
-                              <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate" title={file.name}>
-                                {file.name}
-                              </p>
-                              {file.createdTime && (
-                                <p className="text-[10px] text-slate-400 mt-0.5">
-                                  {new Date(file.createdTime).toLocaleString('id-ID')}
-                                </p>
-                              )}
-                            </div>
-                            <a
-                              href={file.webViewLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition"
-                            >
-                              Buka di Drive <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="p-4 bg-slate-100 dark:bg-slate-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setIsDriveGalleryOpen(false)}
-                className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-900"
-              >
-                Tutup
-              </button>
-            </div>
           </div>
         </div>
       )}
