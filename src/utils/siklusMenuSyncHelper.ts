@@ -1,6 +1,7 @@
 import { SiklusIngredientRow, SiklusMenuData } from '../components/nutrition/SiklusMenuView';
 import { MasterMenuRecord, initialMasterMenuRecords } from '../types/masterMenu';
 import { NilaiGiziPorsi } from '../types';
+import { getMasterMenusSnapshot, getSiklusCyclesSnapshot } from '../lib/firestoreOperationalStore';
 
 // Default seed data for 26 October 2026 if not yet in localStorage
 const DEFAULT_SEED_PORSI_KECIL_20261026: SiklusIngredientRow[] = [
@@ -138,7 +139,7 @@ export function calculateNutrientTotals(rows: SiklusIngredientRow[]): {
   };
 }
 
-// Load all saved cycles from localStorage with default seeds
+// Load all saved cycles from live Firestore operational store snapshot
 export function loadSavedCycles(): Record<string, SiklusMenuData> {
   const defaultMap: Record<string, SiklusMenuData> = {
     '2026-10-26': {
@@ -151,34 +152,29 @@ export function loadSavedCycles(): Record<string, SiklusMenuData> {
   };
 
   try {
-    const stored = localStorage.getItem('sppg_siklus_menu_records');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...defaultMap, ...parsed };
+    const live = getSiklusCyclesSnapshot();
+    if (live && Object.keys(live).length > 0) {
+      return { ...defaultMap, ...live };
     }
   } catch (e) {
-    console.error('Failed reading saved cycles in helper:', e);
+    console.error('Failed reading saved cycles from Firestore store:', e);
   }
 
   return defaultMap;
 }
 
-// Load Master Menus from localStorage with initial seeds
+// Load Master Menus from live Firestore operational store snapshot
 export function loadMasterMenus(): MasterMenuRecord[] {
   try {
-    const saved = localStorage.getItem('sppg_master_menus');
-    if (saved) {
-      const parsed: MasterMenuRecord[] = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure default 2026-10-26 is included
-        if (!parsed.some(m => m.tanggalPelaksanaan === '2026-10-26')) {
-          parsed.unshift(initialMasterMenuRecords[0]);
-        }
-        return parsed;
+    const live = getMasterMenusSnapshot();
+    if (Array.isArray(live) && live.length > 0) {
+      if (!live.some(m => m.tanggalPelaksanaan === '2026-10-26')) {
+        return [initialMasterMenuRecords[0], ...live];
       }
+      return live;
     }
   } catch (e) {
-    console.error('Failed reading master menus in helper:', e);
+    console.error('Failed reading master menus from Firestore store:', e);
   }
   return initialMasterMenuRecords;
 }

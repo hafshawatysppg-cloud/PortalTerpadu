@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { 
   MasterDocumentTemplateConfig, 
   DEFAULT_MASTER_TEMPLATE_CONFIG, 
@@ -7,6 +8,8 @@ import {
 } from '../types/documentTemplate';
 import { useAuth } from '../context/AuthContext';
 import { safeParseJson } from '../lib/safeJson';
+import { db } from '../lib/firebase';
+import { OperationType, notifyFirestoreFailure, sanitizeForFirestore } from '../lib/firestoreHelper';
 
 interface DocumentTemplateContextType {
   config: MasterDocumentTemplateConfig;
@@ -29,130 +32,95 @@ interface DocumentTemplateContextType {
   testPrint: (docTypeId?: string) => void;
 }
 
-const STORAGE_KEY = 'sppg_master_document_template';
-
 const DocumentTemplateContext = createContext<DocumentTemplateContextType | undefined>(undefined);
 
 export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [config, setConfig] = useState<MasterDocumentTemplateConfig>(() => {
-    try {
-      const cached = localStorage.getItem(STORAGE_KEY);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch {
-      // ignore
-    }
-    return DEFAULT_MASTER_TEMPLATE_CONFIG;
-  });
+  const [config, setConfig] = useState<MasterDocumentTemplateConfig>(DEFAULT_MASTER_TEMPLATE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sync state to local storage cache
-  const updateLocalConfig = (newConfig: MasterDocumentTemplateConfig) => {
-    setConfig(newConfig);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
-    } catch {
-      // ignore
-    }
-  };
-
-  // Fetch initial config from server
+  // Fetch initial config from REST API + subscribe real-time from Firestore
   const refreshConfig = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/document-template');
       if (res.ok) {
         const json = await safeParseJson<{ success?: boolean; data?: MasterDocumentTemplateConfig }>(res);
         if (json?.success && json.data) {
-          updateLocalConfig(json.data);
+          setConfig(json.data);
         }
       }
     } catch (err) {
-      console.warn('Could not fetch remote document template, using cached/default:', err);
+      console.error('Could not fetch remote document template:', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'documentTemplate', 'main'),
+      (snap) => {
+        if (snap.exists()) {
+          setConfig(snap.data() as MasterDocumentTemplateConfig);
+          setLoading(false);
+        }
+      },
+      (err) => {
+        notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
+      }
+    );
     refreshConfig();
+    return () => unsub();
   }, [refreshConfig]);
 
   // Partial update methods
   const updateConfig = useCallback((partial: Partial<MasterDocumentTemplateConfig>) => {
-    setConfig(prev => {
-      const updated = { ...prev, ...partial };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({ ...prev, ...partial }));
   }, []);
 
   const updateProfile = useCallback((profile: Partial<MasterDocumentTemplateConfig['profile']>) => {
-    setConfig(prev => {
-      const updated = {
-        ...prev,
-        profile: { ...prev.profile, ...profile }
-      };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      profile: { ...prev.profile, ...profile }
+    }));
   }, []);
 
   const updateLetterhead = useCallback((letterhead: Partial<MasterDocumentTemplateConfig['letterhead']>) => {
-    setConfig(prev => {
-      const updated = {
-        ...prev,
-        letterhead: { ...prev.letterhead, ...letterhead }
-      };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      letterhead: { ...prev.letterhead, ...letterhead }
+    }));
   }, []);
 
   const updateFormat = useCallback((format: Partial<MasterDocumentTemplateConfig['format']>) => {
-    setConfig(prev => {
-      const updated = {
-        ...prev,
-        format: { ...prev.format, ...format }
-      };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      format: { ...prev.format, ...format }
+    }));
   }, []);
 
   const updateFooter = useCallback((footer: Partial<MasterDocumentTemplateConfig['footer']>) => {
-    setConfig(prev => {
-      const updated = {
-        ...prev,
-        footer: { ...prev.footer, ...footer }
-      };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      footer: { ...prev.footer, ...footer }
+    }));
   }, []);
 
   const updateNumbering = useCallback((numbering: Partial<MasterDocumentTemplateConfig['numbering']>) => {
-    setConfig(prev => {
-      const updated = {
-        ...prev,
-        numbering: { ...prev.numbering, ...numbering }
-      };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      numbering: { ...prev.numbering, ...numbering }
+    }));
   }, []);
 
   const updateDocType = useCallback((docTypeId: string, docTypePartial: Partial<DocumentTypeTemplate>) => {
-    setConfig(prev => {
-      const updatedDocTypes = prev.documentTypes.map(dt => 
+    setConfig(prev => ({
+      ...prev,
+      documentTypes: prev.documentTypes.map(dt =>
         dt.id === docTypeId ? { ...dt, ...docTypePartial } : dt
-      );
-      const updated = { ...prev, documentTypes: updatedDocTypes };
-      updateLocalConfig(updated);
-      return updated;
-    });
+      )
+    }));
   }, []);
 
   const saveSignature = useCallback((sig: MasterSignature) => {
@@ -165,26 +133,25 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       } else {
         updatedSignatures = [...prev.signatures, sig];
       }
-      const updated = { ...prev, signatures: updatedSignatures };
-      updateLocalConfig(updated);
-      return updated;
+      return { ...prev, signatures: updatedSignatures };
     });
   }, []);
 
   const deleteSignature = useCallback((sigId: string) => {
-    setConfig(prev => {
-      const updatedSignatures = prev.signatures.filter(s => s.id !== sigId);
-      const updated = { ...prev, signatures: updatedSignatures };
-      updateLocalConfig(updated);
-      return updated;
-    });
+    setConfig(prev => ({
+      ...prev,
+      signatures: prev.signatures.filter(s => s.id !== sigId)
+    }));
   }, []);
 
-  // Save to persistent server & Firestore
+  // Save directly to Firestore (with merge: true) and sync server REST API
   const saveConfig = async (customConfig?: MasterDocumentTemplateConfig): Promise<{ success: boolean; message: string }> => {
     setIsSaving(true);
+    const targetConfig = customConfig || config;
     try {
-      const targetConfig = customConfig || config;
+      await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(targetConfig), { merge: true });
+      setConfig(targetConfig);
+
       const res = await fetch('/api/v1/document-template', {
         method: 'PUT',
         headers: {
@@ -193,16 +160,14 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
         },
         body: JSON.stringify(targetConfig)
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        updateLocalConfig(data.data);
-        return { success: true, message: data.message || 'Konfigurasi template berhasil disimpan' };
-      } else {
-        return { success: false, message: data.message || 'Gagal menyimpan konfigurasi' };
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && data?.data) {
+        setConfig(data.data);
       }
+      return { success: true, message: data?.message || 'Konfigurasi template berhasil disimpan ke Firebase' };
     } catch (err: any) {
-      console.error('Error saving document template:', err);
-      return { success: false, message: 'Koneksi gagal: ' + (err?.message || err) };
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal menyimpan template dokumen ke Firebase');
+      return { success: false, message: msg };
     } finally {
       setIsSaving(false);
     }
@@ -212,6 +177,10 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
   const resetToDefault = async (): Promise<{ success: boolean; message: string }> => {
     setIsSaving(true);
     try {
+      const defaultPayload = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
+      await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(defaultPayload), { merge: true });
+      setConfig(defaultPayload);
+
       const res = await fetch('/api/v1/document-template/reset', {
         method: 'POST',
         headers: {
@@ -219,18 +188,14 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
           'x-user-name': user?.nama || 'Admin Penuh'
         }
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        updateLocalConfig(data.data);
-        return { success: true, message: data.message };
-      } else {
-        // Fallback local reset
-        updateLocalConfig(JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG)));
-        return { success: true, message: 'Template di-reset ke standar lokal.' };
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && data?.data) {
+        setConfig(data.data);
       }
+      return { success: true, message: data?.message || 'Template berhasil di-reset ke standar default di Firebase.' };
     } catch (err: any) {
-      updateLocalConfig(JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG)));
-      return { success: true, message: 'Template di-reset ke standar lokal default.' };
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal reset template dokumen di Firebase');
+      return { success: false, message: msg };
     } finally {
       setIsSaving(false);
     }
@@ -247,21 +212,18 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data?.number) {
-          // update local counter
-          setConfig(prev => {
-            const currentCounters = { ...prev.numbering.currentCounters, [docCode]: json.data.counter };
-            const updated = {
-              ...prev,
-              numbering: { ...prev.numbering, currentCounters }
-            };
-            updateLocalConfig(updated);
-            return updated;
-          });
+          setConfig(prev => ({
+            ...prev,
+            numbering: {
+              ...prev.numbering,
+              currentCounters: { ...prev.numbering.currentCounters, [docCode]: json.data.counter }
+            }
+          }));
           return json.data.number;
         }
       }
-    } catch {
-      // fallback local generator
+    } catch (err) {
+      console.error('Error generating document number from API:', err);
     }
 
     const numbering = config.numbering;

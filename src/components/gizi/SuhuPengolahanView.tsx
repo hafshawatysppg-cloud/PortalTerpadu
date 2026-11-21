@@ -28,8 +28,25 @@ import {
   ZoomIn
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getDb } from '../../lib/firebase';
-import { collection, doc, setDoc, deleteDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import {
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  writeBatch
+} from 'firebase/firestore';
+import {
+  OperationType,
+  generateUniqueDocId,
+  notifyFirestoreFailure,
+  sanitizeForFirestore
+} from '../../lib/firestoreHelper';
 
 interface SuhuPengolahanViewProps {
   currentPath: string;
@@ -270,19 +287,8 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     return 'form';
   }, [currentPath]);
 
-  // Master records state (daily records grouped by date)
-  const [dailyRecords, setDailyRecords] = useState<DailySuhuPengolahanRecord[]>(() => {
-    const saved = localStorage.getItem('sppg_daily_suhu_pengolahan_v2');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.error('Error parsing local suhu pengolahan v2:', e);
-      }
-    }
-    return SEED_DAILY_RECORDS;
-  });
+  // Master records state (daily records from Firestore onSnapshot)
+  const [dailyRecords, setDailyRecords] = useState<DailySuhuPengolahanRecord[]>([]);
 
   // Form State
   const defaultPetugas = user?.nama || user?.username || 'Abdus Salam';
@@ -346,55 +352,41 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; suhu?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Sync to Firestore on mount and fallback to server cache / localStorage
+  // Real-time Firestore listener (Single Source of Truth, without localStorage/sessionStorage)
   useEffect(() => {
-    const fetchFirestore = async () => {
-      const cooldownKey = 'sppg_fs_cache_fetch_suhu_pengolahan';
-      const lastFetched = Number(sessionStorage.getItem(cooldownKey) || 0);
-      if (Date.now() - lastFetched < 5 * 60 * 1000) {
-        return;
-      }
-      try {
-        const db = getDb();
-        if (db) {
-          const colRef = collection(db, 'suhu_pengolahan_v2');
-          const q = query(colRef, orderBy('tanggal', 'desc'));
-          const snap = await getDocs(q);
-          sessionStorage.setItem(cooldownKey, String(Date.now()));
-          if (!snap.empty) {
-            const list: DailySuhuPengolahanRecord[] = [];
-            snap.forEach(d => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
-            setDailyRecords(list);
-            localStorage.setItem('sppg_daily_suhu_pengolahan_v2', JSON.stringify(list));
-          } else {
-            // Seed to Firestore if empty
-            for (const item of SEED_DAILY_RECORDS) {
-              await setDoc(doc(db, 'suhu_pengolahan_v2', item.id), item);
-            }
-          }
-        }
-      } catch (err) {
-        try {
-          const res = await fetch('/api/v1/cloud/collection/suhu_pengolahan_v2');
-          if (res.ok) {
-            const json = await res.json();
-            if (Array.isArray(json?.data) && json.data.length > 0) {
-              setDailyRecords(json.data);
-              localStorage.setItem('sppg_daily_suhu_pengolahan_v2', JSON.stringify(json.data));
+    const q = query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      async (snap) => {
+        if (snap.empty) {
+          try {
+            const flagSnap = await getDoc(doc(db, 'app_meta', 'seed_flags'));
+            const alreadySeeded = flagSnap.exists() && Boolean(flagSnap.data()?.suhuPengolahanSeeded);
+            if (!alreadySeeded) {
+              const batch = writeBatch(db);
+              for (const item of SEED_DAILY_RECORDS) {
+                batch.set(doc(db, 'suhu_pengolahan_v2', item.id), sanitizeForFirestore(item), { merge: true });
+              }
+              await batch.commit();
+              await setDoc(doc(db, 'app_meta', 'seed_flags'), { suhuPengolahanSeeded: true }, { merge: true });
               return;
             }
+          } catch (seedErr) {
+            const msg = notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_pengolahan_v2', 'Gagal menginisialisasi data awal Suhu Pengolahan');
+            showToast(msg, 'error');
           }
-        } catch (_) {}
-        console.warn('Firestore sync notice (using localStorage fallback):', err);
+        }
+        const list: DailySuhuPengolahanRecord[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
+        setDailyRecords(list);
+      },
+      (err) => {
+        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2', 'Gagal membaca data Suhu Pengolahan dari Firebase');
+        showToast(msg, 'error');
       }
-    };
-    fetchFirestore();
+    );
+    return () => unsubscribe();
   }, []);
-
-  const saveRecordsLocally = (data: DailySuhuPengolahanRecord[]) => {
-    setDailyRecords(data);
-    localStorage.setItem('sppg_daily_suhu_pengolahan_v2', JSON.stringify(data));
-  };
 
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage({ text, type });
@@ -510,6 +502,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
         sayuran: { suhu: null }
       };
 
+      const newDocId = existing ? existing.id : generateUniqueDocId(`suhu_pengolahan_${formTanggal}`);
       const recordToSave: DailySuhuPengolahanRecord = existing
         ? {
             ...existing,
@@ -521,7 +514,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
             [targetSesiKey]: updatedSesiData
           }
         : {
-            id: formTanggal,
+            id: newDocId,
             tanggal: formTanggal,
             petugas: defaultPetugas,
             petugasRole: defaultPetugasRole,
@@ -534,17 +527,20 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
             sesi3: targetSesiKey === 'sesi3' ? updatedSesiData : emptySesi
           };
 
-      // 1. Instant Optimistic Local Update
-      const existsIndex = dailyRecords.findIndex(r => r.tanggal === formTanggal);
-      let updatedList: DailySuhuPengolahanRecord[];
-      if (existsIndex >= 0) {
-        updatedList = [...dailyRecords];
-        updatedList[existsIndex] = recordToSave;
+      // Simpan langsung ke Firestore (updateDoc/merge untuk data lama, ID unik untuk data baru)
+      if (existing) {
+        await updateDoc(doc(db, 'suhu_pengolahan_v2', existing.id), sanitizeForFirestore({
+          petugas: recordToSave.petugas,
+          petugasRole: recordToSave.petugasRole,
+          status: recordToSave.status,
+          catatan: recordToSave.catatan,
+          updatedAt: recordToSave.updatedAt,
+          [targetSesiKey]: updatedSesiData
+        }));
       } else {
-        updatedList = [recordToSave, ...dailyRecords].sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+        await setDoc(doc(db, 'suhu_pengolahan_v2', newDocId), sanitizeForFirestore(recordToSave));
       }
 
-      saveRecordsLocally(updatedList);
       setSelectedDokumentasiTanggal(formTanggal);
       showToast(`Data suhu ${makananPokokSesi} tanggal ${formatTanggalTable(formTanggal)} berhasil disimpan!`, 'success');
 
@@ -563,19 +559,10 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
       setSayuranNama('');
       setFormCatatan('');
 
-      // 2. Immediate Navigation to Tabel
       onNavigate('/gizi/suhu/makanan/pengolahan/tabel');
-
-      // 3. Background Async Firestore Persistence (non-blocking)
-      const firestoreDb = getDb();
-      if (firestoreDb) {
-        setDoc(doc(firestoreDb, 'suhu_pengolahan_v2', formTanggal), recordToSave).catch(err => {
-          console.warn('Background Firestore write notice:', err);
-        });
-      }
     } catch (err) {
-      console.error('Error saving suhu pengolahan:', err);
-      showToast('Gagal menyimpan data suhu pengolahan', 'error');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_pengolahan_v2', 'Gagal menyimpan data suhu pengolahan ke Firebase');
+      showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -613,21 +600,16 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     );
   }, [filteredDokumentasiRecords, selectedDokumentasiTanggal]);
 
-  // Delete record with instant optimistic update
-  const handleDeleteDailyRecord = async (tanggal: string) => {
-    if (!window.confirm(`Hapus data tanggal ${formatTanggalTable(tanggal)}?`)) return;
+  // Delete record in Firestore
+  const handleDeleteDailyRecord = async (record: DailySuhuPengolahanRecord) => {
+    if (!window.confirm(`Hapus data tanggal ${formatTanggalTable(record.tanggal)}?`)) return;
 
-    // Instant local removal
-    const updated = dailyRecords.filter(r => r.tanggal !== tanggal);
-    saveRecordsLocally(updated);
-    showToast(`Data tanggal ${formatTanggalTable(tanggal)} berhasil dihapus`, 'success');
-
-    // Background delete in Firestore
-    const firestoreDb = getDb();
-    if (firestoreDb) {
-      deleteDoc(doc(firestoreDb, 'suhu_pengolahan_v2', tanggal)).catch(err => {
-        console.warn('Background Firestore delete notice:', err);
-      });
+    try {
+      await deleteDoc(doc(db, 'suhu_pengolahan_v2', record.id));
+      showToast(`Data tanggal ${formatTanggalTable(record.tanggal)} berhasil dihapus`, 'success');
+    } catch (err) {
+      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_pengolahan_v2/${record.id}`, 'Gagal menghapus data suhu pengolahan dari Firebase');
+      showToast(msg, 'error');
     }
   };
 
@@ -1634,7 +1616,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteDailyRecord(r.tanggal)}
+                              onClick={() => handleDeleteDailyRecord(r)}
                               className="p-1 text-rose-600 hover:bg-rose-50 rounded"
                               title="Hapus Baris Tanggal Ini"
                             >

@@ -17,11 +17,17 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  getDocs,
+  onSnapshot,
   query,
   orderBy
 } from 'firebase/firestore';
-import { getDb } from '../../lib/firebase';
+import { db } from '../../lib/firebase';
+import {
+  OperationType,
+  generateUniqueDocId,
+  notifyFirestoreFailure,
+  sanitizeForFirestore
+} from '../../lib/firestoreHelper';
 import { MasterMenuRecord } from '../../types/masterMenu';
 import { printOrganoleptikA4, downloadOrganoleptikPdf } from '../../utils/organoleptikPdfHelper';
 
@@ -57,22 +63,13 @@ const DEFAULT_ROWS: OrganoleptikRow[] = [
   { no: 6, namaMakanan: '', rasa: '', warna: '', aroma: '', tekstur: '', statusWaktu: '', ket: '' },
 ];
 
-const STORAGE_KEY = 'sppg_organoleptik_v1';
-
 interface OrganoleptikViewProps {
   masterMenus?: MasterMenuRecord[];
 }
 
 export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus = [] }) => {
   const [activeTab, setActiveTab] = useState<'form' | 'print' | 'riwayat'>('form');
-  const [records, setRecords] = useState<OrganoleptikRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [records, setRecords] = useState<OrganoleptikRecord[]>([]);
 
   const [editingId, setEditingId] = useState<string>('');
   const [namaPemeriksa, setNamaPemeriksa] = useState<string>('');
@@ -91,42 +88,22 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
   };
 
   useEffect(() => {
-    const loadRecords = async () => {
-      const cooldownKey = 'sppg_fs_cache_fetch_organoleptik_v1';
-      const lastFetched = Number(sessionStorage.getItem(cooldownKey) || 0);
-      if (Date.now() - lastFetched < 5 * 60 * 1000) {
-        return;
-      }
-      try {
-        const firestoreDb = getDb();
-        if (!firestoreDb) return;
-        const q = query(collection(firestoreDb, 'organoleptik_v1'), orderBy('tanggalPemeriksaan', 'desc'));
-        const snapshot = await getDocs(q);
-        sessionStorage.setItem(cooldownKey, String(Date.now()));
+    const q = query(collection(db, 'organoleptik_v1'), orderBy('tanggalPemeriksaan', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
         const list: OrganoleptikRecord[] = [];
         snapshot.forEach((docSnap) => {
-          list.push(docSnap.data() as OrganoleptikRecord);
+          list.push({ ...(docSnap.data() as OrganoleptikRecord), id: docSnap.id });
         });
-        if (list.length > 0) {
-          setRecords(list);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-        }
-      } catch {
-        try {
-          const res = await fetch('/api/v1/cloud/collection/organoleptik_v1');
-          if (res.ok) {
-            const json = await res.json();
-            if (Array.isArray(json?.data) && json.data.length > 0) {
-              setRecords(json.data);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
-            }
-          }
-        } catch {
-          // Fallback silently to localStorage if Firestore & server unreachable
-        }
+        setRecords(list);
+      },
+      (err) => {
+        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'organoleptik_v1', 'Gagal membaca data Uji Organoleptik dari Firebase');
+        showToast(msg, 'error');
       }
-    };
-    loadRecords();
+    );
+    return () => unsubscribe();
   }, []);
 
   // Auto-fill Nama Makanan strictly from Master Menu matching tanggalPemeriksaan (empty if none)
@@ -194,7 +171,8 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const id = editingId || `org_${tanggalPemeriksaan}_${Date.now()}`;
+    const isEdit = Boolean(editingId);
+    const id = editingId || generateUniqueDocId(`org_${tanggalPemeriksaan}`);
     const record: OrganoleptikRecord = {
       id,
       namaPemeriksa: namaPemeriksa || '',
@@ -216,24 +194,19 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
       updatedAt: new Date().toISOString(),
     };
 
-    // Instant local state + localStorage update
-    const updatedRecords = [record, ...records.filter((r) => r.id !== id)].sort((a, b) =>
-      b.tanggalPemeriksaan.localeCompare(a.tanggalPemeriksaan)
-    );
-    setRecords(updatedRecords);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
-    setEditingId(id);
-
     try {
-      const firestoreDb = getDb();
-      if (firestoreDb) {
-        await setDoc(doc(firestoreDb, 'organoleptik_v1', id), record);
-      }
-    } catch {
-      // Saved locally even if Firestore quota is exceeded
+      await setDoc(
+        doc(db, 'organoleptik_v1', id),
+        sanitizeForFirestore(record),
+        isEdit ? { merge: true } : {}
+      );
+      setEditingId(id);
+      showToast('Data Uji Organoleptik berhasil disimpan!');
+      setActiveTab('print');
+    } catch (err) {
+      const msg = notifyFirestoreFailure(err, isEdit ? OperationType.UPDATE : OperationType.CREATE, `organoleptik_v1/${id}`, 'Gagal menyimpan data Uji Organoleptik ke Firebase');
+      showToast(msg, 'error');
     }
-    showToast('Data Uji Organoleptik berhasil disimpan!');
-    setActiveTab('print');
   };
 
   const handleLoadRecord = (rec: OrganoleptikRecord, targetTab: 'form' | 'print') => {
@@ -250,22 +223,16 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
 
   const handleDeleteRecord = async (id: string) => {
     if (!window.confirm('Hapus data checklist uji organoleptik ini?')) return;
-    const updatedRecords = records.filter((r) => r.id !== id);
-    setRecords(updatedRecords);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
-    if (editingId === id) {
-      handleResetForm();
-    }
-
     try {
-      const firestoreDb = getDb();
-      if (firestoreDb) {
-        await deleteDoc(doc(firestoreDb, 'organoleptik_v1', id));
+      await deleteDoc(doc(db, 'organoleptik_v1', id));
+      if (editingId === id) {
+        handleResetForm();
       }
-    } catch {
-      // Deleted locally even if Firestore quota is exceeded
+      showToast('Data berhasil dihapus.');
+    } catch (err) {
+      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `organoleptik_v1/${id}`, 'Gagal menghapus data Uji Organoleptik dari Firebase');
+      showToast(msg, 'error');
     }
-    showToast('Data berhasil dihapus.');
   };
 
   const formatTanggalIndo = (iso: string) => {

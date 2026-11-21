@@ -1,10 +1,15 @@
 /**
  * Helper sinkronisasi harga antara RAB Bahan Baku dan Food Cost
- * Sesuai instruksi:
- * 1. Sambungkan data yang ada di RAB Bahan Baku dengan harga dasar di food cost.
- * 2. Sinkronkan harga sesuai dengan tanggal pembuatan atau filter tanggal RAB.
- * 3. Jika harga di RAB Bahan Baku belum terisi pada tanggal terkait maka tabel harga dasar akan KOSONG (0 / empty string).
+ * Berbasis sumber kebenaran tunggal Firestore melalui firestoreOperationalStore.
  */
+import {
+  getAkuntanConfigsSnapshot,
+  getRabBahanBakuSnapshot,
+  replaceAkuntanDocsForPredicate,
+  updateAkuntanConfigDoc,
+  updateNutritionPlanPriceInFirestore
+} from '../lib/firestoreOperationalStore';
+import { OperationType, notifyFirestoreFailure } from '../lib/firestoreHelper';
 
 export const getCleanIngredientKey = (name: string): string => {
   if (!name) return '';
@@ -12,24 +17,24 @@ export const getCleanIngredientKey = (name: string): string => {
 };
 
 /**
- * Mengambil filter tanggal aktif RAB Akuntan yang tersimpan di localStorage
+ * Mengambil filter tanggal aktif RAB Akuntan dari Firestore config snapshot
  */
 export const getActiveRabFilterDate = (): string => {
   try {
-    return localStorage.getItem('sppg_akuntan_selected_date') || '2026-11-01';
+    return getAkuntanConfigsSnapshot().selectedDate || '2026-11-01';
   } catch {
     return '2026-11-01';
   }
 };
 
 /**
- * Menyimpan filter tanggal aktif RAB Akuntan ke localStorage
+ * Menyimpan filter tanggal aktif RAB Akuntan ke Firestore config
  */
 export const setActiveRabFilterDate = (dateStr: string): void => {
   if (!dateStr) return;
-  try {
-    localStorage.setItem('sppg_akuntan_selected_date', dateStr);
-  } catch (_) {}
+  void updateAkuntanConfigDoc({ selectedDate: dateStr }).catch((err) => {
+    notifyFirestoreFailure(err, OperationType.UPDATE, 'akuntan_configs/main', 'Gagal menyimpan filter tanggal aktif RAB ke Firebase');
+  });
 };
 
 export type PriceSyncSourceMode = 'pelaksanaan' | 'filter_rab';
@@ -41,35 +46,20 @@ export interface PriceSyncContext {
 }
 
 /**
- * Mengambil daftar item RAB Bahan Baku untuk tanggal tertentu
+ * Mengambil daftar item RAB Bahan Baku untuk tanggal tertentu dari Firestore snapshot
  */
 export const getRabBahanBakuForDate = (dateStr: string): any[] => {
   if (!dateStr) return [];
   try {
-    // 1. Cek penyimpanan spesifik tanggal: sppg_akuntan_rab_bb_${dateStr}
-    const dateKey = `sppg_akuntan_rab_bb_${dateStr}`;
-    const savedDate = localStorage.getItem(dateKey);
-    if (savedDate) {
-      const parsed = JSON.parse(savedDate);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-
-    // 2. Cek apakah sppg_akuntan_rab_bahan_baku sedang aktif untuk tanggal ini
-    const savedRab = localStorage.getItem('sppg_akuntan_rab_bahan_baku');
-    if (savedRab) {
-      const parsed = JSON.parse(savedRab);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Cek apakah tanggal pelaksanaan item cocok
-        const hasMatchingDate = parsed.some((it: any) => it.tanggalPelaksanaan === dateStr || it.periode?.includes(dateStr));
-        if (hasMatchingDate) {
-          return parsed;
-        }
-      }
-    }
+    const allItems = getRabBahanBakuSnapshot();
+    const matched = allItems.filter(
+      (it: any) =>
+        it.tanggalPelaksanaan === dateStr ||
+        (typeof it.periode === 'string' && it.periode.includes(dateStr))
+    );
+    return matched;
   } catch (err) {
-    console.warn('[rabFoodCostHelper] Error reading RAB for date:', dateStr, err);
+    console.error('[rabFoodCostHelper] Error reading RAB for date from Firestore store:', dateStr, err);
   }
   return [];
 };
@@ -106,10 +96,6 @@ export const getHargaDasarFromRabForSingleDate = (namaBahan: string, targetDate:
 
 /**
  * Mengambil harga dasar bahan dari RAB Bahan Baku dengan sinkronisasi cerdas
- * Memperhatikan:
- * - Tanggal Pembuatan (tanggalPerencanaan)
- * - Filter Tanggal RAB Akuntan (filterDateRab)
- * - Tanggal Pelaksanaan (tanggalPelaksanaan)
  */
 export const getHargaDasarFromRab = (
   namaBahan: string,
@@ -117,7 +103,6 @@ export const getHargaDasarFromRab = (
 ): number => {
   if (!namaBahan) return 0;
 
-  // Jika argumen berupa string tanggal sederhana
   if (typeof targetDateOrContext === 'string') {
     return getHargaDasarFromRabForSingleDate(namaBahan, targetDateOrContext);
   }
@@ -127,7 +112,6 @@ export const getHargaDasarFromRab = (
   const tglPelaksanaan = ctx.tanggalPelaksanaan || '';
   const mode = ctx.preferredMode || 'pelaksanaan';
 
-  // 1. Jika mode ditentukan secara eksplisit
   if (mode === 'filter_rab' && rabFilter) {
     return getHargaDasarFromRabForSingleDate(namaBahan, rabFilter);
   }
@@ -136,7 +120,6 @@ export const getHargaDasarFromRab = (
     if (p > 0) return p;
   }
 
-  // 2. Fallback hierarki: Filter RAB -> Tanggal Pelaksanaan
   const datesToTry = [rabFilter, tglPelaksanaan].filter(Boolean) as string[];
   for (const d of datesToTry) {
     const price = getHargaDasarFromRabForSingleDate(namaBahan, d);
@@ -148,7 +131,6 @@ export const getHargaDasarFromRab = (
 
 /**
  * Menyinkronkan seluruh daftar bahan dengan harga dari tanggal yang dipilih.
- * Mengembalikan array bahan ter-update beserta statistik berapa bahan yang terisi dan kosong.
  */
 export const syncAllIngredientsWithRabDate = (
   ingredients: any[],
@@ -179,7 +161,7 @@ export const syncAllIngredientsWithRabDate = (
 };
 
 /**
- * Menyinkronkan harga dasar yang diinput di Food Cost ke RAB Bahan Baku untuk satu atau lebih tanggal
+ * Menyinkronkan harga dasar yang diinput di Food Cost ke RAB Bahan Baku & Config di Firestore
  */
 export const syncHargaDasarToRab = (
   namaBahan: string,
@@ -190,7 +172,6 @@ export const syncHargaDasarToRab = (
   const key = getCleanIngredientKey(namaBahan);
   const safeHarga = Math.max(0, Number(harga) || 0);
 
-  // Kumpulkan semua tanggal target yang perlu diperbarui
   const dates: string[] = [];
   if (typeof targetDates === 'string' && targetDates) {
     dates.push(targetDates);
@@ -202,75 +183,42 @@ export const syncHargaDasarToRab = (
     dates.push(activeRabDate);
   }
 
-  try {
-    // 1. Update sppg_akuntan_saved_prices
-    const priceMap: Record<string, number> = {};
-    const savedPrices = localStorage.getItem('sppg_akuntan_saved_prices');
-    if (savedPrices) {
-      try {
-        Object.assign(priceMap, JSON.parse(savedPrices));
-      } catch (_) {}
-    }
-    priceMap[key] = safeHarga;
-    localStorage.setItem('sppg_akuntan_saved_prices', JSON.stringify(priceMap));
+  // Jalankan persistensi Firestore secara asinkron dengan penanganan error
+  void (async () => {
+    try {
+      const cfg = getAkuntanConfigsSnapshot();
+      const nextSavedPrices = { ...(cfg.savedPrices || {}), [key]: safeHarga };
+      await updateAkuntanConfigDoc({ savedPrices: nextSavedPrices });
 
-    // 2. Update sppg_akuntan_rab_bahan_baku
-    const savedRab = localStorage.getItem('sppg_akuntan_rab_bahan_baku');
-    if (savedRab) {
-      try {
-        const items = JSON.parse(savedRab);
-        if (Array.isArray(items)) {
-          let found = false;
-          const updated = items.map((it: any) => {
-            const itKey = getCleanIngredientKey(it.namaBarang);
-            if (itKey === key || itKey.includes(key) || key.includes(itKey)) {
-              found = true;
-              const p = Number(it.pembulatan !== undefined ? it.pembulatan : (it.totalKebutuhanKg || 1));
-              return {
-                ...it,
-                hargaSatuan: safeHarga,
-                totalAnggaran: Math.round(p * safeHarga)
-              };
-            }
-            return it;
-          });
-          if (found) {
-            localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
-          }
-        }
-      } catch (_) {}
-    }
+      const allItems = getRabBahanBakuSnapshot();
+      const toUpdate = allItems
+        .filter((it: any) => {
+          const matchesDate =
+            dates.length === 0 ||
+            dates.includes(it.tanggalPelaksanaan || '') ||
+            dates.some((d) => typeof it.periode === 'string' && it.periode.includes(d));
+          if (!matchesDate) return false;
+          const itKey = getCleanIngredientKey(it.namaBarang);
+          return itKey === key || itKey.includes(key) || key.includes(itKey);
+        })
+        .map((it: any) => {
+          const p = Number(it.pembulatan !== undefined ? it.pembulatan : (it.totalKebutuhanKg || 1));
+          return {
+            ...it,
+            hargaSatuan: safeHarga,
+            totalAnggaran: Math.round(p * safeHarga)
+          };
+        });
 
-    // 3. Update spesifik tiap tanggal di dates (sppg_akuntan_rab_bb_${tgl})
-    dates.forEach(d => {
-      const dateKey = `sppg_akuntan_rab_bb_${d}`;
-      const savedDateRab = localStorage.getItem(dateKey);
-      if (savedDateRab) {
-        try {
-          const items = JSON.parse(savedDateRab);
-          if (Array.isArray(items)) {
-            let found = false;
-            const updated = items.map((it: any) => {
-              const itKey = getCleanIngredientKey(it.namaBarang);
-              if (itKey === key || itKey.includes(key) || key.includes(itKey)) {
-                found = true;
-                const p = Number(it.pembulatan !== undefined ? it.pembulatan : (it.totalKebutuhanKg || 1));
-                return {
-                  ...it,
-                  hargaSatuan: safeHarga,
-                  totalAnggaran: Math.round(p * safeHarga)
-                };
-              }
-              return it;
-            });
-            if (found) {
-              localStorage.setItem(dateKey, JSON.stringify(updated));
-            }
-          }
-        } catch (_) {}
+      if (toUpdate.length > 0) {
+        await replaceAkuntanDocsForPredicate('akuntan_rab_bahan_baku', toUpdate, []);
       }
-    });
-  } catch (err) {
-    console.warn('[rabFoodCostHelper] Error saving price to RAB:', err);
-  }
+
+      for (const d of dates) {
+        await updateNutritionPlanPriceInFirestore(d, key, safeHarga);
+      }
+    } catch (err) {
+      notifyFirestoreFailure(err, OperationType.UPDATE, 'akuntan_rab_bahan_baku', 'Gagal menyinkronkan harga dasar bahan ke Firebase');
+    }
+  })();
 };

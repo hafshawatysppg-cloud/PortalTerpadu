@@ -30,8 +30,25 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getDb } from '../../lib/firebase';
-import { collection, doc, setDoc, deleteDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import {
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  writeBatch
+} from 'firebase/firestore';
+import {
+  OperationType,
+  generateUniqueDocId,
+  notifyFirestoreFailure,
+  sanitizeForFirestore
+} from '../../lib/firestoreHelper';
 
 interface SuhuMasukOmprengViewProps {
   currentPath: string;
@@ -272,19 +289,8 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     return 'form';
   }, [currentPath]);
 
-  // Master records state (daily records grouped by date)
-  const [dailyRecords, setDailyRecords] = useState<DailySuhuOmprengRecord[]>(() => {
-    const saved = localStorage.getItem('sppg_daily_suhu_ompreng_v2');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.error('Error parsing local suhu masuk ompreng v2:', e);
-      }
-    }
-    return SEED_DAILY_OMPRENG_RECORDS;
-  });
+  // Master records state (daily records from Firestore onSnapshot)
+  const [dailyRecords, setDailyRecords] = useState<DailySuhuOmprengRecord[]>([]);
 
   // Form State
   const defaultPetugas = user?.nama || user?.username || 'Abdus Salam';
@@ -345,55 +351,41 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; suhu?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Sync to Firestore on mount and fallback to server cache / localStorage
+  // Real-time Firestore listener (Single Source of Truth, without localStorage/sessionStorage)
   useEffect(() => {
-    const fetchFirestore = async () => {
-      const cooldownKey = 'sppg_fs_cache_fetch_suhu_ompreng';
-      const lastFetched = Number(sessionStorage.getItem(cooldownKey) || 0);
-      if (Date.now() - lastFetched < 5 * 60 * 1000) {
-        return;
-      }
-      try {
-        const db = getDb();
-        if (db) {
-          const colRef = collection(db, 'suhu_masuk_ompreng_v2');
-          const q = query(colRef, orderBy('tanggal', 'desc'));
-          const snap = await getDocs(q);
-          sessionStorage.setItem(cooldownKey, String(Date.now()));
-          if (!snap.empty) {
-            const list: DailySuhuOmprengRecord[] = [];
-            snap.forEach(d => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
-            setDailyRecords(list);
-            localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(list));
-          } else {
-            // Seed to Firestore if empty
-            for (const item of SEED_DAILY_OMPRENG_RECORDS) {
-              await setDoc(doc(db, 'suhu_masuk_ompreng_v2', item.id), item);
-            }
-          }
-        }
-      } catch (err) {
-        try {
-          const res = await fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2');
-          if (res.ok) {
-            const json = await res.json();
-            if (Array.isArray(json?.data) && json.data.length > 0) {
-              setDailyRecords(json.data);
-              localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(json.data));
+    const q = query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      async (snap) => {
+        if (snap.empty) {
+          try {
+            const flagSnap = await getDoc(doc(db, 'app_meta', 'seed_flags'));
+            const alreadySeeded = flagSnap.exists() && Boolean(flagSnap.data()?.suhuOmprengSeeded);
+            if (!alreadySeeded) {
+              const batch = writeBatch(db);
+              for (const item of SEED_DAILY_OMPRENG_RECORDS) {
+                batch.set(doc(db, 'suhu_masuk_ompreng_v2', item.id), sanitizeForFirestore(item), { merge: true });
+              }
+              await batch.commit();
+              await setDoc(doc(db, 'app_meta', 'seed_flags'), { suhuOmprengSeeded: true }, { merge: true });
               return;
             }
+          } catch (seedErr) {
+            const msg = notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menginisialisasi data awal Suhu Masuk Ompreng');
+            showToast(msg, 'error');
           }
-        } catch (_) {}
-        console.warn('Firestore sync notice (using localStorage fallback):', err);
+        }
+        const list: DailySuhuOmprengRecord[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
+        setDailyRecords(list);
+      },
+      (err) => {
+        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2', 'Gagal membaca data Suhu Masuk Ompreng dari Firebase');
+        showToast(msg, 'error');
       }
-    };
-    fetchFirestore();
+    );
+    return () => unsubscribe();
   }, []);
-
-  const saveRecordsLocally = (data: DailySuhuOmprengRecord[]) => {
-    setDailyRecords(data);
-    localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(data));
-  };
 
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMessage({ text, type });
@@ -509,6 +501,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
         sayuran: { suhu: null }
       };
 
+      const newDocId = existing ? existing.id : generateUniqueDocId(`suhu_ompreng_${formTanggal}`);
       const recordToSave: DailySuhuOmprengRecord = existing
         ? {
             ...existing,
@@ -520,7 +513,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
             [targetSesiKey]: updatedSesiData
           }
         : {
-            id: formTanggal,
+            id: newDocId,
             tanggal: formTanggal,
             petugas: defaultPetugas,
             petugasRole: defaultPetugasRole,
@@ -533,17 +526,19 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
             sesi3: targetSesiKey === 'sesi3' ? updatedSesiData : emptySesi
           };
 
-      // 1. Instant Optimistic Local Update
-      const existsIndex = dailyRecords.findIndex(r => r.tanggal === formTanggal);
-      let updatedList: DailySuhuOmprengRecord[];
-      if (existsIndex >= 0) {
-        updatedList = [...dailyRecords];
-        updatedList[existsIndex] = recordToSave;
+      if (existing) {
+        await updateDoc(doc(db, 'suhu_masuk_ompreng_v2', existing.id), sanitizeForFirestore({
+          petugas: recordToSave.petugas,
+          petugasRole: recordToSave.petugasRole,
+          status: recordToSave.status,
+          catatan: recordToSave.catatan,
+          updatedAt: recordToSave.updatedAt,
+          [targetSesiKey]: updatedSesiData
+        }));
       } else {
-        updatedList = [recordToSave, ...dailyRecords].sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+        await setDoc(doc(db, 'suhu_masuk_ompreng_v2', newDocId), sanitizeForFirestore(recordToSave));
       }
 
-      saveRecordsLocally(updatedList);
       setSelectedDokumentasiTanggal(formTanggal);
       showToast(`Data suhu masuk ompreng ${makananPokokSesi} tanggal ${formatTanggalTable(formTanggal)} berhasil disimpan!`, 'success');
 
@@ -562,19 +557,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       setSayuranNama('');
       setFormCatatan('');
 
-      // 2. Immediate Navigation to Tabel
       onNavigate('/gizi/suhu/makanan/masuk-ompreng/tabel');
-
-      // 3. Background Async Firestore Persistence (non-blocking)
-      const firestoreDb = getDb();
-      if (firestoreDb) {
-        setDoc(doc(firestoreDb, 'suhu_masuk_ompreng_v2', formTanggal), recordToSave).catch(err => {
-          console.warn('Background Firestore write notice:', err);
-        });
-      }
     } catch (err) {
-      console.error('Error saving suhu masuk ompreng:', err);
-      showToast('Gagal menyimpan data suhu masuk ompreng', 'error');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menyimpan data suhu masuk ompreng ke Firebase');
+      showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -612,21 +598,16 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     );
   }, [filteredDokumentasiRecords, selectedDokumentasiTanggal]);
 
-  // Delete record with instant optimistic update
-  const handleDeleteDailyRecord = async (tanggal: string) => {
-    if (!window.confirm(`Hapus data suhu masuk ompreng tanggal ${formatTanggalTable(tanggal)}?`)) return;
+  // Delete record in Firestore
+  const handleDeleteDailyRecord = async (record: DailySuhuOmprengRecord) => {
+    if (!window.confirm(`Hapus data suhu masuk ompreng tanggal ${formatTanggalTable(record.tanggal)}?`)) return;
 
-    // Instant local removal
-    const updated = dailyRecords.filter(r => r.tanggal !== tanggal);
-    saveRecordsLocally(updated);
-    showToast(`Data suhu masuk ompreng tanggal ${formatTanggalTable(tanggal)} berhasil dihapus`, 'success');
-
-    // Background delete in Firestore
-    const firestoreDb = getDb();
-    if (firestoreDb) {
-      deleteDoc(doc(firestoreDb, 'suhu_masuk_ompreng_v2', tanggal)).catch(err => {
-        console.warn('Background Firestore delete notice:', err);
-      });
+    try {
+      await deleteDoc(doc(db, 'suhu_masuk_ompreng_v2', record.id));
+      showToast(`Data suhu masuk ompreng tanggal ${formatTanggalTable(record.tanggal)} berhasil dihapus`, 'success');
+    } catch (err) {
+      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_masuk_ompreng_v2/${record.id}`, 'Gagal menghapus data suhu masuk ompreng dari Firebase');
+      showToast(msg, 'error');
     }
   };
 
@@ -1633,7 +1614,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteDailyRecord(r.tanggal)}
+                              onClick={() => handleDeleteDailyRecord(r)}
                               className="p-1 text-rose-600 hover:bg-rose-50 rounded"
                               title="Hapus Baris Tanggal Ini"
                             >

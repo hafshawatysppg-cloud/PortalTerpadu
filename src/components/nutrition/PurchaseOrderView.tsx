@@ -2,6 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as Icons from 'lucide-react';
 import { PurchaseOrderDocument, POItem, POSupplier, POShipTo, RABPlan } from '../../types';
 import { PurchaseOrderPrintModal } from './PurchaseOrderPrintModal';
+import {
+  getOpLainnyaSnapshot,
+  getRabBahanBakuSnapshot,
+  getRabOpBarangSnapshot
+} from '../../lib/firestoreOperationalStore';
 
 interface PurchaseOrderViewProps {
   currentPath?: string;
@@ -102,20 +107,9 @@ export const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({ currentPat
   const runPOAggregation = async (baseDate: string, customDates?: string[]) => {
     setLoading(true);
     try {
-      let localRabBahanBaku: any[] = [];
-      let localRabOpBarang: any[] = [];
-      let localOpLainnya: any[] = [];
-
-      try {
-        const sBB = localStorage.getItem('sppg_akuntan_rab_bahan_baku');
-        if (sBB) localRabBahanBaku = JSON.parse(sBB);
-        const sOp = localStorage.getItem('sppg_akuntan_rab_op_barang');
-        if (sOp) localRabOpBarang = JSON.parse(sOp);
-        const sLainnya = localStorage.getItem('sppg_akuntan_op_lainnya');
-        if (sLainnya) localOpLainnya = JSON.parse(sLainnya);
-      } catch (e) {
-        console.warn('Error reading akuntan local storage:', e);
-      }
+      const localRabBahanBaku: any[] = getRabBahanBakuSnapshot();
+      const localRabOpBarang: any[] = getRabOpBarangSnapshot();
+      const localOpLainnya: any[] = getOpLainnyaSnapshot();
 
       const res = await fetch('/api/v1/nutrition-plans/po/aggregate', {
         method: 'POST',

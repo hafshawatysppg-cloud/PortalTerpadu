@@ -52,6 +52,7 @@ import { ConfirmModal } from '../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../lib/useFirestoreRealtime';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { getDb } from '../lib/firebase';
+import { OperationType, generateUniqueDocId, notifyFirestoreFailure, sanitizeForFirestore } from '../lib/firestoreHelper';
 import {
   PortionValidationBadge,
   ValidatedPortionInput,
@@ -1737,7 +1738,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const conf = getKategoriConfig(groupCat);
 
       const isEdit = Boolean(editingGroup.id);
-      const groupId = editingGroup.id || `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      const groupId = editingGroup.id || generateUniqueDocId('GRP');
 
       const rawLembagaList = (editingGroup.lembagaList && editingGroup.lembagaList.length > 0)
         ? editingGroup.lembagaList
@@ -1759,7 +1760,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         const itemConf = getKategoriConfig(itemCat);
         const itemKlas = l.klasifikasiPorsi || editingGroup.klasifikasiPorsi || itemConf.defaultKlasifikasi || 'Porsi Besar';
         const instName = (l.namaInstansi || '').trim() || `${groupNama} - Instansi ${idx + 1}`;
-        const locId = l.id || `LOC-${groupId}-${idx + 1}`;
+        const locId = l.id || generateUniqueDocId(`LOC_${groupId}`);
         const norm = instName.toLowerCase();
         const bd = l.breakdownKelas || {};
 
@@ -1852,41 +1853,53 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         lembagaList: sanitizedLembagaList
       };
 
-      // 1. Optimistic Local State Update: Card appears immediately on screen
+      const newLocs: BeneficiaryLocation[] = sanitizedLembagaList.map((item: any) => ({
+        id: item.id,
+        groupId,
+        groupNama,
+        namaInstansi: item.namaInstansi,
+        npsn: item.npsn || '',
+        alamat: item.alamat || '',
+        kontak: item.kontak || '',
+        picNama: item.picNama || '',
+        picTelepon: item.picTelepon || '',
+        kategoriLembaga: item.kategoriLembaga,
+        klasifikasiPorsi: item.klasifikasiPorsi,
+        breakdownKelas: item.breakdownKelas || {},
+        kategoriBreakdown: {
+          siswa: item.targetSiswa || 0,
+          guru: item.targetGuru || 0,
+          kader: item.targetKader || 0,
+          balita: item.targetBalita || 0,
+          ibuHamil: Number(item.breakdownKelas?.bumil_w || item.breakdownKelas?.bumil || 0),
+          ibuMenyusui: Number(item.breakdownKelas?.busui_w || item.breakdownKelas?.busui || 0),
+          breakdownKelas: item.breakdownKelas || {}
+        },
+        defaultJumlah: item.total || 0,
+        status: (item.status as 'Aktif' | 'Nonaktif') || 'Aktif'
+      }));
+
+      // 1. Direct client-side Firestore write (update dengan merge: true / dokumen baru ID unik)
+      try {
+        const fDb = getDb();
+        if (fDb) {
+          await setDoc(doc(fDb, 'beneficiaryGroups', groupId), sanitizeForFirestore(payload), { merge: true });
+          for (const locItem of newLocs) {
+            await setDoc(doc(fDb, 'beneficiaryLocations', locItem.id), sanitizeForFirestore(locItem), { merge: true });
+          }
+        }
+      } catch (fErr) {
+        const msg = notifyFirestoreFailure(fErr, isEdit ? OperationType.UPDATE : OperationType.CREATE, `beneficiaryGroups/${groupId}`, 'Gagal menyimpan kelompok penerima manfaat ke Firebase');
+        showToast(msg, 'error');
+        return;
+      }
+
+      // 2. Local State Update after Firebase write succeeds
       deletedGroupIds.current.delete(groupId);
       setGroups((prev) => {
         const remaining = prev.filter((g) => g.id !== groupId);
         return [...remaining, payload].sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
       });
-
-      const newLocs: BeneficiaryLocation[] = sanitizedLembagaList.map((item: any, lIdx: number) => {
-        const isLoc3B = (item.kategoriLembaga || groupCat).includes('3B');
-        const kCount = isLoc3B ? ((Number(item.breakdownKelas?.kader_l) || 0) + (Number(item.breakdownKelas?.kader_p) || 0) || Number(item.breakdownKelas?.kader) || Number(item.targetKader) || 0) : 0;
-        return {
-          id: item.id || `LOC-${groupId}-${lIdx + 1}`,
-          groupId: groupId,
-          groupNama: groupNama,
-          namaInstansi: item.namaInstansi,
-          npsn: item.npsn || '',
-          picNama: item.picNama || '',
-          picTelepon: item.nomorKontak || item.picKontak || '',
-          kategoriLembaga: item.kategoriLembaga || groupCat,
-          klasifikasiPorsi: item.klasifikasiPorsi,
-          breakdownKelas: item.breakdownKelas || {},
-          defaultJumlah: item.total || 0,
-          status: 'Aktif',
-          kategoriBreakdown: {
-            siswa: isLoc3B ? 0 : (item.targetSiswa || 0),
-            guru: isLoc3B ? 0 : (item.targetGuru || 0),
-            kader: kCount,
-            balita: item.targetBalita || 0,
-            ibuHamil: item.targetBumilBusui ? Math.ceil(item.targetBumilBusui / 2) : 0,
-            ibuMenyusui: item.targetBumilBusui ? Math.floor(item.targetBumilBusui / 2) : 0,
-            breakdownKelas: item.breakdownKelas || {}
-          }
-        };
-      });
-
       setLocations((prev) => {
         const withoutThisGroup = prev.filter(l => l.groupId !== groupId && l.groupNama !== groupNama);
         return [...withoutThisGroup, ...newLocs];
@@ -1895,19 +1908,6 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       setIsGroupModalOpen(false);
       setEditingGroup(null);
       showToast(isEdit ? 'Kelompok berhasil diperbarui' : 'Kelompok baru berhasil ditambahkan');
-
-      // 2. Direct client-side Firestore dual-write (0ms local latency compensation + cloud persistence)
-      try {
-        const fDb = getDb();
-        if (fDb) {
-          await setDoc(doc(fDb, 'beneficiaryGroups', groupId), JSON.parse(JSON.stringify(payload)), { merge: true });
-          for (const locItem of newLocs) {
-            await setDoc(doc(fDb, 'beneficiaryLocations', locItem.id), JSON.parse(JSON.stringify(locItem)), { merge: true });
-          }
-        }
-      } catch (fErr) {
-        console.warn('Direct Firestore client write note:', fErr);
-      }
 
       // 3. Backend REST API call for server-side dbStore & audit logs
       const url = isEdit ? `/api/v1/penerima-manfaat/groups/${groupId}` : '/api/v1/penerima-manfaat/groups';
@@ -1929,9 +1929,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           fetchDailyByDate(selectedDate);
         }
       } catch (netErr) {
-        console.warn('Server REST API sync note:', netErr);
+        console.error('Server REST API sync error:', netErr);
       }
     } catch (err) {
+      console.error('Gagal menyimpan kelompok:', err);
       showToast('Gagal menyimpan kelompok', 'error');
     }
   };
@@ -1946,19 +1947,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       danger: true,
       onConfirm: async () => {
         try {
-          deletedGroupIds.current.add(id);
-
-          // 1. Optimistic local state update
-          setGroups((prev) => {
-            const remaining = prev.filter((g) => g.id !== id);
-            return remaining.map((g, idx) => ({ ...g, urutan: idx + 1 }));
-          });
-          setLocations((prev) => prev.filter(l => l.groupId !== id && l.groupNama !== nama));
-          setIsGroupModalOpen(false);
-          setEditingGroup(null);
-          showToast(`Kelompok "${nama}" berhasil dihapus`, 'success');
-
-          // 2. Direct client-side Firestore delete
+          // 1. Direct client-side Firestore delete
           try {
             const fDb = getDb();
             if (fDb) {
@@ -1969,13 +1958,28 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               }
             }
           } catch (fErr) {
-            console.warn('Firestore client delete error:', fErr);
+            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, `beneficiaryGroups/${id}`, 'Gagal menghapus kelompok dari Firebase');
+            showToast(msg, 'error');
+            return;
           }
+
+          deletedGroupIds.current.add(id);
+
+          // 2. Local state update
+          setGroups((prev) => {
+            const remaining = prev.filter((g) => g.id !== id);
+            return remaining.map((g, idx) => ({ ...g, urutan: idx + 1 }));
+          });
+          setLocations((prev) => prev.filter(l => l.groupId !== id && l.groupNama !== nama));
+          setIsGroupModalOpen(false);
+          setEditingGroup(null);
+          showToast(`Kelompok "${nama}" berhasil dihapus`, 'success');
 
           // 3. Server REST API delete
           await fetch(`/api/v1/penerima-manfaat/groups/${id}`, { method: 'DELETE' });
           fetchDailyByDate(selectedDate);
         } catch (err) {
+          console.error('Gagal menghapus kelompok:', err);
           showToast('Terjadi kesalahan saat menghapus data', 'error');
         }
       }
@@ -1995,13 +1999,6 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           const currentGroups = [...groups];
           const currentLocations = [...locations];
 
-          currentGroups.forEach(g => deletedGroupIds.current.add(g.id));
-          setGroups([]);
-          setLocations([]);
-          setIsGroupModalOpen(false);
-          setEditingGroup(null);
-          showToast('Semua kelompok penerima manfaat berhasil dihapus', 'success');
-
           // Direct client-side Firestore delete
           try {
             const fDb = getDb();
@@ -2014,13 +2011,23 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
               }
             }
           } catch (fErr) {
-            console.warn('Firestore client clear error:', fErr);
+            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, 'beneficiaryGroups', 'Gagal menghapus seluruh kelompok dari Firebase');
+            showToast(msg, 'error');
+            return;
           }
+
+          currentGroups.forEach(g => deletedGroupIds.current.add(g.id));
+          setGroups([]);
+          setLocations([]);
+          setIsGroupModalOpen(false);
+          setEditingGroup(null);
+          showToast('Semua kelompok penerima manfaat berhasil dihapus', 'success');
 
           // Server REST API delete all
           await fetch('/api/v1/penerima-manfaat/groups', { method: 'DELETE' });
           fetchDailyByDate(selectedDate);
         } catch (err) {
+          console.error('Gagal mengosongkan kelompok:', err);
           showToast('Gagal menghapus kelompok', 'error');
         }
       }

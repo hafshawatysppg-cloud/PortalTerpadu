@@ -38,12 +38,21 @@ import { FoodWasteView } from './views/FoodWasteView';
 import { PetugasView } from './views/petugas/PetugasView';
 import { GiziView } from './views/gizi/GiziView';
 import { AkuntanView } from './views/akuntan/AkuntanView';
+import { subscribeFirebaseErrorToast } from './lib/firestoreHelper';
 
 const PortalMain: React.FC = () => {
   const { user, isAuthenticated, isAuthLoading } = useAuth();
   const [currentPath, setCurrentPath] = useState('/dashboard');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [firebaseErrorBanner, setFirebaseErrorBanner] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const unsub = subscribeFirebaseErrorToast((msg) => {
+      setFirebaseErrorBanner(msg);
+    });
+    return unsub;
+  }, []);
 
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains('dark');
@@ -370,6 +379,22 @@ const PortalMain: React.FC = () => {
           setCurrentPath(url);
         }}
       />
+
+      {firebaseErrorBanner && (
+        <div className="fixed top-4 right-4 z-[9999] max-w-md bg-rose-600 text-white px-4 py-3 rounded-2xl shadow-2xl border border-rose-400 flex items-start gap-3 text-xs font-semibold print:hidden">
+          <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86l-8.17 14.15A2 2 0 003.85 21h16.3a2 2 0 001.73-2.99L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <div className="flex-1 leading-relaxed">{firebaseErrorBanner}</div>
+          <button
+            type="button"
+            onClick={() => setFirebaseErrorBanner(null)}
+            className="text-rose-100 hover:text-white font-bold px-1 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 };

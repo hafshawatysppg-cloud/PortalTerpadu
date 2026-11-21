@@ -87,6 +87,29 @@ import { DashboardAkuntan } from '../../components/akuntan/DashboardAkuntan';
 import { CetakLaporanAkuntanView } from '../../components/akuntan/CetakLaporanAkuntanView';
 import { calculateDailyRecordsPortion } from '../../utils/portionHelper';
 import { INITIAL_PDF_INGREDIENTS } from '../../components/nutrition/nutritionData';
+import {
+  deleteAkuntanItemDoc,
+  getAkuntanConfigsSnapshot,
+  getBarangDatangSnapshot,
+  getGajiKaryawanSnapshot,
+  getGajiStafSnapshot,
+  getInsentifFasilitasSnapshot,
+  getNutritionPlansSnapshot,
+  getOpLainnyaSnapshot,
+  getPicLembagaSnapshot,
+  getPicPosyanduSnapshot,
+  getRabBahanBakuSnapshot,
+  getRabOpBarangSnapshot,
+  getRealisasiBbSnapshot,
+  getRealisasiOpSnapshot,
+  replaceAkuntanDocsForPredicate,
+  saveAkuntanItemDoc,
+  subscribeOperationalSlice,
+  updateAkuntanConfigDoc,
+  updateAkuntanItemFields,
+  updateNutritionPlanPriceInFirestore
+} from '../../lib/firestoreOperationalStore';
+import { generateUniqueDocId } from '../../lib/firestoreHelper';
 
 interface AkuntanViewProps {
   currentPath: string;
@@ -94,20 +117,36 @@ interface AkuntanViewProps {
 }
 
 export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigate }) => {
-  // Toast Notification state
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  // Toast Notification state (supports success & error notifications)
+  const [toastMessage, setToastMessage] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const triggerToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ msg, type });
+    setTimeout(() => setToastMessage(null), 3800);
   };
 
-  // Tanggal aktif terintegrasi dengan Penerima Manfaat & Food Cost
+  // Debounced single-item field persistence helper to Firestore
+  const fieldSyncTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const scheduleItemFieldsSync = React.useCallback(
+    (collectionName: string, docId: string, fields: Record<string, any>) => {
+      const key = `${collectionName}:${docId}`;
+      if (fieldSyncTimers.current[key]) {
+        clearTimeout(fieldSyncTimers.current[key]);
+      }
+      fieldSyncTimers.current[key] = setTimeout(async () => {
+        try {
+          await updateAkuntanItemFields(collectionName, docId, fields);
+        } catch (err: any) {
+          console.error(`Gagal memperbarui ${collectionName}/${docId}:`, err);
+          triggerToast(err?.message || 'Gagal menyimpan perubahan ke Firebase', 'error');
+        }
+      }, 300);
+    },
+    []
+  );
+
+  // Tanggal aktif terintegrasi dengan Penerima Manfaat & Food Cost (sumber tunggal Firestore)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
-    try {
-      return localStorage.getItem('sppg_akuntan_selected_date') || '2026-11-01';
-    } catch {
-      return '2026-11-01';
-    }
+    return getAkuntanConfigsSnapshot().selectedDate || '2026-11-01';
   });
   const [isLoadingBeneficiary, setIsLoadingBeneficiary] = useState<boolean>(false);
   const [beneficiaryInfo, setBeneficiaryInfo] = useState<{
@@ -161,94 +200,104 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     fetchBeneficiaryForAkuntan(selectedDate);
   }, [selectedDate, fetchBeneficiaryForAkuntan]);
 
-  // State Persistence with localStorage - Dikosongkan jika belum ada data Food Cost / belum diatur admin
-  const [rabBahanBaku, setRabBahanBaku] = useState<RabBahanBakuItem[]>([]);
+  // State Persistence berbasis Firestore real-time
+  const [rabBahanBaku, setRabBahanBaku] = useState<RabBahanBakuItem[]>(() =>
+    getRabBahanBakuSnapshot().filter((it) => it.tanggalPelaksanaan === selectedDate)
+  );
 
   // State kunci data RAB Bahan Baku (Simpan & Kunci vs Edit/Revisi)
-  const [isRabBahanBakuLocked, setIsRabBahanBakuLocked] = useState<boolean>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_rab_bb_locked');
-      return s === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isRabBahanBakuLocked, setIsRabBahanBakuLocked] = useState<boolean>(() =>
+    Boolean(getAkuntanConfigsSnapshot().rabBbLocked)
+  );
 
-  const handleSimpanRabBahanBaku = () => {
-    setIsRabBahanBakuLocked(true);
+  const handleSimpanRabBahanBaku = async () => {
     try {
-      localStorage.setItem('sppg_akuntan_rab_bb_locked', 'true');
-      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(rabBahanBaku));
-      localStorage.setItem(`sppg_akuntan_rab_bb_${selectedDate}`, JSON.stringify(rabBahanBaku));
-      // Simpan riwayat harga satuan agar dapat dipakai otomatis saat sync food cost berikutnya
-      const priceMap: Record<string, number> = {};
-      rabBahanBaku.forEach(item => {
+      const existingForDate = getRabBahanBakuSnapshot().filter(
+        (it) => it.tanggalPelaksanaan === selectedDate
+      );
+      const datedItems = rabBahanBaku.map((it) => ({
+        ...it,
+        tanggalPelaksanaan: it.tanggalPelaksanaan || selectedDate
+      }));
+      await replaceAkuntanDocsForPredicate('akuntan_rab_bahan_baku', datedItems, existingForDate);
+
+      const currentPrices = { ...(getAkuntanConfigsSnapshot().savedPrices || {}) };
+      datedItems.forEach((item) => {
         if (item.hargaSatuan > 0) {
-          priceMap[item.namaBarang.toLowerCase().trim()] = item.hargaSatuan;
+          currentPrices[item.namaBarang.toLowerCase().trim()] = item.hargaSatuan;
         }
       });
-      localStorage.setItem('sppg_akuntan_saved_prices', JSON.stringify(priceMap));
-    } catch (_) {}
-    triggerToast('RAB Bahan Baku berhasil disimpan dan dikunci! Data aman dari perubahan.');
-  };
-
-  const handleEditRabBahanBaku = () => {
-    setIsRabBahanBakuLocked(false);
-    try {
-      localStorage.setItem('sppg_akuntan_rab_bb_locked', 'false');
-    } catch (_) {}
-    triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, jumlah, dan harga satuan.');
-  };
-
-  // RAB Operasional Pengadaan Barang: Kosongkan jika admin belum mengatur / mengisi
-  const [rabOperasionalBarang, setRabOperasionalBarang] = useState<RabOperasionalBarangItem[]>(() => {
-    try {
-      const isConfigured = localStorage.getItem('sppg_akuntan_rab_op_barang_configured');
-      if (isConfigured === 'true') {
-        const s = localStorage.getItem('sppg_akuntan_rab_op_barang');
-        return s ? JSON.parse(s) : [];
-      }
-      return [];
-    } catch {
-      return [];
+      await updateAkuntanConfigDoc({
+        rabBbLocked: true,
+        savedPrices: currentPrices
+      });
+      setIsRabBahanBakuLocked(true);
+      triggerToast('RAB Bahan Baku berhasil disimpan permanen ke Firebase dan dikunci!');
+    } catch (err: any) {
+      console.error('Gagal menyimpan RAB Bahan Baku:', err);
+      triggerToast(err?.message || 'Gagal terhubung ke Firebase saat menyimpan RAB Bahan Baku', 'error');
     }
+  };
+
+  const handleEditRabBahanBaku = async () => {
+    try {
+      await updateAkuntanConfigDoc({ rabBbLocked: false });
+      setIsRabBahanBakuLocked(false);
+      triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, jumlah, dan harga satuan.');
+    } catch (err: any) {
+      console.error('Gagal membuka kunci RAB Bahan Baku:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci RAB Bahan Baku di Firebase', 'error');
+    }
+  };
+
+  // RAB Operasional Pengadaan Barang
+  const [rabOperasionalBarang, setRabOperasionalBarang] = useState<RabOperasionalBarangItem[]>(() => {
+    const cfg = getAkuntanConfigsSnapshot();
+    return cfg.rabOpBarangConfigured ? getRabOpBarangSnapshot() : [];
   });
 
   // State kunci data RAB Operasional Pengadaan Barang
-  const [isRabOpBarangLocked, setIsRabOpBarangLocked] = useState<boolean>(() => {
+  const [isRabOpBarangLocked, setIsRabOpBarangLocked] = useState<boolean>(() =>
+    Boolean(getAkuntanConfigsSnapshot().rabOpLocked)
+  );
+
+  const handleSimpanRabOpBarang = async () => {
     try {
-      const s = localStorage.getItem('sppg_akuntan_rab_op_locked');
-      return s === 'true';
-    } catch {
-      return false;
+      await replaceAkuntanDocsForPredicate(
+        'akuntan_rab_op_barang',
+        rabOperasionalBarang,
+        getRabOpBarangSnapshot()
+      );
+      await updateAkuntanConfigDoc({
+        rabOpLocked: true,
+        rabOpBarangConfigured: true
+      });
+      setIsRabOpBarangLocked(true);
+      triggerToast('RAB Operasional Pengadaan Barang berhasil disimpan ke Firebase dan dikunci!');
+    } catch (err: any) {
+      console.error('Gagal menyimpan RAB Operasional Barang:', err);
+      triggerToast(err?.message || 'Gagal menyimpan RAB Operasional Barang ke Firebase', 'error');
     }
-  });
-
-  const handleSimpanRabOpBarang = () => {
-    setIsRabOpBarangLocked(true);
-    try {
-      localStorage.setItem('sppg_akuntan_rab_op_locked', 'true');
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(rabOperasionalBarang));
-      localStorage.setItem('sppg_akuntan_rab_op_barang_configured', 'true');
-    } catch (_) {}
-    triggerToast('RAB Operasional Pengadaan Barang berhasil disimpan dan dikunci!');
   };
 
-  const handleEditRabOpBarang = () => {
-    setIsRabOpBarangLocked(false);
+  const handleEditRabOpBarang = async () => {
     try {
-      localStorage.setItem('sppg_akuntan_rab_op_locked', 'false');
-    } catch (_) {}
-    triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, satuan, jumlah, dan harga satuan.');
+      await updateAkuntanConfigDoc({ rabOpLocked: false });
+      setIsRabOpBarangLocked(false);
+      triggerToast('Mode revisi aktif: Anda dapat mengedit nama barang, satuan, jumlah, dan harga satuan.');
+    } catch (err: any) {
+      console.error('Gagal membuka kunci RAB Operasional Barang:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci RAB Operasional Barang di Firebase', 'error');
+    }
   };
 
-  const handleTambahBarisOpBarang = () => {
+  const handleTambahBarisOpBarang = async () => {
     if (isRabOpBarangLocked) {
       triggerToast('Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menambah barang.');
       return;
     }
     const newItem: RabOperasionalBarangItem = {
-      id: `OPB-${Date.now()}`,
+      id: generateUniqueDocId('OPB'),
       kode: `OP-${String(rabOperasionalBarang.length + 1).padStart(2, '0')}`,
       kategori: 'Operasional Dapur',
       namaBarang: '',
@@ -259,197 +308,150 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       periode: `Harian (${selectedDate})`,
       keterangan: 'Diinput oleh Admin / Akuntan'
     };
-    const updated = [...rabOperasionalBarang, newItem];
-    setRabOperasionalBarang(updated);
     try {
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-      localStorage.setItem('sppg_akuntan_rab_op_barang_configured', 'true');
-    } catch (_) {}
-    triggerToast('Baris barang operasional baru berhasil ditambahkan.');
+      await saveAkuntanItemDoc('akuntan_rab_op_barang', newItem);
+      await updateAkuntanConfigDoc({ rabOpBarangConfigured: true });
+      setRabOperasionalBarang((prev) => [...prev, newItem]);
+      triggerToast('Baris barang operasional baru berhasil ditambahkan ke Firebase.');
+    } catch (err: any) {
+      console.error('Gagal menambah baris barang operasional:', err);
+      triggerToast(err?.message || 'Gagal menambah baris barang operasional ke Firebase', 'error');
+    }
   };
 
-  const handleHapusBarisOpBarang = (id: string) => {
+  const handleHapusBarisOpBarang = async (id: string) => {
     if (isRabOpBarangLocked) {
       triggerToast('Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menghapus baris.');
       return;
     }
-    const updated = rabOperasionalBarang.filter(item => item.id !== id);
-    setRabOperasionalBarang(updated);
     try {
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-    } catch (_) {}
-    triggerToast('Barang operasional berhasil dihapus.');
+      await deleteAkuntanItemDoc('akuntan_rab_op_barang', id);
+      setRabOperasionalBarang((prev) => prev.filter((item) => item.id !== id));
+      triggerToast('Barang operasional berhasil dihapus dari Firebase.');
+    } catch (err: any) {
+      console.error('Gagal menghapus barang operasional:', err);
+      triggerToast(err?.message || 'Gagal menghapus barang operasional dari Firebase', 'error');
+    }
   };
 
-  // Gaji Karyawan Dapur: Kosongkan jika admin belum mengatur / mengisi / menyinkronkan
+  // Gaji Karyawan Dapur
   const [gajiKaryawan, setGajiKaryawan] = useState<GajiKaryawanRecord[]>(() => {
-    try {
-      const isConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured');
-      if (isConfigured === 'true') {
-        const s = localStorage.getItem('sppg_akuntan_gaji_karyawan');
-        return s ? JSON.parse(s) : [];
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    const cfg = getAkuntanConfigsSnapshot();
+    return cfg.gajiKaryawanConfigured ? getGajiKaryawanSnapshot() : [];
   });
   const [isSyncingPetugas, setIsSyncingPetugas] = useState<boolean>(false);
 
-  // Insentif PIC Sekolah: Kosongkan jika admin belum mengatur / mengisi
+  // Insentif PIC Sekolah
+  const normalizePicSchools = React.useCallback((data: InsentifPicRecord[]) => {
+    return data.map((item) => {
+      const { nominal, tierLabel } = hitungInsentifPicSekolah(item.jumlahSasaran);
+      return {
+        ...item,
+        insentifPokok: nominal,
+        totalInsentif: nominal,
+        tierInfo: tierLabel
+      };
+    });
+  }, []);
+
   const [insentifPicLembaga, setInsentifPicLembaga] = useState<InsentifPicRecord[]>(() => {
-    try {
-      const isConfigured = localStorage.getItem('sppg_akuntan_pic_lembaga_configured');
-      if (isConfigured === 'true') {
-        const s = localStorage.getItem('sppg_akuntan_pic_lembaga');
-        if (s) {
-          const data: InsentifPicRecord[] = JSON.parse(s);
-          return data.map(item => {
-            const { nominal, tierLabel } = hitungInsentifPicSekolah(item.jumlahSasaran);
-            return {
-              ...item,
-              insentifPokok: nominal,
-              totalInsentif: nominal,
-              tierInfo: tierLabel
-            };
-          });
-        }
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    const cfg = getAkuntanConfigsSnapshot();
+    return cfg.picLembagaConfigured ? normalizePicSchools(getPicLembagaSnapshot()) : [];
   });
 
-  // Insentif PIC Posyandu: Kosongkan jika admin belum mengatur / mengisi
+  // Insentif PIC Posyandu
+  const normalizePicPosyandu = React.useCallback((data: InsentifPicRecord[]) => {
+    return data.map((item) => {
+      const { nominal, tierLabel } = hitungInsentifPicPosyandu(item.jumlahSasaran);
+      return {
+        ...item,
+        insentifPokok: nominal,
+        totalInsentif: nominal,
+        tierInfo: tierLabel
+      };
+    });
+  }, []);
+
   const [insentifPicPosyandu, setInsentifPicPosyandu] = useState<InsentifPicRecord[]>(() => {
-    try {
-      const isConfigured = localStorage.getItem('sppg_akuntan_pic_posyandu_configured');
-      if (isConfigured === 'true') {
-        const s = localStorage.getItem('sppg_akuntan_pic_posyandu');
-        if (s) {
-          const data: InsentifPicRecord[] = JSON.parse(s);
-          return data.map(item => {
-            const { nominal, tierLabel } = hitungInsentifPicPosyandu(item.jumlahSasaran);
-            return {
-              ...item,
-              insentifPokok: nominal,
-              totalInsentif: nominal,
-              tierInfo: tierLabel
-            };
-          });
-        }
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    const cfg = getAkuntanConfigsSnapshot();
+    return cfg.picPosyanduConfigured ? normalizePicPosyandu(getPicPosyanduSnapshot()) : [];
   });
 
-  const [gajiStaf, setGajiStaf] = useState<GajiStafRecord[]>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_gaji_staf');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [gajiStaf, setGajiStaf] = useState<GajiStafRecord[]>(() => getGajiStafSnapshot());
 
-  // Operasional Lainnya: Kosongkan jika admin belum mengatur / mengisi
+  // Operasional Lainnya
+  const normalizeOpLainnya = React.useCallback((data: OperasionalLainnyaItem[]) => {
+    return data.map((item) => ({
+      ...item,
+      satuan: item.satuan || (item.kategori?.includes('Lab') ? 'Sampel' : 'Bulan'),
+      biayaSatuan: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya,
+      jumlahBiaya: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya
+    }));
+  }, []);
+
   const [operasionalLainnya, setOperasionalLainnya] = useState<OperasionalLainnyaItem[]>(() => {
-    try {
-      const isConfigured = localStorage.getItem('sppg_akuntan_op_lainnya_configured');
-      if (isConfigured === 'true') {
-        const s = localStorage.getItem('sppg_akuntan_op_lainnya');
-        if (s) {
-          const data: OperasionalLainnyaItem[] = JSON.parse(s);
-          return data.map(item => ({
-            ...item,
-            satuan: item.satuan || (item.kategori?.includes('Lab') ? 'Sampel' : 'Bulan'),
-            biayaSatuan: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya,
-            jumlahBiaya: item.biayaSatuan !== undefined ? item.biayaSatuan : item.jumlahBiaya
-          }));
-        }
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    const cfg = getAkuntanConfigsSnapshot();
+    return cfg.opLainnyaConfigured ? normalizeOpLainnya(getOpLainnyaSnapshot()) : [];
   });
 
   // State kunci data Operasional Lainnya
-  const [isOperasionalLainnyaLocked, setIsOperasionalLainnyaLocked] = useState<boolean>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_op_lainnya_locked');
-      return s === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isOperasionalLainnyaLocked, setIsOperasionalLainnyaLocked] = useState<boolean>(() =>
+    Boolean(getAkuntanConfigsSnapshot().opLainnyaLocked)
+  );
 
-  const handleSimpanOperasionalLainnya = () => {
-    setIsOperasionalLainnyaLocked(true);
+  const handleSimpanOperasionalLainnya = async () => {
     try {
-      localStorage.setItem('sppg_akuntan_op_lainnya_locked', 'true');
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(operasionalLainnya));
-      localStorage.setItem('sppg_akuntan_op_lainnya_configured', 'true');
-    } catch (_) {}
-    triggerToast('Data Operasional Lainnya berhasil disimpan dan dikunci!');
+      await replaceAkuntanDocsForPredicate(
+        'akuntan_op_lainnya',
+        operasionalLainnya,
+        getOpLainnyaSnapshot()
+      );
+      await updateAkuntanConfigDoc({
+        opLainnyaLocked: true,
+        opLainnyaConfigured: true
+      });
+      setIsOperasionalLainnyaLocked(true);
+      triggerToast('Data Operasional Lainnya berhasil disimpan permanen ke Firebase dan dikunci!');
+    } catch (err: any) {
+      console.error('Gagal menyimpan Operasional Lainnya:', err);
+      triggerToast(err?.message || 'Gagal menyimpan Operasional Lainnya ke Firebase', 'error');
+    }
   };
 
-  const handleEditOperasionalLainnya = () => {
-    setIsOperasionalLainnyaLocked(false);
+  const handleEditOperasionalLainnya = async () => {
     try {
-      localStorage.setItem('sppg_akuntan_op_lainnya_locked', 'false');
-    } catch (_) {}
-    triggerToast('Mode revisi aktif: Anda dapat mengedit tanggal, uraian pengeluaran, satuan, dan biaya satuan.');
+      await updateAkuntanConfigDoc({ opLainnyaLocked: false });
+      setIsOperasionalLainnyaLocked(false);
+      triggerToast('Mode revisi aktif: Anda dapat mengedit tanggal, uraian pengeluaran, satuan, dan biaya satuan.');
+    } catch (err: any) {
+      console.error('Gagal membuka kunci Operasional Lainnya:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci Operasional Lainnya di Firebase', 'error');
+    }
   };
 
   const [insentifFasilitas, setInsentifFasilitas] = useState<InsentifFasilitasRecord[]>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_insentif_fasilitas');
-      return s ? JSON.parse(s) : initialInsentifFasilitas;
-    } catch {
-      return initialInsentifFasilitas;
-    }
+    const live = getInsentifFasilitasSnapshot();
+    return live.length > 0 ? live : initialInsentifFasilitas;
   });
 
   const [realisasiBahanBaku, setRealisasiBahanBaku] = useState<RealisasiBahanBakuItem[]>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_realisasi_bb');
-      return s ? JSON.parse(s) : initialRealisasiBahanBaku;
-    } catch {
-      return initialRealisasiBahanBaku;
-    }
+    const live = getRealisasiBbSnapshot();
+    return live.length > 0 ? live : initialRealisasiBahanBaku;
   });
 
   const [realisasiOperasional, setRealisasiOperasional] = useState<RealisasiOperasionalItem[]>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_realisasi_op');
-      return s ? JSON.parse(s) : initialRealisasiOperasional;
-    } catch {
-      return initialRealisasiOperasional;
-    }
+    const live = getRealisasiOpSnapshot();
+    return live.length > 0 ? live : initialRealisasiOperasional;
   });
 
   // Per-date Lock State Maps untuk Realisasi Bahan Baku & Realisasi Operasional
-  const [realisasiBbLockedMap, setRealisasiBbLockedMap] = useState<Record<string, boolean>>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_realisasi_bb_locked_map');
-      return s ? JSON.parse(s) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [realisasiBbLockedMap, setRealisasiBbLockedMap] = useState<Record<string, boolean>>(
+    () => getAkuntanConfigsSnapshot().realisasiBbLockedMap || {}
+  );
 
-  const [realisasiOpLockedMap, setRealisasiOpLockedMap] = useState<Record<string, boolean>>(() => {
-    try {
-      const s = localStorage.getItem('sppg_akuntan_realisasi_op_locked_map');
-      return s ? JSON.parse(s) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [realisasiOpLockedMap, setRealisasiOpLockedMap] = useState<Record<string, boolean>>(
+    () => getAkuntanConfigsSnapshot().realisasiOpLockedMap || {}
+  );
 
   const isRealisasiBbLocked = Boolean(realisasiBbLockedMap[selectedDate]);
   const isRealisasiOpLocked = Boolean(realisasiOpLockedMap[selectedDate]);
@@ -500,7 +502,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         } else {
           statusKesesuaian = 'Kurang';
         }
-        return {
+        const updatedItem = {
           ...item,
           hargaSatuanRiil: sanitized,
           totalRealisasi,
@@ -508,31 +510,43 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           persentaseRealisasi,
           statusKesesuaian
         };
+        scheduleItemFieldsSync('akuntan_realisasi_bb', item.id, {
+          hargaSatuanRiil: sanitized,
+          totalRealisasi,
+          selisih,
+          persentaseRealisasi,
+          statusKesesuaian
+        });
+        return updatedItem;
       })
     );
   };
 
-  const handleSimpanRealisasiBb = () => {
+  const handleSimpanRealisasiBb = async () => {
     const updatedMap = { ...realisasiBbLockedMap, [selectedDate]: true };
-    setRealisasiBbLockedMap(updatedMap);
     try {
-      localStorage.setItem('sppg_akuntan_realisasi_bb_locked_map', JSON.stringify(updatedMap));
-      localStorage.setItem('sppg_akuntan_realisasi_bb', JSON.stringify(realisasiBahanBaku));
-      localStorage.setItem(
-        `sppg_akuntan_realisasi_bb_${selectedDate}`,
-        JSON.stringify(realisasiBahanBaku.filter((item) => item.tanggal === selectedDate))
-      );
-    } catch (_) {}
-    triggerToast(`Realisasi Bahan Baku tanggal ${selectedDate} berhasil disimpan dan dikunci!`);
+      const forDate = realisasiBahanBaku.filter((item) => item.tanggal === selectedDate);
+      const existingForDate = getRealisasiBbSnapshot().filter((item) => item.tanggal === selectedDate);
+      await replaceAkuntanDocsForPredicate('akuntan_realisasi_bb', forDate, existingForDate);
+      await updateAkuntanConfigDoc({ realisasiBbLockedMap: updatedMap });
+      setRealisasiBbLockedMap(updatedMap);
+      triggerToast(`Realisasi Bahan Baku tanggal ${selectedDate} berhasil disimpan ke Firebase dan dikunci!`);
+    } catch (err: any) {
+      console.error('Gagal menyimpan Realisasi Bahan Baku:', err);
+      triggerToast(err?.message || 'Gagal menyimpan Realisasi Bahan Baku ke Firebase', 'error');
+    }
   };
 
-  const handleEditRealisasiBb = () => {
+  const handleEditRealisasiBb = async () => {
     const updatedMap = { ...realisasiBbLockedMap, [selectedDate]: false };
-    setRealisasiBbLockedMap(updatedMap);
     try {
-      localStorage.setItem('sppg_akuntan_realisasi_bb_locked_map', JSON.stringify(updatedMap));
-    } catch (_) {}
-    triggerToast(`Mode revisi Realisasi Bahan Baku tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+      await updateAkuntanConfigDoc({ realisasiBbLockedMap: updatedMap });
+      setRealisasiBbLockedMap(updatedMap);
+      triggerToast(`Mode revisi Realisasi Bahan Baku tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+    } catch (err: any) {
+      console.error('Gagal membuka kunci Realisasi Bahan Baku:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci Realisasi Bahan Baku di Firebase', 'error');
+    }
   };
 
   const handleUpdateHargaRiilOp = (itemId: string, newHarga: number) => {
@@ -547,70 +561,114 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         const qtyRiil = Number(item.jumlahRiil) || 0;
         const biayaRiil = qtyRiil > 0 ? Math.round(qtyRiil * sanitized) : Math.round(sanitized);
         const anggaranRab = Number(item.anggaranRab) || 0;
+        const selisih = biayaRiil - anggaranRab;
+        scheduleItemFieldsSync('akuntan_realisasi_op', item.id, {
+          hargaSatuanRiil: sanitized,
+          biayaRiil,
+          selisih
+        });
         return {
           ...item,
           hargaSatuanRiil: sanitized,
           biayaRiil,
-          selisih: biayaRiil - anggaranRab
+          selisih
         };
       })
     );
   };
 
-  const handleSimpanRealisasiOp = () => {
+  const handleSimpanRealisasiOp = async () => {
     const updatedMap = { ...realisasiOpLockedMap, [selectedDate]: true };
-    setRealisasiOpLockedMap(updatedMap);
     try {
-      localStorage.setItem('sppg_akuntan_realisasi_op_locked_map', JSON.stringify(updatedMap));
-      localStorage.setItem('sppg_akuntan_realisasi_op', JSON.stringify(realisasiOperasional));
-      localStorage.setItem(
-        `sppg_akuntan_realisasi_op_${selectedDate}`,
-        JSON.stringify(realisasiOperasional.filter((item) => item.tanggal === selectedDate))
-      );
-    } catch (_) {}
-    triggerToast(`Realisasi Operasional tanggal ${selectedDate} berhasil disimpan dan dikunci!`);
+      const forDate = realisasiOperasional.filter((item) => item.tanggal === selectedDate);
+      const existingForDate = getRealisasiOpSnapshot().filter((item) => item.tanggal === selectedDate);
+      await replaceAkuntanDocsForPredicate('akuntan_realisasi_op', forDate, existingForDate);
+      await updateAkuntanConfigDoc({ realisasiOpLockedMap: updatedMap });
+      setRealisasiOpLockedMap(updatedMap);
+      triggerToast(`Realisasi Operasional tanggal ${selectedDate} berhasil disimpan ke Firebase dan dikunci!`);
+    } catch (err: any) {
+      console.error('Gagal menyimpan Realisasi Operasional:', err);
+      triggerToast(err?.message || 'Gagal menyimpan Realisasi Operasional ke Firebase', 'error');
+    }
   };
 
-  const handleEditRealisasiOp = () => {
+  const handleEditRealisasiOp = async () => {
     const updatedMap = { ...realisasiOpLockedMap, [selectedDate]: false };
-    setRealisasiOpLockedMap(updatedMap);
     try {
-      localStorage.setItem('sppg_akuntan_realisasi_op_locked_map', JSON.stringify(updatedMap));
-    } catch (_) {}
-    triggerToast(`Mode revisi Realisasi Operasional tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+      await updateAkuntanConfigDoc({ realisasiOpLockedMap: updatedMap });
+      setRealisasiOpLockedMap(updatedMap);
+      triggerToast(`Mode revisi Realisasi Operasional tanggal ${selectedDate} aktif. Harga Riil dapat diedit kembali.`);
+    } catch (err: any) {
+      console.error('Gagal membuka kunci Realisasi Operasional:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci Realisasi Operasional di Firebase', 'error');
+    }
   };
 
-  // Save changes to localStorage
+  // Real-time listeners from Firestore operational store (tanpa localStorage)
   useEffect(() => {
-    localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(rabBahanBaku));
-  }, [rabBahanBaku]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(rabOperasionalBarang));
-  }, [rabOperasionalBarang]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_gaji_karyawan', JSON.stringify(gajiKaryawan));
-  }, [gajiKaryawan]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_pic_lembaga', JSON.stringify(insentifPicLembaga));
-  }, [insentifPicLembaga]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_pic_posyandu', JSON.stringify(insentifPicPosyandu));
-  }, [insentifPicPosyandu]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_gaji_staf', JSON.stringify(gajiStaf));
-  }, [gajiStaf]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(operasionalLainnya));
-  }, [operasionalLainnya]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_insentif_fasilitas', JSON.stringify(insentifFasilitas));
-  }, [insentifFasilitas]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_realisasi_bb', JSON.stringify(realisasiBahanBaku));
-  }, [realisasiBahanBaku]);
-  useEffect(() => {
-    localStorage.setItem('sppg_akuntan_realisasi_op', JSON.stringify(realisasiOperasional));
-  }, [realisasiOperasional]);
+    const syncConfig = () => {
+      const cfg = getAkuntanConfigsSnapshot();
+      setIsRabBahanBakuLocked(Boolean(cfg.rabBbLocked));
+      setIsRabOpBarangLocked(Boolean(cfg.rabOpLocked));
+      setIsOperasionalLainnyaLocked(Boolean(cfg.opLainnyaLocked));
+      setRealisasiBbLockedMap(cfg.realisasiBbLockedMap || {});
+      setRealisasiOpLockedMap(cfg.realisasiOpLockedMap || {});
+      if (cfg.rabOpBarangConfigured) setRabOperasionalBarang(getRabOpBarangSnapshot());
+      if (cfg.gajiKaryawanConfigured) setGajiKaryawan(getGajiKaryawanSnapshot());
+      if (cfg.picLembagaConfigured) setInsentifPicLembaga(normalizePicSchools(getPicLembagaSnapshot()));
+      if (cfg.picPosyanduConfigured) setInsentifPicPosyandu(normalizePicPosyandu(getPicPosyanduSnapshot()));
+      if (cfg.opLainnyaConfigured) setOperasionalLainnya(normalizeOpLainnya(getOpLainnyaSnapshot()));
+    };
+
+    const unsubs = [
+      subscribeOperationalSlice('akuntanConfigs', syncConfig),
+      subscribeOperationalSlice('rabBahanBaku', () => {
+        const items = getRabBahanBakuSnapshot().filter((it) => it.tanggalPelaksanaan === selectedDate);
+        if (items.length > 0) setRabBahanBaku(items);
+      }),
+      subscribeOperationalSlice('rabOpBarang', () => {
+        if (getAkuntanConfigsSnapshot().rabOpBarangConfigured) {
+          setRabOperasionalBarang(getRabOpBarangSnapshot());
+        }
+      }),
+      subscribeOperationalSlice('gajiKaryawan', () => {
+        if (getAkuntanConfigsSnapshot().gajiKaryawanConfigured) {
+          setGajiKaryawan(getGajiKaryawanSnapshot());
+        }
+      }),
+      subscribeOperationalSlice('picLembaga', () => {
+        if (getAkuntanConfigsSnapshot().picLembagaConfigured) {
+          setInsentifPicLembaga(normalizePicSchools(getPicLembagaSnapshot()));
+        }
+      }),
+      subscribeOperationalSlice('picPosyandu', () => {
+        if (getAkuntanConfigsSnapshot().picPosyanduConfigured) {
+          setInsentifPicPosyandu(normalizePicPosyandu(getPicPosyanduSnapshot()));
+        }
+      }),
+      subscribeOperationalSlice('gajiStaf', () => {
+        setGajiStaf(getGajiStafSnapshot());
+      }),
+      subscribeOperationalSlice('opLainnya', () => {
+        if (getAkuntanConfigsSnapshot().opLainnyaConfigured) {
+          setOperasionalLainnya(normalizeOpLainnya(getOpLainnyaSnapshot()));
+        }
+      }),
+      subscribeOperationalSlice('insentifFasilitas', () => {
+        const live = getInsentifFasilitasSnapshot();
+        if (live.length > 0) setInsentifFasilitas(live);
+      }),
+      subscribeOperationalSlice('realisasiBb', () => {
+        const live = getRealisasiBbSnapshot();
+        if (live.length > 0) setRealisasiBahanBaku(live);
+      }),
+      subscribeOperationalSlice('realisasiOp', () => {
+        const live = getRealisasiOpSnapshot();
+        if (live.length > 0) setRealisasiOperasional(live);
+      })
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [selectedDate, normalizeOpLainnya, normalizePicPosyandu, normalizePicSchools]);
 
   // Selected item state for preview modals
   const [selectedSlipKaryawan, setSelectedSlipKaryawan] = useState<GajiKaryawanRecord | null>(null);
@@ -659,23 +717,18 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           }
         } catch (_) {}
 
-        // Merge/fallback dengan localStorage sppg_barang_datang_items
-        try {
-          const local = localStorage.getItem('sppg_barang_datang_items');
-          if (local) {
-            const parsedLocal = JSON.parse(local);
-            if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-              if (incomingItems.length === 0) {
-                incomingItems = parsedLocal;
-              } else {
-                const existingIds = new Set(incomingItems.map((it: any) => it.id));
-                parsedLocal.forEach((it: any) => {
-                  if (!existingIds.has(it.id)) incomingItems.push(it);
-                });
-              }
-            }
+        // Gabungkan data kedatangan barang langsung dari Firestore operational store
+        const firestoreIncoming = getBarangDatangSnapshot();
+        if (Array.isArray(firestoreIncoming) && firestoreIncoming.length > 0) {
+          if (incomingItems.length === 0) {
+            incomingItems = firestoreIncoming;
+          } else {
+            const existingIds = new Set(incomingItems.map((it: any) => it.id));
+            firestoreIncoming.forEach((it: any) => {
+              if (!existingIds.has(it.id)) incomingItems.push(it);
+            });
           }
-        } catch (_) {}
+        }
 
         if (targetJenis === 'Bahan Baku') {
           const filtered = incomingItems.filter((item: any) => {
@@ -689,74 +742,74 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               triggerToast(`Belum ada data kedatangan Bahan Baku pada tanggal ${targetDate}.`);
             }
           } else {
-            setRealisasiBahanBaku((prev) => {
-              const otherDates = prev.filter((p) => p.tanggal !== targetDate);
-              const existingForDate = prev.filter((p) => p.tanggal === targetDate);
+            const otherDates = realisasiBahanBaku.filter((p) => p.tanggal !== targetDate);
+            const existingForDate = realisasiBahanBaku.filter((p) => p.tanggal === targetDate);
 
-              const syncedForDate: RealisasiBahanBakuItem[] = filtered.map((item: any, idx: number) => {
-                const nama = item.namaBarang || 'Bahan Baku';
-                const existingMatch = existingForDate.find(
-                  (e) => e.idKedatangan === item.id || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
-                );
-                const matchedRab = rabBahanBaku.find((r) =>
-                  r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
-                  nama.toLowerCase().includes(r.namaBarang.toLowerCase())
-                );
-                const qtyRiil = Number(item.jumlahMasuk) || 0;
-                const qtyRencana =
-                  matchedRab?.pembulatan !== undefined
-                    ? Number(matchedRab.pembulatan)
-                    : matchedRab?.totalKebutuhanKg || existingMatch?.jumlahRencana || qtyRiil;
-                const hargaRencana = matchedRab?.hargaSatuan ?? existingMatch?.hargaSatuanRencana ?? 0;
-                const hargaRiil =
-                  existingMatch && existingMatch.hargaSatuanRiil > 0
-                    ? existingMatch.hargaSatuanRiil
-                    : hargaRencana;
-                const totalRencana = matchedRab?.totalAnggaran ?? Math.round(qtyRencana * hargaRencana);
-                const totalRiil = Math.round(qtyRiil * hargaRiil);
-                const selisih = totalRiil - totalRencana;
-
-                let statusKesesuaian: RealisasiBahanBakuItem['statusKesesuaian'] = 'Sesuai';
-                if (totalRiil === totalRencana) statusKesesuaian = 'Sesuai';
-                else if (hargaRiil !== hargaRencana && qtyRiil === qtyRencana) statusKesesuaian = 'Harga Berubah';
-                else if (totalRiil > totalRencana) statusKesesuaian = 'Lebih';
-                else statusKesesuaian = 'Kurang';
-
-                return {
-                  id: existingMatch?.id || `RLS-BB-${targetDate}-${item.id || idx}`,
-                  idKedatangan: item.id || `BD-${targetDate}-${idx}`,
-                  tanggal: targetDate,
-                  namaBarang: nama,
-                  satuan: item.satuan || matchedRab?.satuan || 'Kg',
-                  jumlahRencana: qtyRencana,
-                  jumlahRealisasi: qtyRiil,
-                  hargaSatuanRencana: hargaRencana,
-                  hargaSatuanRiil: hargaRiil,
-                  totalRencana,
-                  totalRealisasi: totalRiil,
-                  selisih,
-                  persentaseRealisasi: totalRencana > 0 ? Number(((totalRiil / totalRencana) * 100).toFixed(1)) : 100,
-                  kualitas: item.kualitas || item.kualitasProduk || 'Baik',
-                  supplier:
-                    item.supplier ||
-                    (item.keterangan?.includes('Supplier') ? item.keterangan : 'Penyedia Bahan SPPG'),
-                  petugasPenerima: item.petugas || 'Petugas Gudang',
-                  statusKesesuaian
-                };
-              });
-
-              const untouchedManualRows = existingForDate.filter(
-                (e) =>
-                  !syncedForDate.some(
-                    (s) => s.idKedatangan === e.idKedatangan || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
-                  )
+            const syncedForDate: RealisasiBahanBakuItem[] = filtered.map((item: any, idx: number) => {
+              const nama = item.namaBarang || 'Bahan Baku';
+              const existingMatch = existingForDate.find(
+                (e) => e.idKedatangan === item.id || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
               );
-              return [...syncedForDate, ...untouchedManualRows, ...otherDates];
+              const matchedRab = rabBahanBaku.find((r) =>
+                r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
+                nama.toLowerCase().includes(r.namaBarang.toLowerCase())
+              );
+              const qtyRiil = Number(item.jumlahMasuk) || 0;
+              const qtyRencana =
+                matchedRab?.pembulatan !== undefined
+                  ? Number(matchedRab.pembulatan)
+                  : matchedRab?.totalKebutuhanKg || existingMatch?.jumlahRencana || qtyRiil;
+              const hargaRencana = matchedRab?.hargaSatuan ?? existingMatch?.hargaSatuanRencana ?? 0;
+              const hargaRiil =
+                existingMatch && existingMatch.hargaSatuanRiil > 0
+                  ? existingMatch.hargaSatuanRiil
+                  : hargaRencana;
+              const totalRencana = matchedRab?.totalAnggaran ?? Math.round(qtyRencana * hargaRencana);
+              const totalRiil = Math.round(qtyRiil * hargaRiil);
+              const selisih = totalRiil - totalRencana;
+
+              let statusKesesuaian: RealisasiBahanBakuItem['statusKesesuaian'] = 'Sesuai';
+              if (totalRiil === totalRencana) statusKesesuaian = 'Sesuai';
+              else if (hargaRiil !== hargaRencana && qtyRiil === qtyRencana) statusKesesuaian = 'Harga Berubah';
+              else if (totalRiil > totalRencana) statusKesesuaian = 'Lebih';
+              else statusKesesuaian = 'Kurang';
+
+              return {
+                id: existingMatch?.id || generateUniqueDocId(`RLS_BB_${targetDate}`),
+                idKedatangan: item.id || `BD-${targetDate}-${idx}`,
+                tanggal: targetDate,
+                namaBarang: nama,
+                satuan: item.satuan || matchedRab?.satuan || 'Kg',
+                jumlahRencana: qtyRencana,
+                jumlahRealisasi: qtyRiil,
+                hargaSatuanRencana: hargaRencana,
+                hargaSatuanRiil: hargaRiil,
+                totalRencana,
+                totalRealisasi: totalRiil,
+                selisih,
+                persentaseRealisasi: totalRencana > 0 ? Number(((totalRiil / totalRencana) * 100).toFixed(1)) : 100,
+                kualitas: item.kualitas || item.kualitasProduk || 'Baik',
+                supplier:
+                  item.supplier ||
+                  (item.keterangan?.includes('Supplier') ? item.keterangan : 'Penyedia Bahan SPPG'),
+                petugasPenerima: item.petugas || 'Petugas Gudang',
+                statusKesesuaian
+              };
             });
+
+            const untouchedManualRows = existingForDate.filter(
+              (e) =>
+                !syncedForDate.some(
+                  (s) => s.idKedatangan === e.idKedatangan || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
+                )
+            );
+            const nextForDate = [...syncedForDate, ...untouchedManualRows];
+            await replaceAkuntanDocsForPredicate('akuntan_realisasi_bb', nextForDate, existingForDate);
+            setRealisasiBahanBaku([...nextForDate, ...otherDates]);
 
             if (!isAuto) {
               triggerToast(
-                `Berhasil menyinkronkan ${filtered.length} item kedatangan Bahan Baku tanggal ${targetDate}!`
+                `Berhasil menyinkronkan ${filtered.length} item kedatangan Bahan Baku tanggal ${targetDate} ke Firebase!`
               );
             }
           }
@@ -771,61 +824,61 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               triggerToast(`Belum ada data kedatangan Operasional pada tanggal ${targetDate}.`);
             }
           } else {
-            setRealisasiOperasional((prev) => {
-              const otherDates = prev.filter((p) => p.tanggal !== targetDate);
-              const existingForDate = prev.filter((p) => p.tanggal === targetDate);
+            const otherDates = realisasiOperasional.filter((p) => p.tanggal !== targetDate);
+            const existingForDate = realisasiOperasional.filter((p) => p.tanggal === targetDate);
 
-              const syncedForDate: RealisasiOperasionalItem[] = filtered.map((item: any, idx: number) => {
-                const nama = item.namaBarang || 'Barang Operasional';
-                const existingMatch = existingForDate.find(
-                  (e) => e.id === `RLS-OP-${targetDate}-${item.id}` || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
-                );
-                const matchedRab = rabOperasionalBarang.find((r) =>
-                  r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
-                  nama.toLowerCase().includes(r.namaBarang.toLowerCase())
-                );
-                const qtyRiil = Number(item.jumlahMasuk) || 0;
-                const existingHarga = existingMatch ? getHargaRiilOperasional(existingMatch) : 0;
-                const hargaRiil = existingHarga > 0 ? existingHarga : matchedRab?.hargaSatuan ?? 0;
-                const biayaRiil = qtyRiil > 0 ? Math.round(qtyRiil * hargaRiil) : Math.round(hargaRiil);
-                const anggaranRab = matchedRab?.totalAnggaran ?? existingMatch?.anggaranRab ?? 0;
-
-                return {
-                  id: existingMatch?.id || `RLS-OP-${targetDate}-${item.id || idx}`,
-                  tanggal: targetDate,
-                  namaBarang: nama,
-                  kategori: matchedRab?.kategori || 'Operasional Dapur',
-                  jumlahRiil: qtyRiil,
-                  satuan: item.satuan || matchedRab?.satuan || 'Pcs',
-                  hargaSatuanRiil: hargaRiil,
-                  biayaRiil,
-                  anggaranRab,
-                  selisih: biayaRiil - anggaranRab,
-                  supplierPetugas: item.petugas || item.supplier || 'Petugas Gudang / Penyedia',
-                  keterangan: item.keterangan || 'Sinkronisasi Kedatangan Barang'
-                };
-              });
-
-              const untouchedManualRows = existingForDate.filter(
-                (e) =>
-                  !syncedForDate.some(
-                    (s) => s.id === e.id || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
-                  )
+            const syncedForDate: RealisasiOperasionalItem[] = filtered.map((item: any, idx: number) => {
+              const nama = item.namaBarang || 'Barang Operasional';
+              const existingMatch = existingForDate.find(
+                (e) => e.id === `RLS-OP-${targetDate}-${item.id}` || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
               );
-              return [...syncedForDate, ...untouchedManualRows, ...otherDates];
+              const matchedRab = rabOperasionalBarang.find((r) =>
+                r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
+                nama.toLowerCase().includes(r.namaBarang.toLowerCase())
+              );
+              const qtyRiil = Number(item.jumlahMasuk) || 0;
+              const existingHarga = existingMatch ? getHargaRiilOperasional(existingMatch) : 0;
+              const hargaRiil = existingHarga > 0 ? existingHarga : matchedRab?.hargaSatuan ?? 0;
+              const biayaRiil = qtyRiil > 0 ? Math.round(qtyRiil * hargaRiil) : Math.round(hargaRiil);
+              const anggaranRab = matchedRab?.totalAnggaran ?? existingMatch?.anggaranRab ?? 0;
+
+              return {
+                id: existingMatch?.id || generateUniqueDocId(`RLS_OP_${targetDate}`),
+                tanggal: targetDate,
+                namaBarang: nama,
+                kategori: matchedRab?.kategori || 'Operasional Dapur',
+                jumlahRiil: qtyRiil,
+                satuan: item.satuan || matchedRab?.satuan || 'Pcs',
+                hargaSatuanRiil: hargaRiil,
+                biayaRiil,
+                anggaranRab,
+                selisih: biayaRiil - anggaranRab,
+                supplierPetugas: item.petugas || item.supplier || 'Petugas Gudang / Penyedia',
+                keterangan: item.keterangan || 'Sinkronisasi Kedatangan Barang'
+              };
             });
+
+            const untouchedManualRows = existingForDate.filter(
+              (e) =>
+                !syncedForDate.some(
+                  (s) => s.id === e.id || s.namaBarang.toLowerCase().trim() === e.namaBarang.toLowerCase().trim()
+                )
+            );
+            const nextForDate = [...syncedForDate, ...untouchedManualRows];
+            await replaceAkuntanDocsForPredicate('akuntan_realisasi_op', nextForDate, existingForDate);
+            setRealisasiOperasional([...nextForDate, ...otherDates]);
 
             if (!isAuto) {
               triggerToast(
-                `Berhasil menyinkronkan ${filtered.length} item kedatangan Operasional tanggal ${targetDate}!`
+                `Berhasil menyinkronkan ${filtered.length} item kedatangan Operasional tanggal ${targetDate} ke Firebase!`
               );
             }
           }
         }
-      } catch (err) {
-        console.error('Error syncing:', err);
+      } catch (err: any) {
+        console.error('Error syncing kedatangan barang:', err);
         if (!isAuto) {
-          triggerToast('Sinkronisasi selesai: Data kedatangan barang telah diperbarui.');
+          triggerToast(err?.message || 'Gagal menyinkronkan data kedatangan barang ke Firebase.', 'error');
         }
       } finally {
         if (!isAuto) {
@@ -833,7 +886,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         }
       }
     },
-    [selectedDate, realisasiBbLockedMap, realisasiOpLockedMap, rabBahanBaku, rabOperasionalBarang]
+    [
+      selectedDate,
+      realisasiBbLockedMap,
+      realisasiOpLockedMap,
+      rabBahanBaku,
+      rabOperasionalBarang,
+      realisasiBahanBaku,
+      realisasiOperasional
+    ]
   );
 
   // Sinkronisasi Pagu Formula dari target PM
@@ -846,23 +907,16 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }, 400);
   };
 
-  // Sinkronisasi RAB Bahan Baku dengan Food Cost: Jika di Food Cost belum ada data maka RAB Bahan Baku kosong []
+  // Sinkronisasi RAB Bahan Baku dengan Food Cost dari Firestore
   const syncRabBahanBakuWithFoodCost = React.useCallback(async (targetDate: string, isManual: boolean = false) => {
-    // 1. Cek apakah ada data RAB Bahan Baku yang telah disimpan/dikunci spesifik untuk tanggal ini oleh admin
-    try {
-      const savedDateKey = `sppg_akuntan_rab_bb_${targetDate}`;
-      const savedForDate = localStorage.getItem(savedDateKey);
-      if (savedForDate) {
-        const parsed = JSON.parse(savedForDate);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setRabBahanBaku(parsed);
-          if (isManual) {
-            triggerToast(`Memuat ${parsed.length} bahan baku tersimpan untuk tanggal ${targetDate}.`);
-          }
-          return;
-        }
-      }
-    } catch (_) {}
+    // 1. Cek apakah ada data RAB Bahan Baku yang telah disimpan di Firestore untuk tanggal ini
+    const savedForDate = getRabBahanBakuSnapshot().filter(
+      (it) => it.tanggalPelaksanaan === targetDate
+    );
+    if (savedForDate.length > 0 && !isManual) {
+      setRabBahanBaku(savedForDate);
+      return;
+    }
 
     if (isManual) {
       setIsSyncing(true);
@@ -891,33 +945,37 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             }
           }
         }
-      } catch (_) {}
-
-      // B. Jika belum ada dari API, periksa localStorage sppg_nutrition_plans
-      if (foodCostItems.length === 0) {
-        try {
-          const localPlans = localStorage.getItem('sppg_nutrition_plans');
-          if (localPlans) {
-            const parsed = JSON.parse(localPlans);
-            const matched = parsed.find((p: any) => p.tanggalPelaksanaan === targetDate);
-            if (matched && Array.isArray(matched.ingredientsData) && matched.ingredientsData.length > 0) {
-              foodCostItems = matched.ingredientsData;
-            } else if (matched && Array.isArray(matched.items) && matched.items.length > 0) {
-              foodCostItems = matched.items.map((it: any, idx: number) => ({
-                no: idx + 1,
-                bahanPangan: it.ingredientName,
-                pembulatan: Math.ceil(it.requiredKg || 1),
-                satuan: 'kg',
-                hargaPerKg: it.pricePerKg || 0,
-                totalRequiredKg: it.requiredKg
-              }));
-            }
-          }
-        } catch (_) {}
+      } catch (apiErr) {
+        console.error('Error fetching nutrition plan by date:', apiErr);
       }
 
-      // C. ATURAN PENGEMBANGAN: Jika di Food Cost BELUM ada data, maka di RAB Bahan Baku TIDAK AKAN MUNCUL DATA (kosong [])
+      // B. Jika belum ada dari API, periksa Firestore collection nutritionPlans
       if (foodCostItems.length === 0) {
+        const plans = getNutritionPlansSnapshot();
+        const matched = plans.find((p: any) => p.tanggalPelaksanaan === targetDate);
+        if (matched && Array.isArray(matched.ingredientsData) && matched.ingredientsData.length > 0) {
+          foodCostItems = matched.ingredientsData;
+        } else if (matched && Array.isArray(matched.items) && matched.items.length > 0) {
+          foodCostItems = matched.items.map((it: any, idx: number) => ({
+            no: idx + 1,
+            bahanPangan: it.ingredientName,
+            pembulatan: Math.ceil(it.requiredKg || 1),
+            satuan: 'kg',
+            hargaPerKg: it.pricePerKg || 0,
+            totalRequiredKg: it.requiredKg
+          }));
+        }
+      }
+
+      // C. Jika di Food Cost BELUM ada data, kembalikan tersimpan jika ada atau kosong []
+      if (foodCostItems.length === 0) {
+        if (savedForDate.length > 0) {
+          setRabBahanBaku(savedForDate);
+          if (isManual) {
+            triggerToast(`Memuat ${savedForDate.length} bahan baku tersimpan untuk tanggal ${targetDate}.`);
+          }
+          return;
+        }
         setRabBahanBaku([]);
         if (isManual) {
           triggerToast(`Belum ada data perencanaan Food Cost untuk tanggal ${targetDate}. Data RAB Bahan Baku tidak dimunculkan.`);
@@ -925,19 +983,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         return;
       }
 
-      // D. Ambil harga satuan yang pernah diinput sebelumnya dari riwayat harga
+      // D. Ambil harga satuan tersimpan dari konfigurasi Firestore
       const existingPriceMap = new Map<string, number>();
-      try {
-        const savedPrices = localStorage.getItem('sppg_akuntan_saved_prices');
-        if (savedPrices) {
-          const parsedMap = JSON.parse(savedPrices);
-          Object.entries(parsedMap).forEach(([k, v]) => existingPriceMap.set(k.toLowerCase().trim(), Number(v)));
-        }
-      } catch (_) {}
+      const savedPricesObj = getAkuntanConfigsSnapshot().savedPrices || {};
+      Object.entries(savedPricesObj).forEach(([k, v]) => existingPriceMap.set(k.toLowerCase().trim(), Number(v)));
 
       const newRabBahanBaku: RabBahanBakuItem[] = foodCostItems.map((item: any, idx: number) => {
         const nama = item.bahanPangan || item.ingredientName || `Bahan Baku ${idx + 1}`;
         const cleanName = nama.toLowerCase().trim();
+        const existingMatch = savedForDate.find((s) => s.namaBarang.toLowerCase().trim() === cleanName);
         const existingPrice = existingPriceMap.get(cleanName);
 
         let pembulatanNum = 0;
@@ -955,7 +1009,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         const totalAnggaran = Math.round(pembulatanNum * hargaSatuan);
 
         return {
-          id: `RAB-BB-FC-${targetDate}-${idx + 1}`,
+          id: existingMatch?.id || generateUniqueDocId(`RAB_BB_${targetDate}`),
           kode: `BB-${String(idx + 1).padStart(2, '0')}`,
           kategori: item.kategori || 'Bahan Pangan',
           namaBarang: nama,
@@ -972,15 +1026,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         };
       });
 
+      await replaceAkuntanDocsForPredicate('akuntan_rab_bahan_baku', newRabBahanBaku, savedForDate);
       setRabBahanBaku(newRabBahanBaku);
-      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(newRabBahanBaku));
       if (isManual) {
-        triggerToast(`Berhasil menarik ${newRabBahanBaku.length} bahan baku dari menu Food Cost! Silakan sesuaikan harga satuan.`);
+        triggerToast(`Berhasil menarik ${newRabBahanBaku.length} bahan baku dari menu Food Cost & disimpan ke Firebase!`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error tarik food cost:', err);
       if (isManual) {
-        triggerToast('Gagal menarik data food cost.');
+        triggerToast(err?.message || 'Gagal menyinkronkan data food cost ke Firebase.', 'error');
       }
     } finally {
       if (isManual) {
@@ -1004,11 +1058,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data RAB Bahan Baku terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setRabBahanBaku(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, namaBarang: newNama } : item);
-      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
-      return updated;
-    });
+    setRabBahanBaku((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_rab_bahan_baku', item.id, { namaBarang: newNama });
+        return { ...item, namaBarang: newNama };
+      })
+    );
   };
 
   const handleUpdateJumlah = (itemId: string, newJumlah: number) => {
@@ -1017,21 +1073,23 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return;
     }
     const val = isNaN(newJumlah) || newJumlah < 0 ? 0 : newJumlah;
-    setRabBahanBaku(prev => {
-      const updated = prev.map(item => {
-        if (item.id === itemId) {
-          return {
-            ...item,
-            pembulatan: val,
-            totalKebutuhanKg: val,
-            totalAnggaran: Math.round(val * (item.hargaSatuan || 0))
-          };
-        }
-        return item;
-      });
-      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
-      return updated;
-    });
+    setRabBahanBaku((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const totalAnggaran = Math.round(val * (item.hargaSatuan || 0));
+        scheduleItemFieldsSync('akuntan_rab_bahan_baku', item.id, {
+          pembulatan: val,
+          totalKebutuhanKg: val,
+          totalAnggaran
+        });
+        return {
+          ...item,
+          pembulatan: val,
+          totalKebutuhanKg: val,
+          totalAnggaran
+        };
+      })
+    );
   };
 
   const handleUpdateHargaSatuan = (itemId: string, newHarga: number) => {
@@ -1040,58 +1098,33 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return;
     }
     const val = isNaN(newHarga) || newHarga < 0 ? 0 : newHarga;
-    setRabBahanBaku(prev => {
-      let targetName = '';
-      const updated = prev.map(item => {
-        if (item.id === itemId) {
-          targetName = item.namaBarang;
-          const p = Number(item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg || 1));
-          return {
-            ...item,
-            hargaSatuan: val,
-            totalAnggaran: Math.round(p * val)
-          };
-        }
-        return item;
+    let targetName = '';
+    setRabBahanBaku((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        targetName = item.namaBarang;
+        const p = Number(item.pembulatan !== undefined ? item.pembulatan : (item.totalKebutuhanKg || 1));
+        const totalAnggaran = Math.round(p * val);
+        scheduleItemFieldsSync('akuntan_rab_bahan_baku', item.id, {
+          hargaSatuan: val,
+          totalAnggaran
+        });
+        return {
+          ...item,
+          hargaSatuan: val,
+          totalAnggaran
+        };
+      })
+    );
+
+    if (targetName) {
+      const cleanKey = targetName.toLowerCase().trim();
+      const currentPrices = { ...(getAkuntanConfigsSnapshot().savedPrices || {}), [cleanKey]: val };
+      void updateAkuntanConfigDoc({ savedPrices: currentPrices }).catch((err) => {
+        console.error('Gagal update savedPrices ke Firebase:', err);
       });
-      localStorage.setItem('sppg_akuntan_rab_bahan_baku', JSON.stringify(updated));
-      localStorage.setItem(`sppg_akuntan_rab_bb_${selectedDate}`, JSON.stringify(updated));
-
-      // Simpan ke map harga untuk sinkronisasi otomatis ke Food Cost
-      if (targetName) {
-        try {
-          const cleanKey = targetName.toLowerCase().trim();
-          const savedPrices = localStorage.getItem('sppg_akuntan_saved_prices');
-          const pMap = savedPrices ? JSON.parse(savedPrices) : {};
-          pMap[cleanKey] = val;
-          localStorage.setItem('sppg_akuntan_saved_prices', JSON.stringify(pMap));
-
-          // Sync langsung ke sppg_nutrition_plans jika ada untuk tanggal ini
-          const localPlans = localStorage.getItem('sppg_nutrition_plans');
-          if (localPlans) {
-            const plans = JSON.parse(localPlans);
-            let planChanged = false;
-            const updatedPlans = plans.map((p: any) => {
-              if (p.tanggalPelaksanaan === selectedDate && Array.isArray(p.ingredientsData)) {
-                p.ingredientsData = p.ingredientsData.map((ing: any) => {
-                  if ((ing.bahanPangan || '').toLowerCase().trim() === cleanKey) {
-                    planChanged = true;
-                    return { ...ing, hargaPerKg: val };
-                  }
-                  return ing;
-                });
-              }
-              return p;
-            });
-            if (planChanged) {
-              localStorage.setItem('sppg_nutrition_plans', JSON.stringify(updatedPlans));
-            }
-          }
-        } catch (_) {}
-      }
-
-      return updated;
-    });
+      void updateNutritionPlanPriceInFirestore(selectedDate, cleanKey, val);
+    }
   };
 
   // Handler pengisian dan pengeditan RAB Operasional Barang (Nama, Jumlah, Harga Satuan)
@@ -1100,11 +1133,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data RAB Operasional Barang terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setRabOperasionalBarang(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, namaBarang: newNama } : item);
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-      return updated;
-    });
+    setRabOperasionalBarang((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_rab_op_barang', item.id, { namaBarang: newNama });
+        return { ...item, namaBarang: newNama };
+      })
+    );
   };
 
   const handleUpdateSatuanOpBarang = (itemId: string, newSatuan: string) => {
@@ -1112,11 +1147,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data RAB Operasional Barang terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setRabOperasionalBarang(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, satuan: newSatuan } : item);
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-      return updated;
-    });
+    setRabOperasionalBarang((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_rab_op_barang', item.id, { satuan: newSatuan });
+        return { ...item, satuan: newSatuan };
+      })
+    );
   };
 
   const handleUpdateJumlahOpBarang = (itemId: string, newJumlah: number) => {
@@ -1125,20 +1162,14 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return;
     }
     const val = isNaN(newJumlah) || newJumlah < 0 ? 0 : newJumlah;
-    setRabOperasionalBarang(prev => {
-      const updated = prev.map(item => {
-        if (item.id === itemId) {
-          return {
-            ...item,
-            jumlah: val,
-            totalAnggaran: Math.round(val * (item.hargaSatuan || 0))
-          };
-        }
-        return item;
-      });
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-      return updated;
-    });
+    setRabOperasionalBarang((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const totalAnggaran = Math.round(val * (item.hargaSatuan || 0));
+        scheduleItemFieldsSync('akuntan_rab_op_barang', item.id, { jumlah: val, totalAnggaran });
+        return { ...item, jumlah: val, totalAnggaran };
+      })
+    );
   };
 
   const handleUpdateHargaSatuanOpBarang = (itemId: string, newHarga: number) => {
@@ -1147,20 +1178,14 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return;
     }
     const val = isNaN(newHarga) || newHarga < 0 ? 0 : newHarga;
-    setRabOperasionalBarang(prev => {
-      const updated = prev.map(item => {
-        if (item.id === itemId) {
-          return {
-            ...item,
-            hargaSatuan: val,
-            totalAnggaran: Math.round((item.jumlah || 0) * val)
-          };
-        }
-        return item;
-      });
-      localStorage.setItem('sppg_akuntan_rab_op_barang', JSON.stringify(updated));
-      return updated;
-    });
+    setRabOperasionalBarang((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const totalAnggaran = Math.round((item.jumlah || 0) * val);
+        scheduleItemFieldsSync('akuntan_rab_op_barang', item.id, { hargaSatuan: val, totalAnggaran });
+        return { ...item, hargaSatuan: val, totalAnggaran };
+      })
+    );
   };
 
   // Handler pengisian dan pengeditan Operasional Lainnya (Tanggal, Uraian Pengeluaran, Satuan, Biaya Satuan)
@@ -1169,11 +1194,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, tanggalTransaksi: newTanggal } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { tanggalTransaksi: newTanggal });
+        return { ...item, tanggalTransaksi: newTanggal };
+      })
+    );
   };
 
   const handleUpdateNamaPengeluaranOpLainnya = (itemId: string, newNama: string) => {
@@ -1181,11 +1208,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, namaPengeluaran: newNama } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { namaPengeluaran: newNama });
+        return { ...item, namaPengeluaran: newNama };
+      })
+    );
   };
 
   const handleUpdateSatuanOpLainnya = (itemId: string, newSatuan: string) => {
@@ -1193,11 +1222,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, satuan: newSatuan } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { satuan: newSatuan });
+        return { ...item, satuan: newSatuan };
+      })
+    );
   };
 
   const handleUpdateBiayaSatuanOpLainnya = (itemId: string, newBiaya: number) => {
@@ -1206,20 +1237,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       return;
     }
     const val = isNaN(newBiaya) || newBiaya < 0 ? 0 : newBiaya;
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => {
-        if (item.id === itemId) {
-          return {
-            ...item,
-            biayaSatuan: val,
-            jumlahBiaya: val
-          };
-        }
-        return item;
-      });
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { biayaSatuan: val, jumlahBiaya: val });
+        return { ...item, biayaSatuan: val, jumlahBiaya: val };
+      })
+    );
   };
 
   const handleUpdateKeteranganOpLainnya = (itemId: string, newKet: string) => {
@@ -1227,11 +1251,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, keterangan: newKet } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { keterangan: newKet });
+        return { ...item, keterangan: newKet };
+      })
+    );
   };
 
   const handleUpdatePenanggungJawabOpLainnya = (itemId: string, newPj: string) => {
@@ -1239,11 +1265,13 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, penanggungJawab: newPj } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { penanggungJawab: newPj });
+        return { ...item, penanggungJawab: newPj };
+      })
+    );
   };
 
   const handleUpdateBuktiNotaOpLainnya = (itemId: string, newNota: string) => {
@@ -1251,19 +1279,21 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       triggerToast('Data Operasional Lainnya terkunci. Klik tombol "Edit Data" untuk merevisi.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.map(item => item.id === itemId ? { ...item, buktiNota: newNota } : item);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
+    setOperasionalLainnya((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        scheduleItemFieldsSync('akuntan_op_lainnya', item.id, { buktiNota: newNota });
+        return { ...item, buktiNota: newNota };
+      })
+    );
   };
 
-  const handleTambahBarisOpLainnya = () => {
+  const handleTambahBarisOpLainnya = async () => {
     if (isOperasionalLainnyaLocked) {
       triggerToast('Buka kunci data terlebih dahulu untuk menambah baris pengeluaran.');
       return;
     }
-    const newId = `OPL-${Date.now()}`;
+    const newId = generateUniqueDocId('OPL');
     const newItem: OperasionalLainnyaItem = {
       id: newId,
       kodeTransaksi: `TRX-OPL-${Date.now().toString().slice(-6)}`,
@@ -1276,25 +1306,30 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       buktiNota: `NOTA-${Date.now().toString().slice(-4)}`,
       keterangan: 'Pengeluaran operasional dapur'
     };
-    setOperasionalLainnya(prev => {
-      const updated = [...prev, newItem];
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
-    triggerToast('Baris pengeluaran baru berhasil ditambahkan.');
+    try {
+      await saveAkuntanItemDoc('akuntan_op_lainnya', newItem);
+      await updateAkuntanConfigDoc({ opLainnyaConfigured: true });
+      setOperasionalLainnya((prev) => [...prev, newItem]);
+      triggerToast('Baris pengeluaran baru berhasil ditambahkan ke Firebase.');
+    } catch (err: any) {
+      console.error('Gagal menambah baris pengeluaran operasional:', err);
+      triggerToast(err?.message || 'Gagal menambah baris pengeluaran ke Firebase', 'error');
+    }
   };
 
-  const handleHapusBarisOpLainnya = (itemId: string) => {
+  const handleHapusBarisOpLainnya = async (itemId: string) => {
     if (isOperasionalLainnyaLocked) {
       triggerToast('Buka kunci data terlebih dahulu untuk menghapus baris pengeluaran.');
       return;
     }
-    setOperasionalLainnya(prev => {
-      const updated = prev.filter(item => item.id !== itemId);
-      localStorage.setItem('sppg_akuntan_op_lainnya', JSON.stringify(updated));
-      return updated;
-    });
-    triggerToast('Baris pengeluaran berhasil dihapus.');
+    try {
+      await deleteAkuntanItemDoc('akuntan_op_lainnya', itemId);
+      setOperasionalLainnya((prev) => prev.filter((item) => item.id !== itemId));
+      triggerToast('Baris pengeluaran berhasil dihapus dari Firebase.');
+    } catch (err: any) {
+      console.error('Gagal menghapus baris pengeluaran operasional:', err);
+      triggerToast(err?.message || 'Gagal menghapus baris pengeluaran dari Firebase', 'error');
+    }
   };
 
   // Sinkronisasi data PIC Sekolah & Posyandu dari data Penerima Manfaat sesuai Skema Tarif
@@ -1317,11 +1352,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         });
 
         if (schoolRecs.length > 0) {
+          const existingSchools = getPicLembagaSnapshot();
           const mappedSchools: InsentifPicRecord[] = schoolRecs.map((r: any, idx: number) => {
             const pm = Number(r.totalPenerima || 0);
             const { nominal, tierLabel } = hitungInsentifPicSekolah(pm);
+            const existing = existingSchools.find(
+              (s) => s.lembaga === r.namaInstansi && s.tanggalKwitansi === targetDate
+            );
             return {
-              id: `PIC-SCH-${targetDate}-${idx + 1}`,
+              id: existing?.id || generateUniqueDocId(`PIC_SCH_${targetDate}`),
               nomorKwitansi: `KWT-SCH/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
               namaPic: r.picNama || `PIC ${r.namaInstansi}`,
               nik: `351301${targetDate.replace(/-/g, '').slice(2)}${String(idx + 1).padStart(4, '0')}`,
@@ -1340,16 +1379,20 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               penerimaNama: r.picNama || `PIC ${r.namaInstansi}`
             };
           });
+          await replaceAkuntanDocsForPredicate('akuntan_pic_lembaga', mappedSchools, existingSchools);
           setInsentifPicLembaga(mappedSchools);
-          localStorage.setItem('sppg_akuntan_pic_lembaga', JSON.stringify(mappedSchools));
         }
 
         if (posyanduRecs.length > 0) {
+          const existingPos = getPicPosyanduSnapshot();
           const mappedPosyandu: InsentifPicRecord[] = posyanduRecs.map((r: any, idx: number) => {
             const pm = Number(r.totalPenerima || 0);
             const { nominal, tierLabel } = hitungInsentifPicPosyandu(pm);
+            const existing = existingPos.find(
+              (s) => s.lembaga === r.namaInstansi && s.tanggalKwitansi === targetDate
+            );
             return {
-              id: `PIC-POS-${targetDate}-${idx + 1}`,
+              id: existing?.id || generateUniqueDocId(`PIC_POS_${targetDate}`),
               nomorKwitansi: `KWT-POS/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
               namaPic: r.picNama || `Kader ${r.namaInstansi}`,
               nik: `351301${targetDate.replace(/-/g, '').slice(2)}${String(idx + 10).padStart(4, '0')}`,
@@ -1368,30 +1411,34 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               penerimaNama: r.picNama || `Kader ${r.namaInstansi}`
             };
           });
+          await replaceAkuntanDocsForPredicate('akuntan_pic_posyandu', mappedPosyandu, existingPos);
           setInsentifPicPosyandu(mappedPosyandu);
-          localStorage.setItem('sppg_akuntan_pic_posyandu', JSON.stringify(mappedPosyandu));
         }
 
         if (showToast) {
-          localStorage.setItem('sppg_akuntan_pic_lembaga_configured', 'true');
-          localStorage.setItem('sppg_akuntan_pic_posyandu_configured', 'true');
-          triggerToast(`Berhasil menyinkronkan data sasaran penerima manfaat & skema tarif insentif PIC untuk ${targetDate}!`);
+          await updateAkuntanConfigDoc({
+            picLembagaConfigured: true,
+            picPosyanduConfigured: true
+          });
+          triggerToast(`Berhasil menyinkronkan data sasaran penerima manfaat & skema tarif insentif PIC ke Firebase (${targetDate})!`);
         }
       } else {
         if (showToast) {
           triggerToast(`Belum ada data sasaran penerima manfaat untuk tanggal ${targetDate}.`);
         }
       }
-    } catch (err) {
-      console.warn('Gagal sync PIC dari penerima manfaat:', err);
+    } catch (err: any) {
+      console.error('Gagal sync PIC dari penerima manfaat:', err);
+      if (showToast) {
+        triggerToast(err?.message || 'Gagal menyinkronkan PIC ke Firebase', 'error');
+      }
     }
   }, []);
 
   // Sinkronisasi data Gaji Karyawan dengan Slip Gaji Harian dari Menu Daftar Petugas
   const syncGajiKaryawanFromPetugas = React.useCallback(async (targetDate: string, isAuto: boolean = false) => {
-    // Jika auto-sync pada saat load/ganti tanggal tapi admin belum pernah mengatur gaji, tetap kosongkan []
     if (isAuto) {
-      const isConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured') === 'true';
+      const isConfigured = Boolean(getAkuntanConfigsSnapshot().gajiKaryawanConfigured);
       if (!isConfigured) {
         setGajiKaryawan([]);
         return;
@@ -1400,12 +1447,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
     setIsSyncingPetugas(true);
     try {
-      // 1. Ambil slip gaji harian sesuai tanggal aktif dari API Petugas
-      let res = await fetch(`/api/petugas/slip-gaji?tanggal=${targetDate}`);
-      let json = await res.json();
-      let slips: any[] = (json.success && Array.isArray(json.data)) ? json.data : [];
+      const res = await fetch(`/api/petugas/slip-gaji?tanggal=${targetDate}`);
+      const json = await res.json();
+      let slips: any[] = json.success && Array.isArray(json.data) ? json.data : [];
 
-      // 2. Jika manual sync dan belum ada slip untuk tanggal tersebut, coba generate batch slip dari petugas aktif
       if (slips.length === 0 && !isAuto) {
         try {
           const genRes = await fetch('/api/petugas/slip-gaji/batch-generate', {
@@ -1420,7 +1465,6 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         } catch (_) {}
       }
 
-      // 3. Jika tetap belum ada dari API dan manual sync, periksa master petugas aktif
       if (slips.length === 0 && !isAuto) {
         try {
           const petRes = await fetch('/api/petugas');
@@ -1428,7 +1472,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           if (petJson.success && Array.isArray(petJson.data) && petJson.data.length > 0) {
             const activePetugas = petJson.data.filter((p: any) => p.status === 'Aktif');
             slips = (activePetugas.length > 0 ? activePetugas : petJson.data).map((p: any, idx: number) => ({
-              id: `SLIP-${targetDate.replace(/-/g, '')}-${p.id || String(idx + 1).padStart(3, '0')}`,
+              id: generateUniqueDocId(`SLIP_${targetDate}`),
               nomorSlip: `SLIP/SPPG/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
               tanggal: targetDate,
               petugasId: p.id,
@@ -1453,8 +1497,8 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         } catch (_) {}
       }
 
-      // 4. Transformasi data Slip Gaji Harian Petugas ke struktur GajiKaryawanRecord untuk akuntan
       if (slips.length > 0) {
+        const existingGaji = getGajiKaryawanSnapshot();
         const mappedKaryawan: GajiKaryawanRecord[] = slips.map((s: any, idx: number) => {
           const kehadiran = Number(s.kehadiranHari !== undefined ? s.kehadiranHari : 1);
           const tarifHarian = Number(s.tarifGajiPerHari || s.gajiPokokHarian || 120000);
@@ -1465,9 +1509,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           const totalPotongan = Number(s.potonganHarian || 0);
           const totalPenerimaan = Number(s.totalPenghasilanKotor || (gajiPokok + tunjanganHadir + uangLembur + bonusKinerja));
           const gajiBersih = Number(s.totalGajiBersih || Math.max(0, totalPenerimaan - totalPotongan));
+          const existing = existingGaji.find((g) => g.nomorSlip === s.nomorSlip);
 
           return {
-            id: s.id || `GK-PETUGAS-${targetDate}-${idx + 1}`,
+            id: existing?.id || s.id || generateUniqueDocId(`GK_${targetDate}`),
             nomorSlip: s.nomorSlip || `SLIP/SPPG/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
             nik: s.nomorPetugas || s.petugasId || `PTG-${String(idx + 1).padStart(2, '0')}`,
             nama: s.namaPetugas || s.nama || `Petugas ${idx + 1}`,
@@ -1490,21 +1535,21 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           };
         });
 
+        await replaceAkuntanDocsForPredicate('akuntan_gaji_karyawan', mappedKaryawan, existingGaji);
+        await updateAkuntanConfigDoc({ gajiKaryawanConfigured: true });
         setGajiKaryawan(mappedKaryawan);
-        localStorage.setItem('sppg_akuntan_gaji_karyawan', JSON.stringify(mappedKaryawan));
-        localStorage.setItem('sppg_akuntan_gaji_karyawan_configured', 'true');
         if (!isAuto) {
-          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas dari menu Daftar Petugas!`);
+          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas & disimpan ke Firebase!`);
         }
       } else {
         if (!isAuto) {
           triggerToast('Data slip gaji harian petugas belum tersedia di menu Daftar Petugas.');
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error syncing slip gaji harian petugas:', err);
       if (!isAuto) {
-        triggerToast('Gagal menyinkronkan data slip gaji petugas.');
+        triggerToast(err?.message || 'Gagal menyinkronkan data slip gaji petugas ke Firebase.', 'error');
       }
     } finally {
       setIsSyncingPetugas(false);
@@ -1516,12 +1561,11 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     syncRabBahanBakuWithFoodCost(selectedDate, false);
     handleTarikDataKedatanganBarang('Bahan Baku', true, selectedDate);
     handleTarikDataKedatanganBarang('Operasional', true, selectedDate);
-    const isGkConfigured = localStorage.getItem('sppg_akuntan_gaji_karyawan_configured') === 'true';
-    if (isGkConfigured) {
+    const cfg = getAkuntanConfigsSnapshot();
+    if (cfg.gajiKaryawanConfigured) {
       syncGajiKaryawanFromPetugas(selectedDate, true);
     }
-    const isPicConfigured = localStorage.getItem('sppg_akuntan_pic_lembaga_configured') === 'true';
-    if (isPicConfigured) {
+    if (cfg.picLembagaConfigured) {
       handleSyncPicDariPenerimaManfaat(selectedDate, false);
     }
   }, [
@@ -1743,49 +1787,53 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   const isMelebihiPaguFasilitas = sisaPaguFasilitas < 0;
 
   // Handler Sinkronisasi Insentif Fasilitas: Nominal = Rp 2.000 × total PM
-  const handleSyncPaguFasilitas = React.useCallback((showToast = true) => {
+  const handleSyncPaguFasilitas = React.useCallback(async (showToast = true) => {
     const calculated = beneficiaryInfo.totalPm * 2000;
-    setInsentifFasilitas(prev => {
-      const updated = prev.map(fas => ({
-        ...fas,
-        kompensasiBulan: calculated,
-        biayaUtilitas: 0,
-        totalInsentif: calculated,
-        periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
-      }));
-      try {
-        localStorage.setItem('sppg_akuntan_insentif_fasilitas', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-    if (showToast) {
-      triggerToast(`Berhasil menyinkronkan Insentif Fasilitas: Rp 2.000 × ${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM = ${formatRupiah(calculated)}`);
+    const updated = insentifFasilitas.map((fas) => ({
+      ...fas,
+      kompensasiBulan: calculated,
+      biayaUtilitas: 0,
+      totalInsentif: calculated,
+      periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
+    }));
+    setInsentifFasilitas(updated);
+    try {
+      await replaceAkuntanDocsForPredicate('akuntan_insentif_fasilitas', updated, getInsentifFasilitasSnapshot());
+      if (showToast) {
+        triggerToast(`Berhasil menyinkronkan Insentif Fasilitas ke Firebase: Rp 2.000 × ${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM = ${formatRupiah(calculated)}`);
+      }
+    } catch (err: any) {
+      console.error('Gagal menyimpan Insentif Fasilitas:', err);
+      if (showToast) {
+        triggerToast(err?.message || 'Gagal menyinkronkan Insentif Fasilitas ke Firebase', 'error');
+      }
     }
-  }, [beneficiaryInfo.totalPm]);
+  }, [beneficiaryInfo.totalPm, insentifFasilitas]);
 
   // Sinkronisasi otomatis insentif fasilitas jika total PM berubah
   useEffect(() => {
     if (beneficiaryInfo.totalPm > 0) {
       const calculated = beneficiaryInfo.totalPm * 2000;
-      setInsentifFasilitas(prev => {
-        const needsUpdate = prev.some(fas => fas.totalInsentif !== calculated);
-        if (needsUpdate) {
-          const updated = prev.map(fas => ({
-            ...fas,
-            kompensasiBulan: calculated,
-            biayaUtilitas: 0,
-            totalInsentif: calculated,
-            periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
-          }));
-          try {
-            localStorage.setItem('sppg_akuntan_insentif_fasilitas', JSON.stringify(updated));
-          } catch (_) {}
-          return updated;
-        }
-        return prev;
-      });
+      const needsUpdate = insentifFasilitas.some((fas) => fas.totalInsentif !== calculated);
+      if (needsUpdate) {
+        const updated = insentifFasilitas.map((fas) => ({
+          ...fas,
+          kompensasiBulan: calculated,
+          biayaUtilitas: 0,
+          totalInsentif: calculated,
+          periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
+        }));
+        setInsentifFasilitas(updated);
+        void replaceAkuntanDocsForPredicate(
+          'akuntan_insentif_fasilitas',
+          updated,
+          getInsentifFasilitasSnapshot()
+        ).catch((err) => {
+          console.error('Gagal auto-sync Insentif Fasilitas ke Firebase:', err);
+        });
+      }
     }
-  }, [beneficiaryInfo.totalPm]);
+  }, [beneficiaryInfo.totalPm, insentifFasilitas]);
 
   // Kalkulasi semua total anggaran operasional: Rab Op. Barang, Gaji Karyawan, Insentif PIC Sekolah, Insentif PIC Posyandu, Operasional Lainnya
   const totalOperasionalLainnya = useMemo(() => {
@@ -1961,9 +2009,19 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     <div className="space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in slide-in-from-top-3 border border-slate-700">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in slide-in-from-top-3 border ${
+            toastMessage.type === 'error'
+              ? 'bg-rose-600 text-white border-rose-500'
+              : 'bg-slate-900 text-white border-slate-700'
+          }`}
+        >
+          {toastMessage.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-100 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span>{toastMessage.msg}</span>
         </div>
       )}
 
@@ -2019,9 +2077,9 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                 onChange={(e) => {
                   const val = e.target.value;
                   setSelectedDate(val);
-                  try {
-                    localStorage.setItem('sppg_akuntan_selected_date', val);
-                  } catch (_) {}
+                  void updateAkuntanConfigDoc({ selectedDate: val }).catch((err) => {
+                    console.error('Gagal menyimpan tanggal terpilih ke Firebase:', err);
+                  });
                 }}
                 className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
                 title="Pilih tanggal untuk sinkronisasi Penerima Manfaat & Food Cost"

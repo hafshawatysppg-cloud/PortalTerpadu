@@ -39,6 +39,13 @@ import { LaporanMakananView } from '../../components/gizi/LaporanMakananView';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
 import { exportMasterMenuToExcel, exportMasterMenuToPdf, printMasterMenuA4 } from '../../utils/giziExportHelper';
+import {
+  createMasterMenuDoc,
+  deleteMasterMenuDoc,
+  getMasterMenusSnapshot,
+  subscribeOperationalSlice,
+  updateMasterMenuDoc
+} from '../../lib/firestoreOperationalStore';
 
 export type { MasterMenuRecord };
 export { initialMasterMenuRecords };
@@ -60,31 +67,18 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   const [masterStartDate, setMasterStartDate] = useState<string>('');
   const [masterEndDate, setMasterEndDate] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [showToast, setShowToast] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
-  // Master Menu dedicated state & persistence
-  const [masterMenus, setMasterMenus] = useState<MasterMenuRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('sppg_master_menus');
-      if (saved !== null) {
-        const parsed: MasterMenuRecord[] = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      console.error('Failed reading master menus from localStorage:', e);
-    }
-    return initialMasterMenuRecords;
-  });
+  // Master Menu dedicated state & real-time Firestore persistence
+  const [masterMenus, setMasterMenus] = useState<MasterMenuRecord[]>(() => getMasterMenusSnapshot());
 
   useEffect(() => {
-    try {
-      localStorage.setItem('sppg_master_menus', JSON.stringify(masterMenus));
-      window.dispatchEvent(new CustomEvent('sppg-master-menu-updated', { detail: masterMenus }));
-    } catch (e) {
-      console.error('Failed saving master menus to localStorage:', e);
-    }
-  }, [masterMenus]);
+    setMasterMenus(getMasterMenusSnapshot());
+    return subscribeOperationalSlice('masterMenus', () => {
+      setMasterMenus([...getMasterMenusSnapshot()]);
+    });
+  }, []);
 
   // Master Menu Form State (5 columns by default)
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
@@ -143,42 +137,50 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
     });
   };
 
-  const handleSaveMasterMenu = (e: React.FormEvent) => {
+  const handleSaveMasterMenu = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!menuTanggalPelaksanaan) {
-      triggerToast('Tanggal pelaksanaan wajib diisi!');
+      triggerToast('Tanggal pelaksanaan wajib diisi!', 'error');
       return;
     }
     const cleanedItems = formMenuItems.map(s => s.trim()).filter(s => s.length > 0);
     if (cleanedItems.length === 0) {
-      triggerToast('Mohon isi minimal satu nama menu!');
+      triggerToast('Mohon isi minimal satu nama menu!', 'error');
       return;
     }
 
-    if (editingMenuId) {
-      setMasterMenus(prev => prev.map(m => m.id === editingMenuId ? {
-        ...m,
-        tanggalPelaksanaan: menuTanggalPelaksanaan,
-        menuItems: cleanedItems
-      } : m));
-      triggerToast('Data Master Menu berhasil diperbarui!');
-    } else {
-      const newRecord: MasterMenuRecord = {
-        id: `MM-${menuTanggalPelaksanaan.replace(/-/g, '')}-${String(Date.now()).slice(-3)}`,
-        tanggalPelaksanaan: menuTanggalPelaksanaan,
-        menuItems: cleanedItems
-      };
-      setMasterMenus(prev => [newRecord, ...prev]);
-      triggerToast('Data Master Menu baru berhasil disimpan!');
+    try {
+      if (editingMenuId) {
+        await updateMasterMenuDoc(editingMenuId, {
+          tanggalPelaksanaan: menuTanggalPelaksanaan,
+          menuItems: cleanedItems
+        });
+        triggerToast('Data Master Menu berhasil diperbarui ke Firebase!');
+      } else {
+        await createMasterMenuDoc({
+          tanggalPelaksanaan: menuTanggalPelaksanaan,
+          menuItems: cleanedItems
+        });
+        triggerToast('Data Master Menu baru berhasil disimpan ke Firebase!');
+      }
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error('Gagal menyimpan Master Menu:', err);
+      triggerToast(err?.message || 'Gagal terhubung ke Firebase saat menyimpan Master Menu', 'error');
     }
-    setIsModalOpen(false);
   };
 
-  const handleConfirmDeleteMasterMenu = () => {
+  const handleConfirmDeleteMasterMenu = async () => {
     if (!deleteTargetMenu) return;
-    setMasterMenus(prev => prev.filter(m => m.id !== deleteTargetMenu.id));
-    triggerToast(`Master Menu tanggal ${formatDateIndo(deleteTargetMenu.tanggalPelaksanaan)} berhasil dihapus!`);
-    setDeleteTargetMenu(null);
+    const target = deleteTargetMenu;
+    try {
+      await deleteMasterMenuDoc(target.id);
+      triggerToast(`Master Menu tanggal ${formatDateIndo(target.tanggalPelaksanaan)} berhasil dihapus!`);
+      setDeleteTargetMenu(null);
+    } catch (err: any) {
+      console.error('Gagal menghapus Master Menu:', err);
+      triggerToast(err?.message || 'Gagal menghapus Master Menu dari Firebase', 'error');
+    }
   };
 
   const handleExportMasterMenuExcel = () => {
@@ -233,9 +235,9 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
     return matchStart && matchEnd && matchSearch;
   });
 
-  const triggerToast = (msg: string) => {
-    setShowToast(msg);
-    setTimeout(() => setShowToast(null), 3000);
+  const triggerToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setShowToast({ msg, type });
+    setTimeout(() => setShowToast(null), 3600);
   };
 
   // Determine active sub-feature configuration
@@ -545,9 +547,19 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
     <div className="space-y-6 pb-12">
       {/* Toast Notification */}
       {showToast && (
-        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 border border-slate-700 print:hidden">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>{showToast}</span>
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 border print:hidden ${
+            showToast.type === 'error'
+              ? 'bg-rose-600 text-white border-rose-500'
+              : 'bg-slate-900 text-white border-slate-700'
+          }`}
+        >
+          {showToast.type === 'error' ? (
+            <AlertTriangle className="w-4 h-4 text-rose-100 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span>{showToast.msg}</span>
         </div>
       )}
 

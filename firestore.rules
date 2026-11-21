@@ -221,5 +221,93 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Operational Master Menu & Siklus Menu Collections
+    match /master_menus/{menuId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /siklus_menu/{cycleId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Operational Akuntan & Keuangan Collections
+    match /akuntan_configs/{configId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_rab_bahan_baku/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_rab_op_barang/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_gaji_karyawan/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_pic_lembaga/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_pic_posyandu/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_gaji_staf/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_op_lainnya/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_insentif_fasilitas/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_realisasi_bb/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /akuntan_realisasi_op/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // App Meta, Document Template, Health & Diagnostics
+    match /app_meta/{metaId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /documentTemplate/{templateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /system_health/{probeId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /test/{testId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

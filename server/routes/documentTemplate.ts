@@ -146,7 +146,9 @@ router.post('/generate-number', async (req: Request, res: Response): Promise<voi
     dbStore.documentTemplate.numbering = numbering;
 
     // Sync updated counter to firestore asynchronously
-    syncSaveDoc('documentTemplate', 'main', dbStore.documentTemplate).catch(() => {});
+    syncSaveDoc('documentTemplate', 'main', dbStore.documentTemplate).catch((err) => {
+      console.error('⚠️ Error syncing documentTemplate counter to Firestore:', err);
+    });
 
     res.json({
       success: true,

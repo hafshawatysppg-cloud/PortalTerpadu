@@ -46,6 +46,13 @@ import { GlobalReportHeader } from '../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../components/document/DocumentSignatures';
 import { initialMasterMenuRecords, type MasterMenuRecord } from '../types/masterMenu';
+import {
+  createMasterMenuDoc,
+  deleteMasterMenuDoc,
+  getMasterMenusSnapshot,
+  subscribeOperationalSlice,
+  updateMasterMenuDoc
+} from '../lib/firestoreOperationalStore';
 
 interface TugasDivisiViewProps {
   onNavigate?: (path: string) => void;
@@ -102,9 +109,7 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
   const getMasterMenuTextForDate = (dateStr: string): string => {
     if (!dateStr) return '';
     try {
-      const saved = localStorage.getItem('sppg_master_menus');
-      const list: MasterMenuRecord[] =
-        saved !== null ? JSON.parse(saved) : initialMasterMenuRecords;
+      const list = getMasterMenusSnapshot();
       if (!Array.isArray(list) || list.length === 0) return '';
       const matched = list.find((m) => m.tanggalPelaksanaan === dateStr);
       if (!matched || !Array.isArray(matched.menuItems)) return '';
@@ -114,7 +119,7 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
     }
   };
 
-  // Menu Harian state synchronized strictly from Master Menu for selectedDate
+  // Menu Harian state synchronized strictly from Master Menu in Firestore for selectedDate
   const [menuHarianInput, setMenuHarianInput] = useState<string>(() =>
     getMasterMenuTextForDate(todayStr)
   );
@@ -127,21 +132,13 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
     };
 
     syncFromMasterMenu();
+    const unsubStore = subscribeOperationalSlice('masterMenus', syncFromMasterMenu);
 
-    const handleStorageOrSync = (e?: Event) => {
-      if (e instanceof StorageEvent && e.key && e.key !== 'sppg_master_menus') {
-        return;
-      }
-      syncFromMasterMenu();
-    };
-
-    window.addEventListener('storage', handleStorageOrSync);
-    window.addEventListener('sppg-cloud-synced', handleStorageOrSync);
-    window.addEventListener('sppg-master-menu-updated', handleStorageOrSync);
+    const handleMenuUpdate = () => syncFromMasterMenu();
+    window.addEventListener('sppg-master-menu-updated', handleMenuUpdate);
     return () => {
-      window.removeEventListener('storage', handleStorageOrSync);
-      window.removeEventListener('sppg-cloud-synced', handleStorageOrSync);
-      window.removeEventListener('sppg-master-menu-updated', handleStorageOrSync);
+      unsubStore();
+      window.removeEventListener('sppg-master-menu-updated', handleMenuUpdate);
     };
   }, [selectedDate]);
 
@@ -160,47 +157,34 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
         tanggal: selectedDate,
         menuHarian: syncedMenu
       })
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error('Error syncing menu harian to API:', err);
+    });
   }, [records, selectedDate]);
 
   const handleSaveMenuHarian = async () => {
     if (!selectedDate) return;
     const trimmed = menuHarianInput.trim();
     try {
-      // Also synchronize back to Master Menu storage so both stay consistent
-      try {
-        const saved = localStorage.getItem('sppg_master_menus');
-        const list: MasterMenuRecord[] =
-          saved !== null ? JSON.parse(saved) : [...initialMasterMenuRecords];
-        const nextList = Array.isArray(list) ? [...list] : [];
-        const items = trimmed
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        const existingIdx = nextList.findIndex(
-          (m) => m.tanggalPelaksanaan === selectedDate
-        );
+      // Synchronize to Firestore Master Menu collection so both stay consistent
+      const list = getMasterMenusSnapshot();
+      const items = trimmed
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const matched = list.find((m) => m.tanggalPelaksanaan === selectedDate);
 
-        if (items.length === 0) {
-          if (existingIdx !== -1) {
-            nextList.splice(existingIdx, 1);
-          }
-        } else if (existingIdx !== -1) {
-          nextList[existingIdx] = {
-            ...nextList[existingIdx],
-            menuItems: items
-          };
-        } else {
-          nextList.unshift({
-            id: `MM-${selectedDate.replace(/-/g, '')}-${String(Date.now()).slice(-3)}`,
-            tanggalPelaksanaan: selectedDate,
-            menuItems: items
-          });
+      if (items.length === 0) {
+        if (matched?.id) {
+          await deleteMasterMenuDoc(matched.id);
         }
-        localStorage.setItem('sppg_master_menus', JSON.stringify(nextList));
-        window.dispatchEvent(new CustomEvent('sppg-master-menu-updated', { detail: nextList }));
-      } catch {
-        // Non-fatal if localStorage write fails
+      } else if (matched?.id) {
+        await updateMasterMenuDoc(matched.id, { menuItems: items });
+      } else {
+        await createMasterMenuDoc({
+          tanggalPelaksanaan: selectedDate,
+          menuItems: items
+        });
       }
 
       const res = await fetch('/api/v1/tugas-divisi/menu-harian', {
@@ -213,14 +197,14 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
       });
       const json = await res.json();
       if (json.success) {
-        showToast('success', `Menu harian tanggal ${selectedDate} berhasil disimpan.`);
+        showToast('success', `Menu harian tanggal ${selectedDate} berhasil disimpan ke Firebase.`);
         fetchTasksForDate(selectedDate);
       } else {
         showToast('error', json.message || 'Gagal menyimpan menu harian.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving menu harian:', err);
-      showToast('error', 'Terjadi kesalahan koneksi.');
+      showToast('error', err?.message || 'Gagal terhubung ke Firebase.');
     }
   };
 

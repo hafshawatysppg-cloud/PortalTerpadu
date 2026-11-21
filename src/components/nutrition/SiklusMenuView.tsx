@@ -29,6 +29,12 @@ import {
   printSiklusMenuA4,
   SiklusMenuPrintEntry
 } from '../../utils/giziExportHelper';
+import {
+  getSiklusCyclesSnapshot,
+  saveSiklusMenuCycleDoc,
+  subscribeOperationalSlice
+} from '../../lib/firestoreOperationalStore';
+import { generateUniqueDocId } from '../../lib/firestoreHelper';
 
 export interface SiklusIngredientRow {
   id: string;
@@ -45,6 +51,7 @@ export interface SiklusIngredientRow {
 }
 
 export interface SiklusMenuData {
+  id?: string;
   tanggal: string;
   porsiKecil: SiklusIngredientRow[];
   porsiBesar: SiklusIngredientRow[];
@@ -110,7 +117,7 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
   }, [activeDateFilter]);
 
   const [activeTab, setActiveTab] = useState<'both' | 'porsiKecil' | 'porsiBesar'>('both');
-  const [showToast, setShowToast] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // Date Range state for Export PDF & Print Out
   const [rangeStartDate, setRangeStartDate] = useState<string>('');
@@ -124,17 +131,10 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
   const [newColumnName, setNewColumnName] = useState('');
   const [newColumnUnit, setNewColumnUnit] = useState('gram');
 
-  // Stored cycles state
+  // Stored cycles state (real-time synced from Firestore operational store)
   const [savedCycles, setSavedCycles] = useState<Record<string, SiklusMenuData>>(() => {
-    try {
-      const stored = localStorage.getItem('sppg_siklus_menu_records');
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed reading saved cycles from localStorage:', e);
-    }
-    // Return initial seed with isLocked: true
+    const live = getSiklusCyclesSnapshot();
+    if (live && Object.keys(live).length > 0) return live;
     return {
       '2026-10-26': {
         tanggal: '2026-10-26',
@@ -146,14 +146,16 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     };
   });
 
-  // Save to localStorage whenever savedCycles changes
   useEffect(() => {
-    try {
-      localStorage.setItem('sppg_siklus_menu_records', JSON.stringify(savedCycles));
-    } catch (e) {
-      console.error('Failed persisting cycles to localStorage:', e);
-    }
-  }, [savedCycles]);
+    const syncFromStore = () => {
+      const live = getSiklusCyclesSnapshot();
+      if (live && Object.keys(live).length > 0) {
+        setSavedCycles({ ...live });
+      }
+    };
+    syncFromStore();
+    return subscribeOperationalSlice('siklusCycles', syncFromStore);
+  }, []);
 
   // Find corresponding Master Menu for the currently selected date
   const currentMasterMenu = useMemo(() => {
@@ -243,9 +245,9 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     }
   }, [currentCycleData]);
 
-  const triggerToast = (msg: string) => {
-    setShowToast(msg);
-    setTimeout(() => setShowToast(null), 3200);
+  const triggerToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setShowToast({ msg, type });
+    setTimeout(() => setShowToast(null), 3500);
   };
 
   const handleDateChange = (newDate: string) => {
@@ -277,7 +279,7 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
       return;
     }
 
-    const pairKey = `pair_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const pairKey = generateUniqueDocId('pair');
 
     const newRowKecil: SiklusIngredientRow = {
       id: `pk_${pairKey}`,
@@ -441,7 +443,7 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
       triggerToast('Nama kolom nutrisi wajib diisi!');
       return;
     }
-    const colId = 'col_' + Date.now();
+    const colId = generateUniqueDocId('col');
     const newCol = {
       id: colId,
       label: newColumnName.trim(),
@@ -462,14 +464,15 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     triggerToast(`Kolom "${label}" telah dihapus.`);
   };
 
-  // Save current cycle data and LOCK IT
-  const handleSaveAndLockCycle = () => {
+  // Save current cycle data and LOCK IT permanently in Firestore
+  const handleSaveAndLockCycle = async () => {
     if (!currentMasterMenu) {
-      triggerToast('Gagal menyimpan: Master Menu untuk tanggal ini belum ada.');
+      triggerToast('Gagal menyimpan: Master Menu untuk tanggal ini belum ada.', 'error');
       return;
     }
 
     const payload: SiklusMenuData = {
+      id: savedCycles[selectedDate]?.id,
       tanggal: selectedDate,
       porsiKecil: localPorsiKecil,
       porsiBesar: localPorsiBesar,
@@ -477,18 +480,18 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
       isLocked: true
     };
 
-    setSavedCycles(prev => ({
-      ...prev,
-      [selectedDate]: payload
-    }));
-
-    // Broadcast update so Menu Harian synchronizes in real time
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('sppg_siklus_menu_changed', { detail: { date: selectedDate } }));
+    try {
+      const savedDoc = await saveSiklusMenuCycleDoc(selectedDate, payload);
+      setSavedCycles(prev => ({
+        ...prev,
+        [selectedDate]: savedDoc
+      }));
+      setIsLocked(true);
+      triggerToast(`Kandungan Gizi tanggal ${formatDateIndo(selectedDate)} berhasil disimpan ke Firebase & dikunci!`);
+    } catch (err: any) {
+      console.error('Gagal menyimpan Siklus Menu:', err);
+      triggerToast(err?.message || 'Gagal menyimpan Siklus Menu ke Firebase', 'error');
     }
-
-    setIsLocked(true);
-    triggerToast(`Kandungan Gizi tanggal ${formatDateIndo(selectedDate)} berhasil disimpan & dikunci!`);
   };
 
   // Unlock to edit
@@ -1033,9 +1036,19 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     <div className="space-y-5">
       {/* Toast Notification */}
       {showToast && (
-        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in slide-in-from-top-3 border border-slate-700">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{showToast}</span>
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-in slide-in-from-top-3 border ${
+            showToast.type === 'error'
+              ? 'bg-rose-600 text-white border-rose-500'
+              : 'bg-slate-900 text-white border-slate-700'
+          }`}
+        >
+          {showToast.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-100 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span>{showToast.msg}</span>
         </div>
       )}
 

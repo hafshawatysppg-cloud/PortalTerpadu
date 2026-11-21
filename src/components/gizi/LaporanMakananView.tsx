@@ -14,20 +14,19 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import {
-  DailySuhuPengolahanRecord,
-  SEED_DAILY_RECORDS
+  DailySuhuPengolahanRecord
 } from './SuhuPengolahanView';
 import {
-  DailySuhuOmprengRecord,
-  SEED_DAILY_OMPRENG_RECORDS
+  DailySuhuOmprengRecord
 } from './SuhuMasukOmprengView';
 import {
   exportLaporanMakananToPdf,
   LaporanMakananSections,
   printLaporanMakananA4
 } from '../../utils/laporanMakananPdfHelper';
-import { getDb } from '../../lib/firebase';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { OperationType, notifyFirestoreFailure } from '../../lib/firestoreHelper';
 
 interface LaporanMakananViewProps {
   currentPath: string;
@@ -65,31 +64,8 @@ const formatSuhu = (val: number | null | undefined): string => {
 };
 
 export const LaporanMakananView: React.FC<LaporanMakananViewProps> = ({ onNavigate }) => {
-  const [pengolahanRecords, setPengolahanRecords] = useState<DailySuhuPengolahanRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('sppg_daily_suhu_pengolahan_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error loading local suhu pengolahan:', e);
-    }
-    return SEED_DAILY_RECORDS;
-  });
-
-  const [omprengRecords, setOmprengRecords] = useState<DailySuhuOmprengRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('sppg_daily_suhu_ompreng_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error loading local suhu masuk ompreng:', e);
-    }
-    return SEED_DAILY_OMPRENG_RECORDS;
-  });
+  const [pengolahanRecords, setPengolahanRecords] = useState<DailySuhuPengolahanRecord[]>([]);
+  const [omprengRecords, setOmprengRecords] = useState<DailySuhuOmprengRecord[]>([]);
 
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -109,67 +85,40 @@ export const LaporanMakananView: React.FC<LaporanMakananViewProps> = ({ onNaviga
     setTimeout(() => setToastMsg(null), 3200);
   };
 
-  // Sync latest cloud records using the 5-minute session cooldown pattern
+  // Real-time Firestore subscriptions for Laporan Makanan (Single Source of Truth)
   useEffect(() => {
-    const syncData = async () => {
-      const db = getDb();
-
-      // 1. Suhu Pengolahan
-      try {
-        const cdKey1 = 'sppg_fs_cache_fetch_suhu_pengolahan';
-        const last1 = Number(sessionStorage.getItem(cdKey1) || 0);
-        if (Date.now() - last1 >= 5 * 60 * 1000 && db) {
-          const snap = await getDocs(query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc')));
-          sessionStorage.setItem(cdKey1, String(Date.now()));
-          if (!snap.empty) {
-            const list: DailySuhuPengolahanRecord[] = [];
-            snap.forEach(d => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
-            setPengolahanRecords(list);
-            localStorage.setItem('sppg_daily_suhu_pengolahan_v2', JSON.stringify(list));
-          }
-        }
-      } catch {
-        try {
-          const res = await fetch('/api/v1/cloud/collection/suhu_pengolahan_v2');
-          if (res.ok) {
-            const json = await res.json();
-            if (Array.isArray(json?.data) && json.data.length > 0) {
-              setPengolahanRecords(json.data);
-              localStorage.setItem('sppg_daily_suhu_pengolahan_v2', JSON.stringify(json.data));
-            }
-          }
-        } catch (_) {}
+    const q1 = query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc'));
+    const unsub1 = onSnapshot(
+      q1,
+      (snap) => {
+        const list: DailySuhuPengolahanRecord[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
+        setPengolahanRecords(list);
+      },
+      (err) => {
+        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2', 'Gagal memuat laporan suhu pengolahan');
+        showToast(msg);
       }
+    );
 
-      // 2. Suhu Masuk Ompreng
-      try {
-        const cdKey2 = 'sppg_fs_cache_fetch_suhu_ompreng';
-        const last2 = Number(sessionStorage.getItem(cdKey2) || 0);
-        if (Date.now() - last2 >= 5 * 60 * 1000 && db) {
-          const snap = await getDocs(query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc')));
-          sessionStorage.setItem(cdKey2, String(Date.now()));
-          if (!snap.empty) {
-            const list: DailySuhuOmprengRecord[] = [];
-            snap.forEach(d => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
-            setOmprengRecords(list);
-            localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(list));
-          }
-        }
-      } catch {
-        try {
-          const res = await fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2');
-          if (res.ok) {
-            const json = await res.json();
-            if (Array.isArray(json?.data) && json.data.length > 0) {
-              setOmprengRecords(json.data);
-              localStorage.setItem('sppg_daily_suhu_ompreng_v2', JSON.stringify(json.data));
-            }
-          }
-        } catch (_) {}
+    const q2 = query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc'));
+    const unsub2 = onSnapshot(
+      q2,
+      (snap) => {
+        const list: DailySuhuOmprengRecord[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
+        setOmprengRecords(list);
+      },
+      (err) => {
+        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2', 'Gagal memuat laporan suhu ompreng');
+        showToast(msg);
       }
+    );
+
+    return () => {
+      unsub1();
+      unsub2();
     };
-
-    syncData();
   }, []);
 
   const filteredPengolahan = useMemo(() => {

@@ -64,6 +64,7 @@ import { MultiGroupWorksheetTable } from './MultiGroupWorksheetTable';
 import { RekapBufferTable } from './RekapBufferTable';
 import { OfficialPdfPrintModal } from './OfficialPdfPrintModal';
 import { MasterMenuRecord, initialMasterMenuRecords } from '../../types/masterMenu';
+import { getMasterMenusSnapshot } from '../../lib/firestoreOperationalStore';
 
 interface PerencanaanBahanViewProps {
   currentPath?: string;
@@ -94,17 +95,16 @@ export const PerencanaanBahanView: React.FC<PerencanaanBahanViewProps> = ({ curr
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Helper to fetch Master Menu by execution date from localStorage / seed
+  // Helper to fetch Master Menu by execution date from Firestore store
   const getMasterMenuForDate = (dateStr: string): string => {
     try {
-      const saved = localStorage.getItem('sppg_master_menus');
-      const list: MasterMenuRecord[] = saved ? JSON.parse(saved) : initialMasterMenuRecords;
+      const list = getMasterMenusSnapshot();
       const matched = list.find((m: MasterMenuRecord) => m.tanggalPelaksanaan === dateStr);
       if (matched && Array.isArray(matched.menuItems) && matched.menuItems.length > 0) {
         return matched.menuItems.map((item: string) => item.toUpperCase()).join(' + ');
       }
     } catch (e) {
-      console.error('Error reading master menus from localStorage:', e);
+      console.error('Error reading master menus from Firestore store:', e);
     }
     return '';
   };

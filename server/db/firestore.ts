@@ -19,9 +19,9 @@ import path from 'path';
 import { dbStore, initialMenus } from './store';
 import { MasterBarang } from '../../src/types';
 
-// Suppress internal gRPC stream reset noise from the Node runtime
+// Surface Firestore errors in server logs
 try {
-  setLogLevel('silent');
+  setLogLevel('error');
 } catch (_) {}
 
 let firestoreDb: Firestore | null = null;
@@ -403,7 +403,11 @@ export async function syncSaveDoc(
   scheduleSnapshotSave();
 
   if (pendingWriteQueue.size >= 50) {
-    setImmediate(() => { flushWriteQueue().catch(() => {}); });
+    setImmediate(() => {
+      flushWriteQueue().catch((err) => {
+        console.error('⚠️ Error flushing Firestore write queue:', err);
+      });
+    });
   } else {
     scheduleFlush(25);
   }
@@ -433,7 +437,11 @@ export async function syncSaveBatch(
   scheduleSnapshotSave();
 
   if (pendingWriteQueue.size >= 50) {
-    setImmediate(() => { flushWriteQueue().catch(() => {}); });
+    setImmediate(() => {
+      flushWriteQueue().catch((err) => {
+        console.error('⚠️ Error flushing Firestore batch queue:', err);
+      });
+    });
   } else {
     scheduleFlush(25);
   }
@@ -726,7 +734,13 @@ export async function initFirestoreSync(force = false) {
           if (!docSnap.exists()) {
             const initialSettings = (dbStore as any)[item.key];
             if (initialSettings) {
-              await setDoc(docRef, JSON.parse(JSON.stringify(initialSettings))).catch(() => {});
+              await setDoc(
+                docRef,
+                JSON.parse(JSON.stringify(initialSettings)),
+                { merge: true }
+              ).catch((err) => {
+                console.error(`⚠️ Error seeding single doc ${item.coll}/main:`, err);
+              });
             }
           } else {
             (dbStore as any)[item.key] = docSnap.data();
@@ -751,9 +765,11 @@ export async function initFirestoreSync(force = false) {
               for (const docData of chunk) {
                 const docId = docData.id || generateUniqueId('DOC');
                 const dRef = doc(db, item.coll, docId);
-                batch.set(dRef, JSON.parse(JSON.stringify(docData)));
+                batch.set(dRef, JSON.parse(JSON.stringify(docData)), { merge: true });
               }
-              await batch.commit().catch(() => {});
+              await batch.commit().catch((err) => {
+                console.error(`⚠️ Error batch-seeding collection ${item.coll}:`, err);
+              });
             }
           }
         } else {
@@ -865,7 +881,9 @@ export async function initFirestoreSync(force = false) {
         createdBy: 'Ahli Gizi SPPG'
       };
       dbStore.menuHarian.unshift(prevDefault);
-      await syncSaveDoc('menuHarian', prevDefault.id, prevDefault).catch(() => {});
+      await syncSaveDoc('menuHarian', prevDefault.id, prevDefault).catch((err) => {
+        console.error('⚠️ Error syncing default menuHarian:', err);
+      });
     }
 
     // Purge any legacy auto-seeded dummy beneficiary records (so only user-planned beneficiary records exist)
@@ -878,7 +896,9 @@ export async function initFirestoreSync(force = false) {
           r => r.createdBy !== 'System Copy' && !(r.createdBy === 'USR-001' && r.createdAt?.endsWith('06:30:00'))
         );
         for (const oldRec of legacyAutoRecs) {
-          syncDeleteDoc('dailyBeneficiaryRecords', oldRec.id).catch(() => {});
+          syncDeleteDoc('dailyBeneficiaryRecords', oldRec.id).catch((err) => {
+            console.error(`⚠️ Error deleting legacy dailyBeneficiaryRecords/${oldRec.id}:`, err);
+          });
         }
       }
     }
@@ -889,7 +909,9 @@ export async function initFirestoreSync(force = false) {
       if (legacyDummyPlans.length > 0) {
         dbStore.nutritionPlans = dbStore.nutritionPlans.filter(p => p.id !== 'PLAN-20260812-001');
         for (const dp of legacyDummyPlans) {
-          syncDeleteDoc('nutritionPlans', dp.id).catch(() => {});
+          syncDeleteDoc('nutritionPlans', dp.id).catch((err) => {
+            console.error(`⚠️ Error deleting legacy nutritionPlans/${dp.id}:`, err);
+          });
         }
       }
     }
@@ -909,7 +931,9 @@ export async function initFirestoreSync(force = false) {
             )
         );
         for (const oldRab of legacyAutoRabs) {
-          syncDeleteDoc('rabPlans', oldRab.id).catch(() => {});
+          syncDeleteDoc('rabPlans', oldRab.id).catch((err) => {
+            console.error(`⚠️ Error deleting legacy rabPlans/${oldRab.id}:`, err);
+          });
         }
       }
     }

@@ -2,6 +2,7 @@ import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { getDb } from './firebase';
 import { safeParseJson } from './safeJson';
+import { OperationType, notifyFirestoreFailure } from './firestoreHelper';
 
 interface CollectionStoreEntry<T> {
   data: T[];
@@ -14,29 +15,7 @@ interface CollectionStoreEntry<T> {
 }
 
 const collectionRegistry = new Map<string, CollectionStoreEntry<any>>();
-const DETACH_GRACE_MS = 20_000; // Keep listener warm across quick tab switches to cut Firestore reads
-const CACHE_KEY_PREFIX = 'sppg_fs_cache_coll_';
-
-function readCachedCollection<T>(collectionName: string): T[] | null {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return null;
-    const raw = window.localStorage.getItem(`${CACHE_KEY_PREFIX}${collectionName}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedCollection<T>(collectionName: string, items: T[]): void {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    window.localStorage.setItem(`${CACHE_KEY_PREFIX}${collectionName}`, JSON.stringify(items));
-  } catch {
-    // Ignore storage quota overflow for large cached collections
-  }
-}
+const DETACH_GRACE_MS = 20_000;
 
 function isQuotaExceededError(err: any): boolean {
   const msg = String(err?.message || err || '').toLowerCase();
@@ -57,7 +36,8 @@ async function fetchServerCollectionFallback<T>(collectionName: string): Promise
       return json.data as T[];
     }
     return null;
-  } catch {
+  } catch (err) {
+    console.error(`Server fallback read error for [${collectionName}]:`, err);
     return null;
   }
 }
@@ -66,19 +46,16 @@ function notifySubscribers<T>(entry: CollectionStoreEntry<T>): void {
   entry.subscribers.forEach((cb) => {
     try {
       cb(entry.data, entry.error);
-    } catch {
-      // Ignore subscriber render issues
-    }
+    } catch (_) {}
   });
 }
 
 function getOrCreateEntry<T>(collectionName: string): CollectionStoreEntry<T> {
   let entry = collectionRegistry.get(collectionName) as CollectionStoreEntry<T> | undefined;
   if (!entry) {
-    const cached = readCachedCollection<T>(collectionName);
     entry = {
-      data: cached || [],
-      hasData: Boolean(cached && cached.length > 0),
+      data: [],
+      hasData: false,
       error: null,
       subscribers: new Set(),
       unsubscribe: null,
@@ -100,14 +77,12 @@ function ensureSharedListener<T extends { id: string }>(
     entry.detachTimer = null;
   }
 
-  // Always warm from server snapshot cache immediately if no live data yet (0 Firestore reads)
   if (!entry.hasData) {
     const runFallback = async () => {
       const serverItems = await fetchServerCollectionFallback<T>(collectionName);
       if (serverItems && serverItems.length > 0 && !entry.hasData) {
         entry.data = serverItems;
         entry.hasData = true;
-        writeCachedCollection(collectionName, serverItems);
         notifySubscribers(entry);
         return;
       }
@@ -117,11 +92,10 @@ function ensureSharedListener<T extends { id: string }>(
           if (Array.isArray(customItems) && !entry.hasData) {
             entry.data = customItems;
             entry.hasData = true;
-            writeCachedCollection(collectionName, customItems);
             notifySubscribers(entry);
           }
-        } catch {
-          // Ignore
+        } catch (err) {
+          console.error(`Fallback fetch error for [${collectionName}]:`, err);
         }
       }
     };
@@ -151,7 +125,6 @@ function ensureSharedListener<T extends { id: string }>(
         entry.hasData = true;
         entry.error = null;
         entry.quotaHit = false;
-        writeCachedCollection(collectionName, items);
         notifySubscribers(entry);
       },
       (err) => {
@@ -169,17 +142,24 @@ function ensureSharedListener<T extends { id: string }>(
             } catch {}
             entry.unsubscribe = null;
           }
-        } else if (!isTransientStreamDrop) {
-          console.warn(`Firestore onSnapshot notice on [${collectionName}]:`, err?.message);
         }
+
+        const errMsg = notifyFirestoreFailure(
+          err,
+          OperationType.LIST,
+          collectionName,
+          isTransientStreamDrop
+            ? `Koneksi real-time ke [${collectionName}] terganggu`
+            : `Gagal sinkronisasi data [${collectionName}] dari Firebase`
+        );
+        entry.error = errMsg;
+        notifySubscribers(entry);
 
         const recoverFromServer = async () => {
           const serverItems = await fetchServerCollectionFallback<T>(collectionName);
           if (serverItems && serverItems.length > 0) {
             entry.data = serverItems;
             entry.hasData = true;
-            entry.error = null;
-            writeCachedCollection(collectionName, serverItems);
             notifySubscribers(entry);
             return;
           }
@@ -189,12 +169,10 @@ function ensureSharedListener<T extends { id: string }>(
               if (res) {
                 entry.data = res;
                 entry.hasData = true;
-                entry.error = null;
-                writeCachedCollection(collectionName, res);
                 notifySubscribers(entry);
               }
-            } catch {
-              // Keep cached data
+            } catch (fallbackErr) {
+              console.error(`Recovery fallback error for [${collectionName}]:`, fallbackErr);
             }
           }
         };
@@ -202,14 +180,19 @@ function ensureSharedListener<T extends { id: string }>(
       }
     );
   } catch (err: any) {
-    console.warn(`useFirestoreRealtime initialization warning for [${collectionName}]:`, err?.message);
+    entry.error = notifyFirestoreFailure(
+      err,
+      OperationType.LIST,
+      collectionName,
+      `Gagal menginisialisasi koneksi Firestore [${collectionName}]`
+    );
+    notifySubscribers(entry);
   }
 }
 
 /**
- * Singleton-cached realtime hook for Firestore collections.
- * Shares one active onSnapshot listener across all mounted components/widgets,
- * caches results locally & on server snapshot, and recovers gracefully if daily quota is hit.
+ * Real-time Firestore collection hook backed directly by onSnapshot and persistentLocalCache
+ * (tanpa localStorage caching untuk data operasional).
  */
 export function useFirestoreRealtime<T extends { id: string }>(
   collectionName: string,
@@ -239,7 +222,6 @@ export function useFirestoreRealtime<T extends { id: string }>(
     currentEntry.subscribers.add(subscriber);
     ensureSharedListener(collectionName, currentEntry, fallbackFetch);
 
-    // Ensure loading doesn't spin forever if collection is legitimately empty
     const loadingSafetyTimer = setTimeout(() => {
       if (isMounted) setLoading(false);
     }, 1500);
@@ -269,7 +251,6 @@ export function useFirestoreRealtime<T extends { id: string }>(
       typeof updater === 'function' ? (updater as (prev: T[]) => T[])(currentEntry.data) : updater;
     currentEntry.data = nextValue;
     currentEntry.hasData = true;
-    writeCachedCollection(collectionName, nextValue);
     notifySubscribers(currentEntry);
   };
 
