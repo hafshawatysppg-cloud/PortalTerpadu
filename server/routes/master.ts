@@ -117,22 +117,39 @@ router.get('/divisi', (req: Request, res: Response): void => {
 });
 
 router.post('/divisi', async (req: Request, res: Response): Promise<void> => {
-  const { nama, kode, keterangan, kepalaDivisi } = req.body;
-  if (!nama) {
+  const cleanNama = String(req.body?.nama || '').trim();
+  const rawKode = String(req.body?.kode || '').trim().toUpperCase();
+  const cleanKeterangan = String(req.body?.keterangan || '').trim();
+  const cleanKepala = String(req.body?.kepalaDivisi || '').trim();
+
+  if (!cleanNama) {
     res.status(400).json({ success: false, message: 'Nama divisi wajib diisi.' });
     return;
   }
+
+  dbStore.normalizeJabatanList();
+  const cleanKode = rawKode || cleanNama.substring(0, 3).toUpperCase();
+  const matchedJabatan = dbStore.jabatan.find(
+    j => (j.kode || '').trim().toUpperCase() === cleanKode
+  );
+
+  const uniqueSuffix = `${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
   const newDiv = {
-    id: `DIV-${String(dbStore.divisi.length + 1).padStart(3, '0')}`,
-    nama,
-    kode: kode || nama.substring(0, 3).toUpperCase(),
-    keterangan: keterangan || '',
-    kepalaDivisi: kepalaDivisi || '-',
+    id: `DIV-${uniqueSuffix}`,
+    nama: cleanNama,
+    kode: cleanKode,
+    keterangan: cleanKeterangan,
+    kepalaDivisi: cleanKepala || '-',
+    jabatanId: matchedJabatan?.id || req.body?.jabatanId || undefined,
+    jabatanNama: matchedJabatan?.nama || req.body?.jabatanNama || undefined,
     jumlahPegawai: 0,
     createdAt: new Date().toISOString()
   };
+
   dbStore.divisi.unshift(newDiv);
+  dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Tambah Divisi', `Menambahkan divisi '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('divisi', newDiv.id, newDiv);
+  saveSnapshotToDiskNow();
   res.status(201).json({ success: true, message: 'Divisi berhasil ditambahkan', data: newDiv });
 });
 
@@ -143,8 +160,36 @@ router.put('/divisi/:id', async (req: Request, res: Response): Promise<void> => 
     res.status(404).json({ success: false, message: 'Divisi tidak ditemukan.' });
     return;
   }
-  dbStore.divisi[idx] = { ...dbStore.divisi[idx], ...req.body };
+
+  const current = dbStore.divisi[idx];
+  const cleanNama = req.body?.nama !== undefined ? String(req.body.nama).trim() : current.nama;
+  const cleanKode = req.body?.kode !== undefined
+    ? (String(req.body.kode).trim().toUpperCase() || current.kode || cleanNama.substring(0, 3).toUpperCase())
+    : (current.kode || '');
+
+  if (!cleanNama) {
+    res.status(400).json({ success: false, message: 'Nama divisi wajib diisi.' });
+    return;
+  }
+
+  dbStore.normalizeJabatanList();
+  const matchedJabatan = dbStore.jabatan.find(
+    j => (j.kode || '').trim().toUpperCase() === cleanKode
+  );
+
+  dbStore.divisi[idx] = {
+    ...current,
+    ...req.body,
+    id,
+    nama: cleanNama,
+    kode: cleanKode,
+    jabatanId: matchedJabatan ? matchedJabatan.id : (req.body?.jabatanId ?? undefined),
+    jabatanNama: matchedJabatan ? matchedJabatan.nama : (req.body?.jabatanNama ?? undefined),
+    updatedAt: new Date().toISOString()
+  };
+  dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Edit Divisi', `Memperbarui divisi '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('divisi', id, dbStore.divisi[idx]);
+  saveSnapshotToDiskNow();
   res.json({ success: true, message: 'Divisi berhasil diperbarui', data: dbStore.divisi[idx] });
 });
 
@@ -153,7 +198,9 @@ router.delete('/divisi/:id', async (req: Request, res: Response): Promise<void> 
   const idx = dbStore.divisi.findIndex(d => d.id === id);
   if (idx !== -1) {
     const deleted = dbStore.divisi.splice(idx, 1)[0];
+    dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Hapus Divisi', `Menghapus divisi '${deleted.nama}' (${deleted.kode})`, req.ip);
     await syncDeleteDoc('divisi', id);
+    saveSnapshotToDiskNow();
     res.json({ success: true, message: 'Divisi berhasil dihapus', data: deleted });
   } else {
     res.status(404).json({ success: false, message: 'Divisi tidak ditemukan.' });

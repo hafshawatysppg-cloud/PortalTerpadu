@@ -86,6 +86,8 @@ export interface MasterDivisi {
   nama: string;
   kepalaDivisi?: string;
   keterangan?: string;
+  jabatanId?: string;
+  jabatanNama?: string;
 }
 
 export interface MasterJabatan {

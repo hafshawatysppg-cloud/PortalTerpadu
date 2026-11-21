@@ -19,7 +19,7 @@ export const MasterDataView: React.FC = () => {
 
   // Realtime Firestore synchronization
   const { data: realtimeUsers } = useFirestoreRealtime<any>('users');
-  const { data: realtimeDivisi } = useFirestoreRealtime<any>('divisi');
+  const { data: realtimeDivisi, setData: setRealtimeDivisi } = useFirestoreRealtime<any>('divisi');
   const { data: realtimeJabatan, setData: setRealtimeJabatan } = useFirestoreRealtime<any>('jabatan');
   const { data: realtimeGudang } = useFirestoreRealtime<any>('gudang');
 
@@ -27,7 +27,13 @@ export const MasterDataView: React.FC = () => {
     if (realtimeUsers && realtimeUsers.length > 0) {
       fetchMaster();
     }
-  }, [realtimeUsers, realtimeDivisi, realtimeGudang]);
+  }, [realtimeUsers, realtimeGudang]);
+
+  useEffect(() => {
+    if (realtimeDivisi && realtimeDivisi.length > 0) {
+      setDivisi(realtimeDivisi);
+    }
+  }, [realtimeDivisi]);
 
   useEffect(() => {
     if (realtimeJabatan && realtimeJabatan.length > 0) {
@@ -47,6 +53,9 @@ export const MasterDataView: React.FC = () => {
   // Modals for other master tabs
   const [isAddDivisiOpen, setIsAddDivisiOpen] = useState(false);
   const [formDivisi, setFormDivisi] = useState({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
+  const [customKodeDivisi, setCustomKodeDivisi] = useState(false);
+  const [divisiError, setDivisiError] = useState<string | null>(null);
+  const [divisiSuccess, setDivisiSuccess] = useState<string | null>(null);
 
   const [isAddJabatanOpen, setIsAddJabatanOpen] = useState(false);
   const [formJabatan, setFormJabatan] = useState({ nama: '', kode: '', deskripsi: '' });
@@ -161,33 +170,61 @@ export const MasterDataView: React.FC = () => {
     }
   };
 
+  const showDivisiSuccess = (msg: string) => {
+    setDivisiSuccess(msg);
+    setTimeout(() => setDivisiSuccess(null), 4000);
+  };
+
   const handleAddDivisi = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDivisi.nama.trim()) return;
+    if (!formDivisi.nama.trim()) {
+      setDivisiError('Nama divisi wajib diisi.');
+      return;
+    }
+    setDivisiError(null);
     setIsSubmittingMaster(true);
     try {
       const isEdit = Boolean(editingDivisi);
       const url = isEdit ? `/api/v1/master/divisi/${editingDivisi!.id}` : '/api/v1/master/divisi';
+      const cleanKode = formDivisi.kode.trim().toUpperCase();
+      const matchedJabatan = jabatan.find(
+        j => (j.kode || '').trim().toUpperCase() === cleanKode
+      );
+      const payload = {
+        nama: formDivisi.nama.trim(),
+        kode: cleanKode,
+        keterangan: formDivisi.keterangan.trim(),
+        kepalaDivisi: formDivisi.kepalaDivisi.trim(),
+        jabatanId: matchedJabatan?.id,
+        jabatanNama: matchedJabatan?.nama
+      };
       const res = await fetch(url, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formDivisi)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success && data.data) {
-        if (isEdit) {
-          setDivisi(prev => prev.map(item => (item.id === editingDivisi!.id ? data.data : item)));
-        } else {
-          setDivisi(prev => [data.data, ...prev]);
-        }
+        const nextList = isEdit
+          ? divisi.map(item => (item.id === editingDivisi!.id ? data.data : item))
+          : [data.data, ...divisi.filter(item => item.id !== data.data.id)];
+        setDivisi(nextList);
+        setRealtimeDivisi(nextList);
         setIsAddDivisiOpen(false);
         setEditingDivisi(null);
+        setCustomKodeDivisi(false);
         setFormDivisi({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
+        showDivisiSuccess(
+          isEdit
+            ? `Divisi "${data.data.nama}" berhasil diperbarui.`
+            : `Divisi "${data.data.nama}" berhasil ditambahkan dan disimpan.`
+        );
       } else {
-        alert(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} divisi`);
+        setDivisiError(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} divisi`);
       }
     } catch (err) {
       console.error(err);
+      setDivisiError('Terjadi kesalahan jaringan saat menyimpan divisi.');
     } finally {
       setIsSubmittingMaster(false);
     }
@@ -199,12 +236,16 @@ export const MasterDataView: React.FC = () => {
       const res = await fetch(`/api/v1/master/divisi/${d.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setDivisi(prev => prev.filter(item => item.id !== d.id));
+        const nextList = divisi.filter(item => item.id !== d.id);
+        setDivisi(nextList);
+        setRealtimeDivisi(nextList);
+        showDivisiSuccess(`Divisi "${d.nama}" berhasil dihapus.`);
       } else {
-        alert(data.message || 'Gagal menghapus divisi');
+        setDivisiError(data.message || 'Gagal menghapus divisi');
       }
     } catch (err) {
       console.error(err);
+      setDivisiError('Terjadi kesalahan jaringan saat menghapus divisi.');
     }
   };
 
@@ -609,7 +650,18 @@ export const MasterDataView: React.FC = () => {
           )}
           {activeTab === 'divisi' && (
             <button
-              onClick={() => setIsAddDivisiOpen(true)}
+              onClick={() => {
+                setEditingDivisi(null);
+                setDivisiError(null);
+                setCustomKodeDivisi(false);
+                setFormDivisi({
+                  nama: '',
+                  kode: jabatan[0]?.kode || '',
+                  keterangan: '',
+                  kepalaDivisi: ''
+                });
+                setIsAddDivisiOpen(true);
+              }}
               className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" /> Tambah Divisi
@@ -735,54 +787,85 @@ export const MasterDataView: React.FC = () => {
         )}
 
         {activeTab === 'divisi' && (
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
-                <th className="p-3">Kode</th>
-                <th className="p-3">Nama Divisi</th>
-                <th className="p-3">Kepala Divisi</th>
-                <th className="p-3">Keterangan Fungsi</th>
-                <th className="p-3 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {divisi.map((d) => (
-                <tr key={d.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                  <td className="p-3 font-mono font-bold text-purple-600">{d.kode}</td>
-                  <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{d.nama}</td>
-                  <td className="p-3">{d.kepalaDivisi || '-'}</td>
-                  <td className="p-3 text-slate-500">{d.keterangan}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => {
-                          setEditingDivisi(d);
-                          setFormDivisi({
-                            nama: d.nama || '',
-                            kode: d.kode || '',
-                            keterangan: d.keterangan || '',
-                            kepalaDivisi: d.kepalaDivisi || ''
-                          });
-                          setIsAddDivisiOpen(true);
-                        }}
-                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition"
-                        title="Edit Divisi"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteDivisi(d)}
-                        className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
-                        title="Hapus Divisi"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
+          <div>
+            {divisiSuccess && (
+              <div className="m-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{divisiSuccess}</span>
+                </div>
+                <button onClick={() => setDivisiSuccess(null)} className="text-emerald-600 hover:text-emerald-800 cursor-pointer">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
+                  <th className="p-3">Kode (Jenis Jabatan)</th>
+                  <th className="p-3">Nama Divisi</th>
+                  <th className="p-3">Kepala Divisi</th>
+                  <th className="p-3">Keterangan Fungsi</th>
+                  <th className="p-3 text-right">Aksi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {divisi.map((d) => {
+                  const linkedJabatan = jabatan.find(
+                    j => (j.kode || '').trim().toUpperCase() === (d.kode || '').trim().toUpperCase()
+                  );
+                  const linkedNama = linkedJabatan?.nama || d.jabatanNama;
+                  return (
+                    <tr key={d.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="p-3">
+                        <div className="font-mono font-bold text-purple-600">{d.kode}</div>
+                        {linkedNama && (
+                          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                            {linkedNama}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{d.nama}</td>
+                      <td className="p-3">{d.kepalaDivisi || '-'}</td>
+                      <td className="p-3 text-slate-500">{d.keterangan}</td>
+                      <td className="p-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              const matchedJab = jabatan.find(
+                                j => (j.kode || '').trim().toUpperCase() === (d.kode || '').trim().toUpperCase()
+                              );
+                              setEditingDivisi(d);
+                              setDivisiError(null);
+                              setCustomKodeDivisi(Boolean(d.kode) && !matchedJab && jabatan.length > 0);
+                              setFormDivisi({
+                                nama: d.nama || '',
+                                kode: matchedJab ? matchedJab.kode : (d.kode || ''),
+                                keterangan: d.keterangan || '',
+                                kepalaDivisi: d.kepalaDivisi || ''
+                              });
+                              setIsAddDivisiOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition cursor-pointer"
+                            title="Edit Divisi"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDivisi(d)}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition cursor-pointer"
+                            title="Hapus Divisi"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {activeTab === 'jabatan' && (
@@ -1346,82 +1429,150 @@ export const MasterDataView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Tambah Divisi */}
-      {isAddDivisiOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Building className="w-4 h-4 text-purple-600" /> {editingDivisi ? 'Edit Divisi' : 'Tambah Divisi Baru'}
-              </h3>
-              <button onClick={() => setIsAddDivisiOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
+      {/* Modal Tambah / Edit Divisi */}
+      {isAddDivisiOpen && (() => {
+        const matchedJabatanDivisi = jabatan.find(
+          j => (j.kode || '').trim().toUpperCase() === (formDivisi.kode || '').trim().toUpperCase()
+        );
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Building className="w-4 h-4 text-purple-600" /> {editingDivisi ? 'Edit Divisi' : 'Tambah Divisi Baru'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setIsAddDivisiOpen(false);
+                    setEditingDivisi(null);
+                    setDivisiError(null);
+                    setCustomKodeDivisi(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <form onSubmit={handleAddDivisi} className="space-y-3 text-xs">
+                {divisiError && (
+                  <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-lg flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{divisiError}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Divisi</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: Logistik & Pengadaan"
+                    value={formDivisi.nama}
+                    onChange={(e) => setFormDivisi({ ...formDivisi, nama: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
+                      Kode Singkatan <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">(Kode Jenis Jabatan)</span>
+                    </label>
+                    {!customKodeDivisi && jabatan.length > 0 ? (
+                      <select
+                        value={matchedJabatanDivisi ? matchedJabatanDivisi.kode : (formDivisi.kode ? '__custom__' : '')}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setCustomKodeDivisi(true);
+                            setFormDivisi({ ...formDivisi, kode: '' });
+                          } else {
+                            setFormDivisi({ ...formDivisi, kode: e.target.value });
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-purple-500"
+                      >
+                        <option value="">-- Pilih Kode Jenis Jabatan --</option>
+                        {jabatan.map(j => (
+                          <option key={j.id} value={j.kode}>
+                            {j.kode} — {j.nama}
+                          </option>
+                        ))}
+                        <option value="__custom__">-- Ketik Kode Manual --</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Contoh: KJM / DRV"
+                          value={formDivisi.kode}
+                          onChange={(e) => setFormDivisi({ ...formDivisi, kode: e.target.value.toUpperCase() })}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono uppercase focus:outline-none focus:border-purple-500"
+                        />
+                        {jabatan.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomKodeDivisi(false);
+                              setFormDivisi({ ...formDivisi, kode: jabatan[0]?.kode || '' });
+                            }}
+                            className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
+                          >
+                            Pilih List
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {matchedJabatanDivisi && (
+                      <p className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+                        Terhubung: {matchedJabatanDivisi.nama}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kepala Divisi</label>
+                    <input
+                      type="text"
+                      placeholder="Nama PIC..."
+                      value={formDivisi.kepalaDivisi}
+                      onChange={(e) => setFormDivisi({ ...formDivisi, kepalaDivisi: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Keterangan / Fungsi</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Deskripsi tugas divisi..."
+                    value={formDivisi.keterangan}
+                    onChange={(e) => setFormDivisi({ ...formDivisi, keterangan: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddDivisiOpen(false);
+                      setEditingDivisi(null);
+                      setDivisiError(null);
+                      setCustomKodeDivisi(false);
+                    }}
+                    className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingMaster}
+                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmittingMaster ? 'Menyimpan...' : editingDivisi ? 'Update Divisi' : 'Simpan Divisi'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={handleAddDivisi} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Divisi</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Contoh: Logistik & Pengadaan"
-                  value={formDivisi.nama}
-                  onChange={(e) => setFormDivisi({ ...formDivisi, nama: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Singkatan</label>
-                  <input
-                    type="text"
-                    placeholder="LOG"
-                    value={formDivisi.kode}
-                    onChange={(e) => setFormDivisi({ ...formDivisi, kode: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kepala Divisi</label>
-                  <input
-                    type="text"
-                    placeholder="Nama PIC..."
-                    value={formDivisi.kepalaDivisi}
-                    onChange={(e) => setFormDivisi({ ...formDivisi, kepalaDivisi: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Keterangan / Fungsi</label>
-                <textarea
-                  rows={2}
-                  placeholder="Deskripsi tugas divisi..."
-                  value={formDivisi.keterangan}
-                  onChange={(e) => setFormDivisi({ ...formDivisi, keterangan: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddDivisiOpen(false)}
-                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingMaster}
-                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold shadow-xs"
-                >
-                  {isSubmittingMaster ? 'Menyimpan...' : 'Simpan Divisi'}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal Tambah Gudang */}
       {isAddGudangOpen && (
