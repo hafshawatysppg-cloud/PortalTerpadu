@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Database, Plus, Users, Building, Warehouse, Tag, Landmark, Search, 
+  Database, Plus, Users, Building, Briefcase, Warehouse, Tag, Landmark, Search, 
   CloudCheck, RefreshCw, Pencil, Trash2, CheckCircle2, AlertTriangle, X, Shield, Lock, Phone, Mail
 } from 'lucide-react';
 import { MasterPegawai, MasterDivisi, MasterJabatan, MasterGudang, MasterKategori, MasterInstansi, UserRole } from '../../types';
@@ -20,13 +20,14 @@ export const MasterDataView: React.FC = () => {
   // Realtime Firestore synchronization
   const { data: realtimeUsers } = useFirestoreRealtime<any>('users');
   const { data: realtimeDivisi } = useFirestoreRealtime<any>('divisi');
+  const { data: realtimeJabatan } = useFirestoreRealtime<any>('jabatan');
   const { data: realtimeGudang } = useFirestoreRealtime<any>('gudang');
 
   useEffect(() => {
     if (realtimeUsers && realtimeUsers.length > 0) {
       fetchMaster();
     }
-  }, [realtimeUsers, realtimeDivisi, realtimeGudang]);
+  }, [realtimeUsers, realtimeDivisi, realtimeJabatan, realtimeGudang]);
 
   const [filter, setFilter] = useState('');
   const [cloudStatus, setCloudStatus] = useState<any>(null);
@@ -40,6 +41,12 @@ export const MasterDataView: React.FC = () => {
   // Modals for other master tabs
   const [isAddDivisiOpen, setIsAddDivisiOpen] = useState(false);
   const [formDivisi, setFormDivisi] = useState({ nama: '', kode: '', keterangan: '', kepalaDivisi: '' });
+
+  const [isAddJabatanOpen, setIsAddJabatanOpen] = useState(false);
+  const [formJabatan, setFormJabatan] = useState({ nama: '', kode: '', deskripsi: '' });
+  const [editingJabatan, setEditingJabatan] = useState<MasterJabatan | null>(null);
+  const [deletingJabatan, setDeletingJabatan] = useState<MasterJabatan | null>(null);
+  const [jabatanError, setJabatanError] = useState<string | null>(null);
 
   const [isAddGudangOpen, setIsAddGudangOpen] = useState(false);
   const [formGudang, setFormGudang] = useState({ nama: '', kode: '', lokasi: '', penanggungJawab: '', kapasitasM3: 100 });
@@ -189,6 +196,68 @@ export const MasterDataView: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleSaveJabatan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formJabatan.nama.trim()) {
+      setJabatanError('Nama jenis jabatan wajib diisi.');
+      return;
+    }
+    setJabatanError(null);
+    setIsSubmittingMaster(true);
+    try {
+      const isEdit = Boolean(editingJabatan);
+      const url = isEdit ? `/api/v1/master/jabatan/${editingJabatan!.id}` : '/api/v1/master/jabatan';
+      const payload = {
+        nama: formJabatan.nama.trim(),
+        kode: formJabatan.kode.trim(),
+        deskripsi: formJabatan.deskripsi.trim()
+      };
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        if (isEdit) {
+          setJabatan(prev => prev.map(item => (item.id === editingJabatan!.id ? data.data : item)));
+        } else {
+          setJabatan(prev => [data.data, ...prev]);
+        }
+        setIsAddJabatanOpen(false);
+        setEditingJabatan(null);
+        setFormJabatan({ nama: '', kode: '', deskripsi: '' });
+      } else {
+        setJabatanError(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} jenis jabatan.`);
+      }
+    } catch (err) {
+      console.error(err);
+      setJabatanError('Terjadi kesalahan jaringan saat menyimpan jenis jabatan.');
+    } finally {
+      setIsSubmittingMaster(false);
+    }
+  };
+
+  const handleDeleteJabatanConfirm = async () => {
+    if (!deletingJabatan) return;
+    setIsSubmittingMaster(true);
+    try {
+      const res = await fetch(`/api/v1/master/jabatan/${deletingJabatan.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setJabatan(prev => prev.filter(item => item.id !== deletingJabatan.id));
+        setDeletingJabatan(null);
+      } else {
+        setJabatanError(data.message || 'Gagal menghapus jenis jabatan.');
+        setDeletingJabatan(null);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingMaster(false);
     }
   };
 
@@ -465,6 +534,14 @@ export const MasterDataView: React.FC = () => {
             <Building className="w-4 h-4" /> Master Divisi ({divisi.length})
           </button>
           <button
+            onClick={() => setActiveTab('jabatan')}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 ${
+              activeTab === 'jabatan' ? 'bg-purple-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Briefcase className="w-4 h-4" /> Jenis Jabatan ({jabatan.length})
+          </button>
+          <button
             onClick={() => setActiveTab('gudang')}
             className={`px-3 py-2 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 ${
               activeTab === 'gudang' ? 'bg-purple-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
@@ -505,6 +582,23 @@ export const MasterDataView: React.FC = () => {
               className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" /> Tambah Divisi
+            </button>
+          )}
+          {activeTab === 'jabatan' && (
+            <button
+              onClick={() => {
+                setEditingJabatan(null);
+                setJabatanError(null);
+                setFormJabatan({
+                  nama: '',
+                  kode: '',
+                  deskripsi: ''
+                });
+                setIsAddJabatanOpen(true);
+              }}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Jenis Jabatan
             </button>
           )}
           {activeTab === 'gudang' && (
@@ -658,6 +752,63 @@ export const MasterDataView: React.FC = () => {
               ))}
             </tbody>
           </table>
+        )}
+
+        {activeTab === 'jabatan' && (
+          jabatan.length === 0 ? (
+            <div className="p-10 text-center text-xs text-slate-500 space-y-2">
+              <Briefcase className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-semibold text-slate-700 dark:text-slate-300">Belum ada data jenis jabatan.</p>
+              <p>Klik tombol "Tambah Jenis Jabatan" untuk menambahkan daftar jabatan baru.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
+                  <th className="p-3">Kode</th>
+                  <th className="p-3">Nama Jenis Jabatan</th>
+                  <th className="p-3">Deskripsi / Tugas</th>
+                  <th className="p-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {jabatan.map((j) => (
+                  <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <td className="p-3 font-mono font-bold text-emerald-600">{j.kode}</td>
+                    <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{j.nama}</td>
+                    <td className="p-3 text-slate-500">{j.deskripsi || '-'}</td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingJabatan(j);
+                            setJabatanError(null);
+                            setFormJabatan({
+                              nama: j.nama || '',
+                              kode: j.kode || '',
+                              deskripsi: j.deskripsi || ''
+                            });
+                            setIsAddJabatanOpen(true);
+                          }}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition cursor-pointer"
+                          title="Edit Jenis Jabatan"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeletingJabatan(j)}
+                          className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition cursor-pointer"
+                          title="Hapus Jenis Jabatan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         )}
 
         {activeTab === 'gudang' && (
@@ -925,6 +1076,7 @@ export const MasterDataView: React.FC = () => {
                   <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Jabatan</label>
                   <input
                     type="text"
+                    list="master-jabatan-list"
                     required
                     placeholder="Staf Operasional"
                     value={form.jabatanNama}
@@ -1034,6 +1186,7 @@ export const MasterDataView: React.FC = () => {
                   <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Jabatan</label>
                   <input
                     type="text"
+                    list="master-jabatan-list"
                     required
                     value={editForm.jabatanNama}
                     onChange={(e) => setEditForm({ ...editForm, jabatanNama: e.target.value })}
@@ -1400,6 +1553,126 @@ export const MasterDataView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Datalist Jenis Jabatan untuk input Pegawai */}
+      <datalist id="master-jabatan-list">
+        {jabatan.map((j) => (
+          <option key={j.id} value={j.nama} />
+        ))}
+      </datalist>
+
+      {/* Modal Tambah / Edit Jenis Jabatan */}
+      {isAddJabatanOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-emerald-600" /> {editingJabatan ? 'Edit Jenis Jabatan' : 'Tambah Jenis Jabatan Baru'}
+              </h3>
+              <button
+                onClick={() => {
+                  setIsAddJabatanOpen(false);
+                  setEditingJabatan(null);
+                  setJabatanError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveJabatan} className="space-y-3 text-xs">
+              {jabatanError && (
+                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{jabatanError}</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Nama Jenis Jabatan *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Kepala Juru Masak / Driver Distribusi"
+                  value={formJabatan.nama}
+                  onChange={(e) => setFormJabatan({ ...formJabatan, nama: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Jabatan</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: KJM / DRV"
+                  value={formJabatan.kode}
+                  onChange={(e) => setFormJabatan({ ...formJabatan, kode: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Deskripsi / Keterangan Tugas</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ringkasan tanggung jawab jenis jabatan..."
+                  value={formJabatan.deskripsi}
+                  onChange={(e) => setFormJabatan({ ...formJabatan, deskripsi: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddJabatanOpen(false);
+                    setEditingJabatan(null);
+                    setJabatanError(null);
+                  }}
+                  className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMaster}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingMaster ? 'Menyimpan...' : editingJabatan ? 'Update Jabatan' : 'Simpan Jabatan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Jenis Jabatan */}
+      {deletingJabatan && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Hapus Jenis Jabatan</h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Apakah Anda yakin ingin menghapus jenis jabatan <strong>"{deletingJabatan.nama}"</strong> ({deletingJabatan.kode})?
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setDeletingJabatan(null)}
+                className="px-3.5 py-1.5 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteJabatanConfirm}
+                disabled={isSubmittingMaster}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmittingMaster ? 'Menghapus...' : 'Ya, Hapus'}
+              </button>
+            </div>
           </div>
         </div>
       )}

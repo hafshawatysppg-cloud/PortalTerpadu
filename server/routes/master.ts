@@ -162,18 +162,22 @@ router.get('/jabatan', (req: Request, res: Response): void => {
 });
 
 router.post('/jabatan', async (req: Request, res: Response): Promise<void> => {
-  const { nama, divisiNama, level, deskripsi } = req.body;
-  if (!nama) {
+  const { nama, kode, deskripsi } = req.body;
+  if (!nama || !String(nama).trim()) {
     res.status(400).json({ success: false, message: 'Nama jabatan wajib diisi.' });
     return;
   }
+  const maxNum = dbStore.jabatan.reduce((max, item) => {
+    const match = item.id?.match(/(\d+)$/);
+    const num = match ? parseInt(match[1], 10) : 0;
+    return num > max ? num : max;
+  }, 0);
+  const nextNum = String(maxNum + 1).padStart(3, '0');
   const newJabatan = {
-    id: `JAB-${String(dbStore.jabatan.length + 1).padStart(3, '0')}`,
-    kode: (req.body.kode as string) || `JAB-${String(dbStore.jabatan.length + 1).padStart(3, '0')}`,
-    nama,
-    divisiNama: divisiNama || 'Umum',
-    level: level || 'Staff',
-    deskripsi: deskripsi || '',
+    id: `JAB-${nextNum}`,
+    kode: (kode && String(kode).trim()) || `JAB-${nextNum}`,
+    nama: String(nama).trim(),
+    deskripsi: (deskripsi && String(deskripsi).trim()) || '',
     createdAt: new Date().toISOString()
   };
   dbStore.jabatan.unshift(newJabatan as any);

@@ -92,7 +92,10 @@ export interface MasterJabatan {
   id: string;
   kode: string;
   nama: string;
-  level: number;
+  divisiNama?: string;
+  level?: number | string;
+  deskripsi?: string;
+  createdAt?: string;
 }
 
 export interface MasterGudang {
