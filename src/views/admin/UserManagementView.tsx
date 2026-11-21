@@ -23,7 +23,7 @@ import {
   Image as ImageIcon,
   RotateCcw
 } from 'lucide-react';
-import { User, UserRole } from '../../types';
+import { User, UserRole, MasterJabatan, MasterDivisi } from '../../types';
 import { Badge } from '../../components/common/Badge';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 import { useAuth } from '../../context/AuthContext';
@@ -84,8 +84,14 @@ export const UserManagementView: React.FC = () => {
     setTimeout(() => setCopiedUserId(null), 1500);
   };
 
-  // Realtime Firestore synchronization for user management
+  // Realtime Firestore synchronization for user management & master jabatan/divisi
   const { data: realtimeUsers } = useFirestoreRealtime<User>('users');
+  const { data: realtimeJabatan } = useFirestoreRealtime<MasterJabatan>('jabatan');
+  const { data: realtimeDivisi } = useFirestoreRealtime<MasterDivisi>('divisi');
+  const [masterJabatanList, setMasterJabatanList] = useState<MasterJabatan[]>([]);
+  const [masterDivisiList, setMasterDivisiList] = useState<MasterDivisi[]>([]);
+  const [customJabatanAdd, setCustomJabatanAdd] = useState(false);
+  const [customJabatanEdit, setCustomJabatanEdit] = useState(false);
 
   useEffect(() => {
     if (realtimeUsers && realtimeUsers.length > 0) {
@@ -98,6 +104,18 @@ export const UserManagementView: React.FC = () => {
       });
     }
   }, [realtimeUsers]);
+
+  useEffect(() => {
+    if (realtimeJabatan && realtimeJabatan.length > 0) {
+      setMasterJabatanList(realtimeJabatan);
+    }
+  }, [realtimeJabatan]);
+
+  useEffect(() => {
+    if (realtimeDivisi && realtimeDivisi.length > 0) {
+      setMasterDivisiList(realtimeDivisi);
+    }
+  }, [realtimeDivisi]);
 
   const [showPassword, setShowPassword] = useState(false);
   const [newResetPassword, setNewResetPassword] = useState('');
@@ -153,9 +171,14 @@ export const UserManagementView: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/v1/users');
-      const data = await res.json();
-      if (data.success) setUsers(data.data);
+      const [resUsers, resJabatan, resDivisi] = await Promise.all([
+        fetch('/api/v1/users').then(r => r.json()),
+        fetch('/api/v1/master/jabatan').then(r => r.json()).catch(() => ({ success: false })),
+        fetch('/api/v1/master/divisi').then(r => r.json()).catch(() => ({ success: false }))
+      ]);
+      if (resUsers.success) setUsers(resUsers.data);
+      if (resJabatan?.success && Array.isArray(resJabatan.data)) setMasterJabatanList(resJabatan.data);
+      if (resDivisi?.success && Array.isArray(resDivisi.data)) setMasterDivisiList(resDivisi.data);
     } catch (err) {
       console.error(err);
     }
@@ -210,6 +233,7 @@ export const UserManagementView: React.FC = () => {
   };
 
   const handleOpenEdit = (u: User) => {
+    setCustomJabatanEdit(false);
     setEditingUser(u);
     setEditForm({
       nama: u.nama,
@@ -902,21 +926,74 @@ export const UserManagementView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Divisi</label>
-                  <input
-                    type="text"
-                    value={form.divisi}
-                    onChange={(e) => setForm({ ...form, divisi: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
+                  {masterDivisiList.length > 0 ? (
+                    <select
+                      value={masterDivisiList.some(d => d.nama === form.divisi) ? form.divisi : ''}
+                      onChange={(e) => setForm({ ...form, divisi: e.target.value })}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    >
+                      {!masterDivisiList.some(d => d.nama === form.divisi) && form.divisi && (
+                        <option value={form.divisi}>{form.divisi}</option>
+                      )}
+                      {masterDivisiList.map(d => (
+                        <option key={d.id} value={d.nama}>{d.nama}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={form.divisi}
+                      onChange={(e) => setForm({ ...form, divisi: e.target.value })}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Jabatan</label>
-                  <input
-                    type="text"
-                    value={form.jabatan}
-                    onChange={(e) => setForm({ ...form, jabatan: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
+                  {!customJabatanAdd && masterJabatanList.length > 0 ? (
+                    <select
+                      value={masterJabatanList.some(j => j.nama === form.jabatan) ? form.jabatan : '__custom__'}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          setCustomJabatanAdd(true);
+                          setForm({ ...form, jabatan: '' });
+                        } else {
+                          setForm({ ...form, jabatan: e.target.value });
+                        }
+                      }}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    >
+                      {!masterJabatanList.some(j => j.nama === form.jabatan) && form.jabatan && (
+                        <option value={form.jabatan}>{form.jabatan}</option>
+                      )}
+                      {masterJabatanList.map(j => (
+                        <option key={j.id} value={j.nama}>{j.nama}</option>
+                      ))}
+                      <option value="__custom__">-- Ketik Manual --</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1 mt-1">
+                      <input
+                        type="text"
+                        value={form.jabatan}
+                        onChange={(e) => setForm({ ...form, jabatan: e.target.value })}
+                        placeholder="Ketik jabatan..."
+                        className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                      />
+                      {masterJabatanList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomJabatanAdd(false);
+                            setForm({ ...form, jabatan: masterJabatanList[0].nama });
+                          }}
+                          className="px-2 text-[10px] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 shrink-0"
+                        >
+                          List
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1111,21 +1188,73 @@ export const UserManagementView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Divisi</label>
-                  <input
-                    type="text"
-                    value={editForm.divisi}
-                    onChange={(e) => setEditForm({ ...editForm, divisi: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
+                  {masterDivisiList.length > 0 ? (
+                    <select
+                      value={masterDivisiList.some(d => d.nama === editForm.divisi) ? editForm.divisi : editForm.divisi}
+                      onChange={(e) => setEditForm({ ...editForm, divisi: e.target.value })}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    >
+                      {!masterDivisiList.some(d => d.nama === editForm.divisi) && editForm.divisi && (
+                        <option value={editForm.divisi}>{editForm.divisi}</option>
+                      )}
+                      {masterDivisiList.map(d => (
+                        <option key={d.id} value={d.nama}>{d.nama}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={editForm.divisi}
+                      onChange={(e) => setEditForm({ ...editForm, divisi: e.target.value })}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Jabatan</label>
-                  <input
-                    type="text"
-                    value={editForm.jabatan}
-                    onChange={(e) => setEditForm({ ...editForm, jabatan: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
-                  />
+                  {!customJabatanEdit && masterJabatanList.length > 0 ? (
+                    <select
+                      value={masterJabatanList.some(j => j.nama === editForm.jabatan) ? editForm.jabatan : '__custom__'}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          setCustomJabatanEdit(true);
+                        } else {
+                          setEditForm({ ...editForm, jabatan: e.target.value });
+                        }
+                      }}
+                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    >
+                      {!masterJabatanList.some(j => j.nama === editForm.jabatan) && editForm.jabatan && (
+                        <option value={editForm.jabatan}>{editForm.jabatan}</option>
+                      )}
+                      {masterJabatanList.map(j => (
+                        <option key={j.id} value={j.nama}>{j.nama}</option>
+                      ))}
+                      <option value="__custom__">-- Ketik Manual --</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1 mt-1">
+                      <input
+                        type="text"
+                        value={editForm.jabatan}
+                        onChange={(e) => setEditForm({ ...editForm, jabatan: e.target.value })}
+                        placeholder="Ketik jabatan..."
+                        className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                      />
+                      {masterJabatanList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomJabatanEdit(false);
+                            setEditForm({ ...editForm, jabatan: masterJabatanList[0].nama });
+                          }}
+                          className="px-2 text-[10px] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 shrink-0"
+                        >
+                          List
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

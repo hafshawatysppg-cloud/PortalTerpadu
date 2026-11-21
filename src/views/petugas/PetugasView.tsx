@@ -42,9 +42,11 @@ import {
   RekapGajiHarianSummary,
   RekapAbsensiHarian,
   AbsensiPetugasItem,
-  StatusAbsensi
+  StatusAbsensi,
+  MasterJabatan
 } from '../../types';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 
 interface PetugasViewProps {
   currentPath?: string;
@@ -131,7 +133,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   // State Data
   const [petugasList, setPetugasList] = useState<Petugas[]>([]);
   const [slipList, setSlipList] = useState<SlipGajiHarian[]>([]);
+  const [masterJabatanList, setMasterJabatanList] = useState<MasterJabatan[]>([]);
+  const [customJabatanInput, setCustomJabatanInput] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const { data: realtimeJabatan } = useFirestoreRealtime<MasterJabatan>('jabatan');
+
+  useEffect(() => {
+    if (realtimeJabatan && realtimeJabatan.length > 0) {
+      setMasterJabatanList(realtimeJabatan);
+    }
+  }, [realtimeJabatan]);
 
   // Filters for Daftar Petugas
   const [searchPetugas, setSearchPetugas] = useState<string>('');
@@ -202,10 +214,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resPetugas, resSlip, resAbsensi] = await Promise.all([
+      const [resPetugas, resSlip, resAbsensi, resJabatan] = await Promise.all([
         fetch('/api/petugas').then(r => r.json()),
         fetch('/api/petugas/slip-gaji').then(r => r.json()),
-        fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`).then(r => r.json())
+        fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`).then(r => r.json()),
+        fetch('/api/v1/master/jabatan').then(r => r.json()).catch(() => ({ success: false, data: [] }))
       ]);
 
       if (resPetugas.success) {
@@ -216,6 +229,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       }
       if (resAbsensi.success && resAbsensi.data) {
         setRekapAbsensi(resAbsensi.data);
+      }
+      if (resJabatan?.success && Array.isArray(resJabatan.data)) {
+        setMasterJabatanList(resJabatan.data);
       }
     } catch (err) {
       console.error('Failed to load petugas/slip data:', err);
@@ -238,7 +254,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     setTimeout(() => setActionMessage(null), 4000);
   };
 
-  // Preset Daftar Jabatan di SPPG Badan Gizi Nasional
+  // Preset Daftar Jabatan fallback jika master database kosong
   const presetJabatan = [
     'Kepala Juru Masak (Head Chef)',
     'Asisten Juru Masak',
@@ -250,6 +266,24 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     'Petugas Kebersihan & Lingkungan',
     'Tenaga Administrasi SPPG'
   ];
+
+  // Gabungkan Master Jenis Jabatan dari database dengan jabatan aktif petugas (bebas duplikat)
+  const availableJabatanList = useMemo(() => {
+    const map = new Map<string, string>();
+    const addName = (raw?: string) => {
+      const trimmed = (raw || '').trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!map.has(key)) map.set(key, trimmed);
+    };
+    if (masterJabatanList.length > 0) {
+      masterJabatanList.forEach(j => addName(j.nama));
+    } else {
+      presetJabatan.forEach(addName);
+    }
+    petugasList.forEach(p => addName(p.jabatan));
+    return Array.from(map.values());
+  }, [masterJabatanList, petugasList]);
 
   // ==========================================
   // DAFTAR PETUGAS LOGIC
@@ -281,15 +315,18 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   // Open Modal Petugas for Add/Edit
   const handleOpenPetugasModal = (petugas?: Petugas) => {
     if (petugas) {
+      const inList = availableJabatanList.some(j => j === petugas.jabatan);
+      setCustomJabatanInput(Boolean(petugas.jabatan) && !inList && availableJabatanList.length > 0);
       setEditingPetugas({ ...petugas });
     } else {
+      setCustomJabatanInput(false);
       const nextNum = petugasList.length + 1;
       const formattedNum = String(nextNum).padStart(2, '0');
       setEditingPetugas({
         id: `PTG-${formattedNum}`,
         nomor: formattedNum,
         nama: '',
-        jabatan: 'Asisten Juru Masak',
+        jabatan: availableJabatanList[0] || 'Asisten Juru Masak',
         alamat: '',
         besaranGaji: 120000,
         telepon: '',
@@ -981,7 +1018,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="Semua">Semua Jabatan</option>
-                  {presetJabatan.map(j => (
+                  {availableJabatanList.map(j => (
                     <option key={j} value={j}>{j}</option>
                   ))}
                 </select>
@@ -2138,17 +2175,52 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Jabatan / Unit Kerja *
                   </label>
-                  <input
-                    type="text"
-                    list="jabatan-suggestions"
-                    required
-                    placeholder="Pilih atau ketik jabatan..."
-                    value={editingPetugas.jabatan || ''}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, jabatan: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                  />
+                  {!customJabatanInput && availableJabatanList.length > 0 ? (
+                    <select
+                      required
+                      value={availableJabatanList.includes(editingPetugas.jabatan || '') ? (editingPetugas.jabatan || '') : '__custom__'}
+                      onChange={e => {
+                        if (e.target.value === '__custom__') {
+                          setCustomJabatanInput(true);
+                          setEditingPetugas({ ...editingPetugas, jabatan: '' });
+                        } else {
+                          setEditingPetugas({ ...editingPetugas, jabatan: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    >
+                      {availableJabatanList.map(j => (
+                        <option key={j} value={j}>{j}</option>
+                      ))}
+                      <option value="__custom__">-- Ketik Jabatan Manual --</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        list="jabatan-suggestions"
+                        required
+                        placeholder="Pilih atau ketik jabatan..."
+                        value={editingPetugas.jabatan || ''}
+                        onChange={e => setEditingPetugas({ ...editingPetugas, jabatan: e.target.value })}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      />
+                      {availableJabatanList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomJabatanInput(false);
+                            setEditingPetugas({ ...editingPetugas, jabatan: availableJabatanList[0] });
+                          }}
+                          className="px-2.5 py-2 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 shrink-0"
+                        >
+                          Pilih List
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <datalist id="jabatan-suggestions">
-                    {presetJabatan.map(j => (
+                    {availableJabatanList.map(j => (
                       <option key={j} value={j} />
                     ))}
                   </datalist>

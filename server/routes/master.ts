@@ -1,27 +1,31 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
 import { User } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc } from '../db/firestore';
+import { syncSaveDoc, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
 
 const router = Router();
 
 // Master Pegawai - Unified with Users (Manajemen Pengguna)
 router.get('/pegawai', (req: Request, res: Response): void => {
   // Return users mapped as pegawai data format so both menus access identical dataset
-  const data = dbStore.users.map(u => ({
-    id: u.id,
-    nip: (u as any).nip || `1990${u.id.replace(/\D/g, '').padStart(10, '0')}`,
-    nama: u.nama,
-    username: u.username,
-    email: u.email,
-    telepon: (u as any).telepon || '081234567890',
-    divisiId: 'DIV-001',
-    divisiNama: u.divisi || 'Sekretariat / Tata Usaha',
-    jabatanId: 'JAB-001',
-    jabatanNama: u.jabatan || 'Staf Operasional',
-    role: u.role,
-    status: u.status
-  }));
+  const data = dbStore.users.map(u => {
+    const matchedDiv = dbStore.divisi.find(d => d.nama.toLowerCase() === (u.divisi || '').toLowerCase());
+    const matchedJab = dbStore.jabatan.find(j => j.nama.toLowerCase() === (u.jabatan || '').toLowerCase());
+    return {
+      id: u.id,
+      nip: (u as any).nip || `1990${u.id.replace(/\D/g, '').padStart(10, '0')}`,
+      nama: u.nama,
+      username: u.username,
+      email: u.email,
+      telepon: (u as any).telepon || '081234567890',
+      divisiId: matchedDiv?.id || 'DIV-001',
+      divisiNama: u.divisi || 'Sekretariat / Tata Usaha',
+      jabatanId: matchedJab?.id || '',
+      jabatanNama: u.jabatan || 'Staf Operasional',
+      role: u.role,
+      status: u.status
+    };
+  });
   res.json({ success: true, data });
 });
 
@@ -158,43 +162,114 @@ router.delete('/divisi/:id', async (req: Request, res: Response): Promise<void> 
 
 // Master Jabatan
 router.get('/jabatan', (req: Request, res: Response): void => {
+  dbStore.normalizeJabatanList();
   res.json({ success: true, data: dbStore.jabatan });
 });
 
 router.post('/jabatan', async (req: Request, res: Response): Promise<void> => {
-  const { nama, kode, deskripsi } = req.body;
-  if (!nama || !String(nama).trim()) {
-    res.status(400).json({ success: false, message: 'Nama jabatan wajib diisi.' });
+  const cleanNama = String(req.body?.nama || '').trim();
+  const rawKode = String(req.body?.kode || '').trim().toUpperCase();
+  const cleanDeskripsi = String(req.body?.deskripsi || '').trim();
+
+  if (!cleanNama) {
+    res.status(400).json({ success: false, message: 'Nama jenis jabatan wajib diisi.' });
     return;
   }
+
+  dbStore.normalizeJabatanList();
+
+  const duplicateName = dbStore.jabatan.find(
+    j => j.nama.trim().toLowerCase() === cleanNama.toLowerCase()
+  );
+  if (duplicateName) {
+    res.status(400).json({ success: false, message: `Jenis jabatan "${cleanNama}" sudah terdaftar di database.` });
+    return;
+  }
+
   const maxNum = dbStore.jabatan.reduce((max, item) => {
     const match = item.id?.match(/(\d+)$/);
     const num = match ? parseInt(match[1], 10) : 0;
     return num > max ? num : max;
   }, 0);
   const nextNum = String(maxNum + 1).padStart(3, '0');
+  const cleanKode = rawKode || `JAB-${nextNum}`;
+
+  const duplicateKode = dbStore.jabatan.find(
+    j => (j.kode || '').trim().toUpperCase() === cleanKode
+  );
+  if (duplicateKode) {
+    res.status(400).json({ success: false, message: `Kode jabatan "${cleanKode}" sudah digunakan oleh "${duplicateKode.nama}".` });
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
   const newJabatan = {
     id: `JAB-${nextNum}`,
-    kode: (kode && String(kode).trim()) || `JAB-${nextNum}`,
-    nama: String(nama).trim(),
-    deskripsi: (deskripsi && String(deskripsi).trim()) || '',
-    createdAt: new Date().toISOString()
+    kode: cleanKode,
+    nama: cleanNama,
+    deskripsi: cleanDeskripsi,
+    createdAt: nowIso,
+    updatedAt: nowIso
   };
+
   dbStore.jabatan.unshift(newJabatan as any);
+  dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Tambah Jenis Jabatan', `Menambahkan jenis jabatan '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('jabatan', newJabatan.id, newJabatan);
-  res.status(201).json({ success: true, message: 'Jabatan berhasil ditambahkan', data: newJabatan });
+  saveSnapshotToDiskNow();
+  res.status(201).json({ success: true, message: 'Jenis jabatan berhasil ditambahkan dan disimpan ke database.', data: newJabatan });
 });
 
 router.put('/jabatan/:id', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const idx = dbStore.jabatan.findIndex(j => j.id === id);
   if (idx === -1) {
-    res.status(404).json({ success: false, message: 'Jabatan tidak ditemukan.' });
+    res.status(404).json({ success: false, message: 'Jenis jabatan tidak ditemukan.' });
     return;
   }
-  dbStore.jabatan[idx] = { ...dbStore.jabatan[idx], ...req.body };
-  await syncSaveDoc('jabatan', id, dbStore.jabatan[idx]);
-  res.json({ success: true, message: 'Jabatan berhasil diperbarui', data: dbStore.jabatan[idx] });
+
+  const current = dbStore.jabatan[idx];
+  const cleanNama = req.body?.nama !== undefined ? String(req.body.nama).trim() : current.nama;
+  const cleanKode = req.body?.kode !== undefined
+    ? (String(req.body.kode).trim().toUpperCase() || current.kode || id)
+    : (current.kode || id);
+  const cleanDeskripsi = req.body?.deskripsi !== undefined ? String(req.body.deskripsi).trim() : (current.deskripsi || '');
+
+  if (!cleanNama) {
+    res.status(400).json({ success: false, message: 'Nama jenis jabatan wajib diisi.' });
+    return;
+  }
+
+  const duplicateName = dbStore.jabatan.find(
+    j => j.id !== id && j.nama.trim().toLowerCase() === cleanNama.toLowerCase()
+  );
+  if (duplicateName) {
+    res.status(400).json({ success: false, message: `Jenis jabatan "${cleanNama}" sudah terdaftar.` });
+    return;
+  }
+
+  const duplicateKode = dbStore.jabatan.find(
+    j => j.id !== id && (j.kode || '').trim().toUpperCase() === cleanKode
+  );
+  if (duplicateKode) {
+    res.status(400).json({ success: false, message: `Kode jabatan "${cleanKode}" sudah digunakan.` });
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatedJabatan = {
+    id,
+    kode: cleanKode,
+    nama: cleanNama,
+    deskripsi: cleanDeskripsi,
+    createdAt: current.createdAt || nowIso,
+    updatedAt: nowIso
+  };
+
+  dbStore.jabatan[idx] = updatedJabatan as any;
+  dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Edit Jenis Jabatan', `Memperbarui jenis jabatan '${cleanNama}' (${cleanKode})`, req.ip);
+  await syncSaveDoc('jabatan', id, updatedJabatan);
+  saveSnapshotToDiskNow();
+  res.json({ success: true, message: 'Jenis jabatan berhasil diperbarui.', data: updatedJabatan });
 });
 
 router.delete('/jabatan/:id', async (req: Request, res: Response): Promise<void> => {
@@ -202,10 +277,12 @@ router.delete('/jabatan/:id', async (req: Request, res: Response): Promise<void>
   const idx = dbStore.jabatan.findIndex(j => j.id === id);
   if (idx !== -1) {
     const deleted = dbStore.jabatan.splice(idx, 1)[0];
+    dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Hapus Jenis Jabatan', `Menghapus jenis jabatan '${deleted.nama}' (${deleted.kode})`, req.ip);
     await syncDeleteDoc('jabatan', id);
-    res.json({ success: true, message: 'Jabatan berhasil dihapus', data: deleted });
+    saveSnapshotToDiskNow();
+    res.json({ success: true, message: 'Jenis jabatan berhasil dihapus dari database.', data: deleted });
   } else {
-    res.status(404).json({ success: false, message: 'Jabatan tidak ditemukan.' });
+    res.status(404).json({ success: false, message: 'Jenis jabatan tidak ditemukan.' });
   }
 });
 

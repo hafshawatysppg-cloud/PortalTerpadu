@@ -660,11 +660,18 @@ export const initialDivisi: MasterDivisi[] = [
 ];
 
 export const initialJabatan: MasterJabatan[] = [
-  { id: 'JAB-001', kode: 'KAPUS', nama: 'Kepala Pusat Data & Sistem Informasi', level: 1 },
-  { id: 'JAB-002', kode: 'HEAD-TU', nama: 'Head of Administrative Services', level: 2 },
-  { id: 'JAB-003', kode: 'STAF-LOG', nama: 'Staf Opname Gudang Central', level: 4 },
-  { id: 'JAB-004', kode: 'KABID-ASET', nama: 'Kabid Pengawasan Aset', level: 2 },
-  { id: 'JAB-005', kode: 'MGR-REN', nama: 'Manager Perencanaan Strategic', level: 3 }
+  { id: 'JAB-001', kode: 'KAPUS', nama: 'Kepala Pusat Data & Sistem Informasi', deskripsi: 'Penanggung jawab sistem informasi dan integrasi data portal.' },
+  { id: 'JAB-002', kode: 'HEAD-TU', nama: 'Head of Administrative Services', deskripsi: 'Koordinator layanan administrasi, tata usaha, dan persuratan.' },
+  { id: 'JAB-003', kode: 'STAF-LOG', nama: 'Staf Opname Gudang Central', deskripsi: 'Pengelola stok gudang, penerimaan bahan, dan opname persediaan.' },
+  { id: 'JAB-004', kode: 'KABID-ASET', nama: 'Kabid Pengawasan Aset', deskripsi: 'Pengawasan inventaris, barang datang, dan aset operasional.' },
+  { id: 'JAB-005', kode: 'MGR-REN', nama: 'Manager Perencanaan Strategic', deskripsi: 'Perencanaan anggaran, RAB, dan evaluasi operasional program.' },
+  { id: 'JAB-006', kode: 'KJM', nama: 'Kepala Juru Masak (Head Chef)', deskripsi: 'Memimpin proses pengolahan makanan dan standar mutu dapur.' },
+  { id: 'JAB-007', kode: 'AJM', nama: 'Asisten Juru Masak', deskripsi: 'Membantu persiapan bahan dan proses memasak harian.' },
+  { id: 'JAB-008', kode: 'PMS', nama: 'Petugas Pemorsian & Packing', deskripsi: 'Melakukan pemorsian ompreng sesuai kelompok sasaran penerima manfaat.' },
+  { id: 'JAB-009', kode: 'DRV', nama: 'Driver Distribusi & Armada', deskripsi: 'Mengirimkan paket makanan ke sekolah/lembaga dan menjemput ompreng.' },
+  { id: 'JAB-010', kode: 'SNT', nama: 'Petugas Cuci Ompreng & Sanitasi', deskripsi: 'Pencucian, sterilisasi ompreng, dan menjaga sanitasi ruang dapur.' },
+  { id: 'JAB-011', kode: 'GIZI', nama: 'Ahli Gizi & Pengawas Mutu', deskripsi: 'Menyusun siklus menu, nilai gizi, CCP suhu, dan uji organoleptik.' },
+  { id: 'JAB-012', kode: 'ADM-SPPG', nama: 'Tenaga Administrasi SPPG', deskripsi: 'Pelaporan administrasi, absensi, dan dokumentasi operasional SPPG.' }
 ];
 
 export const initialGudang: MasterGudang[] = [
@@ -3791,6 +3798,29 @@ class EnterpriseDataStore {
         }
       });
     }
+    this.normalizeJabatanList();
+  }
+
+  public normalizeJabatanList() {
+    if (!Array.isArray(this.jabatan)) {
+      this.jabatan = [...initialJabatan];
+      return;
+    }
+    const seenIds = new Set<string>();
+    const cleaned: MasterJabatan[] = [];
+    for (const item of this.jabatan) {
+      if (!item || !item.id || !item.nama || seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      cleaned.push({
+        id: String(item.id).trim(),
+        kode: String(item.kode || item.id).trim().toUpperCase(),
+        nama: String(item.nama).trim(),
+        deskripsi: item.deskripsi ? String(item.deskripsi).trim() : '',
+        ...(item.createdAt ? { createdAt: item.createdAt } : {}),
+        ...((item as any).updatedAt ? { updatedAt: (item as any).updatedAt } : {})
+      } as MasterJabatan);
+    }
+    this.jabatan = cleaned;
   }
 
   constructor() {

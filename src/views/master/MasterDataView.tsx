@@ -20,14 +20,20 @@ export const MasterDataView: React.FC = () => {
   // Realtime Firestore synchronization
   const { data: realtimeUsers } = useFirestoreRealtime<any>('users');
   const { data: realtimeDivisi } = useFirestoreRealtime<any>('divisi');
-  const { data: realtimeJabatan } = useFirestoreRealtime<any>('jabatan');
+  const { data: realtimeJabatan, setData: setRealtimeJabatan } = useFirestoreRealtime<any>('jabatan');
   const { data: realtimeGudang } = useFirestoreRealtime<any>('gudang');
 
   useEffect(() => {
     if (realtimeUsers && realtimeUsers.length > 0) {
       fetchMaster();
     }
-  }, [realtimeUsers, realtimeDivisi, realtimeJabatan, realtimeGudang]);
+  }, [realtimeUsers, realtimeDivisi, realtimeGudang]);
+
+  useEffect(() => {
+    if (realtimeJabatan && realtimeJabatan.length > 0) {
+      setJabatan(realtimeJabatan);
+    }
+  }, [realtimeJabatan]);
 
   const [filter, setFilter] = useState('');
   const [cloudStatus, setCloudStatus] = useState<any>(null);
@@ -47,6 +53,9 @@ export const MasterDataView: React.FC = () => {
   const [editingJabatan, setEditingJabatan] = useState<MasterJabatan | null>(null);
   const [deletingJabatan, setDeletingJabatan] = useState<MasterJabatan | null>(null);
   const [jabatanError, setJabatanError] = useState<string | null>(null);
+  const [jabatanSuccess, setJabatanSuccess] = useState<string | null>(null);
+  const [customJabatanAddPeg, setCustomJabatanAddPeg] = useState(false);
+  const [customJabatanEditPeg, setCustomJabatanEditPeg] = useState(false);
 
   const [isAddGudangOpen, setIsAddGudangOpen] = useState(false);
   const [formGudang, setFormGudang] = useState({ nama: '', kode: '', lokasi: '', penanggungJawab: '', kapasitasM3: 100 });
@@ -199,6 +208,11 @@ export const MasterDataView: React.FC = () => {
     }
   };
 
+  const showJabatanSuccess = (msg: string) => {
+    setJabatanSuccess(msg);
+    setTimeout(() => setJabatanSuccess(null), 4000);
+  };
+
   const handleSaveJabatan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formJabatan.nama.trim()) {
@@ -212,7 +226,7 @@ export const MasterDataView: React.FC = () => {
       const url = isEdit ? `/api/v1/master/jabatan/${editingJabatan!.id}` : '/api/v1/master/jabatan';
       const payload = {
         nama: formJabatan.nama.trim(),
-        kode: formJabatan.kode.trim(),
+        kode: formJabatan.kode.trim().toUpperCase(),
         deskripsi: formJabatan.deskripsi.trim()
       };
       const res = await fetch(url, {
@@ -222,14 +236,19 @@ export const MasterDataView: React.FC = () => {
       });
       const data = await res.json();
       if (data.success && data.data) {
-        if (isEdit) {
-          setJabatan(prev => prev.map(item => (item.id === editingJabatan!.id ? data.data : item)));
-        } else {
-          setJabatan(prev => [data.data, ...prev]);
-        }
+        const nextList = isEdit
+          ? jabatan.map(item => (item.id === editingJabatan!.id ? data.data : item))
+          : [data.data, ...jabatan.filter(item => item.id !== data.data.id)];
+        setJabatan(nextList);
+        setRealtimeJabatan(nextList);
         setIsAddJabatanOpen(false);
         setEditingJabatan(null);
         setFormJabatan({ nama: '', kode: '', deskripsi: '' });
+        showJabatanSuccess(
+          isEdit
+            ? `Jenis jabatan "${data.data.nama}" berhasil diperbarui dan disinkronkan ke database.`
+            : `Jenis jabatan "${data.data.nama}" berhasil disimpan ke database dan siap dipakai di menu lain.`
+        );
       } else {
         setJabatanError(data.message || `Gagal ${isEdit ? 'memperbarui' : 'menambahkan'} jenis jabatan.`);
       }
@@ -245,11 +264,15 @@ export const MasterDataView: React.FC = () => {
     if (!deletingJabatan) return;
     setIsSubmittingMaster(true);
     try {
-      const res = await fetch(`/api/v1/master/jabatan/${deletingJabatan.id}`, { method: 'DELETE' });
+      const target = deletingJabatan;
+      const res = await fetch(`/api/v1/master/jabatan/${target.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setJabatan(prev => prev.filter(item => item.id !== deletingJabatan.id));
+        const nextList = jabatan.filter(item => item.id !== target.id);
+        setJabatan(nextList);
+        setRealtimeJabatan(nextList);
         setDeletingJabatan(null);
+        showJabatanSuccess(`Jenis jabatan "${target.nama}" berhasil dihapus dari database.`);
       } else {
         setJabatanError(data.message || 'Gagal menghapus jenis jabatan.');
         setDeletingJabatan(null);
@@ -404,6 +427,8 @@ export const MasterDataView: React.FC = () => {
 
   const handleOpenEdit = (p: MasterPegawai) => {
     setEditingPeg(p);
+    const inMaster = jabatan.some(j => j.nama === p.jabatanNama);
+    setCustomJabatanEditPeg(Boolean(p.jabatanNama) && !inMaster && jabatan.length > 0);
     setEditForm({
       nama: p.nama,
       nip: p.nip,
@@ -570,7 +595,13 @@ export const MasterDataView: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           {activeTab === 'pegawai' && (
             <button
-              onClick={() => setIsAddOpen(true)}
+              onClick={() => {
+                setCustomJabatanAddPeg(false);
+                if (jabatan.length > 0 && !jabatan.some(j => j.nama === form.jabatanNama)) {
+                  setForm(prev => ({ ...prev, jabatanNama: jabatan[0].nama }));
+                }
+                setIsAddOpen(true);
+              }}
               className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" /> Tambah Pegawai / User
@@ -755,14 +786,26 @@ export const MasterDataView: React.FC = () => {
         )}
 
         {activeTab === 'jabatan' && (
-          jabatan.length === 0 ? (
-            <div className="p-10 text-center text-xs text-slate-500 space-y-2">
-              <Briefcase className="w-8 h-8 text-slate-300 mx-auto" />
-              <p className="font-semibold text-slate-700 dark:text-slate-300">Belum ada data jenis jabatan.</p>
-              <p>Klik tombol "Tambah Jenis Jabatan" untuk menambahkan daftar jabatan baru.</p>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs border-collapse">
+          <div>
+            {jabatanSuccess && (
+              <div className="m-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{jabatanSuccess}</span>
+                </div>
+                <button onClick={() => setJabatanSuccess(null)} className="text-emerald-600 hover:text-emerald-800 cursor-pointer">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            {jabatan.length === 0 ? (
+              <div className="p-10 text-center text-xs text-slate-500 space-y-2">
+                <Briefcase className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-semibold text-slate-700 dark:text-slate-300">Belum ada data jenis jabatan.</p>
+                <p>Klik tombol "Tambah Jenis Jabatan" untuk menambahkan daftar jabatan baru.</p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                   <th className="p-3">Kode</th>
@@ -807,8 +850,9 @@ export const MasterDataView: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          )
+              </table>
+            )}
+          </div>
         )}
 
         {activeTab === 'gudang' && (
@@ -1065,24 +1109,66 @@ export const MasterDataView: React.FC = () => {
                     onChange={(e) => setForm({ ...form, divisiNama: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
                   >
-                    <option value="Sekretariat / Tata Usaha">Sekretariat / Tata Usaha</option>
-                    <option value="Teknologi Informasi & Komunikasi">Teknologi Informasi & Komunikasi</option>
-                    <option value="Logistik & Perlengkapan">Logistik & Perlengkapan</option>
-                    <option value="Keuangan & Perencanaan">Keuangan & Perencanaan</option>
-                    <option value="Pemeriksaan & Pengawasan">Pemeriksaan & Pengawasan</option>
+                    {divisi.length > 0 ? (
+                      divisi.map(d => (
+                        <option key={d.id} value={d.nama}>{d.nama}</option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Sekretariat / Tata Usaha">Sekretariat / Tata Usaha</option>
+                        <option value="Teknologi Informasi & Komunikasi">Teknologi Informasi & Komunikasi</option>
+                        <option value="Logistik & Perlengkapan">Logistik & Perlengkapan</option>
+                        <option value="Keuangan & Perencanaan">Keuangan & Perencanaan</option>
+                        <option value="Pemeriksaan & Pengawasan">Pemeriksaan & Pengawasan</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Jabatan</label>
-                  <input
-                    type="text"
-                    list="master-jabatan-list"
-                    required
-                    placeholder="Staf Operasional"
-                    value={form.jabatanNama}
-                    onChange={(e) => setForm({ ...form, jabatanNama: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                  />
+                  {!customJabatanAddPeg && jabatan.length > 0 ? (
+                    <select
+                      value={jabatan.some(j => j.nama === form.jabatanNama) ? form.jabatanNama : '__custom__'}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          setCustomJabatanAddPeg(true);
+                          setForm({ ...form, jabatanNama: '' });
+                        } else {
+                          setForm({ ...form, jabatanNama: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                    >
+                      {jabatan.map(j => (
+                        <option key={j.id} value={j.nama}>{j.nama}</option>
+                      ))}
+                      <option value="__custom__">-- Ketik Jabatan Manual --</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        list="master-jabatan-list"
+                        required
+                        placeholder="Ketik nama jabatan..."
+                        value={form.jabatanNama}
+                        onChange={(e) => setForm({ ...form, jabatanNama: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                      />
+                      {jabatan.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomJabatanAddPeg(false);
+                            setForm({ ...form, jabatanNama: jabatan[0].nama });
+                          }}
+                          className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 shrink-0"
+                        >
+                          Pilih List
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1184,14 +1270,47 @@ export const MasterDataView: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Jabatan</label>
-                  <input
-                    type="text"
-                    list="master-jabatan-list"
-                    required
-                    value={editForm.jabatanNama}
-                    onChange={(e) => setEditForm({ ...editForm, jabatanNama: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
-                  />
+                  {!customJabatanEditPeg && jabatan.length > 0 ? (
+                    <select
+                      value={jabatan.some(j => j.nama === editForm.jabatanNama) ? editForm.jabatanNama : '__custom__'}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          setCustomJabatanEditPeg(true);
+                        } else {
+                          setEditForm({ ...editForm, jabatanNama: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                    >
+                      {jabatan.map(j => (
+                        <option key={j.id} value={j.nama}>{j.nama}</option>
+                      ))}
+                      <option value="__custom__">-- Ketik Jabatan Manual --</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        list="master-jabatan-list"
+                        required
+                        value={editForm.jabatanNama}
+                        onChange={(e) => setEditForm({ ...editForm, jabatanNama: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-purple-500"
+                      />
+                      {jabatan.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomJabatanEditPeg(false);
+                            setEditForm({ ...editForm, jabatanNama: jabatan[0].nama });
+                          }}
+                          className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 shrink-0"
+                        >
+                          Pilih List
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1601,13 +1720,13 @@ export const MasterDataView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Jabatan</label>
+                <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">Kode Jabatan <span className="text-[10px] text-slate-400 font-normal">(Opsional - otomatis dibuat jika kosong)</span></label>
                 <input
                   type="text"
                   placeholder="Contoh: KJM / DRV"
                   value={formJabatan.kode}
-                  onChange={(e) => setFormJabatan({ ...formJabatan, kode: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                  onChange={(e) => setFormJabatan({ ...formJabatan, kode: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono uppercase focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div>
