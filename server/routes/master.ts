@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
 import { User } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
+import { syncSaveDoc, syncSaveBatch, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
 
 const router = Router();
 
@@ -149,6 +149,10 @@ router.post('/divisi', async (req: Request, res: Response): Promise<void> => {
   dbStore.divisi.unshift(newDiv);
   dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Tambah Divisi', `Menambahkan divisi '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('divisi', newDiv.id, newDiv);
+  const updatedBastsOnAdd = dbStore.syncBastDistribusiSignerFromDivisi();
+  if (updatedBastsOnAdd.length > 0) {
+    await syncSaveBatch('bastDocuments', updatedBastsOnAdd);
+  }
   saveSnapshotToDiskNow();
   res.status(201).json({ success: true, message: 'Divisi berhasil ditambahkan', data: newDiv });
 });
@@ -189,6 +193,10 @@ router.put('/divisi/:id', async (req: Request, res: Response): Promise<void> => 
   };
   dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Edit Divisi', `Memperbarui divisi '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('divisi', id, dbStore.divisi[idx]);
+  const updatedBastsOnEdit = dbStore.syncBastDistribusiSignerFromDivisi();
+  if (updatedBastsOnEdit.length > 0) {
+    await syncSaveBatch('bastDocuments', updatedBastsOnEdit);
+  }
   saveSnapshotToDiskNow();
   res.json({ success: true, message: 'Divisi berhasil diperbarui', data: dbStore.divisi[idx] });
 });
@@ -200,6 +208,10 @@ router.delete('/divisi/:id', async (req: Request, res: Response): Promise<void> 
     const deleted = dbStore.divisi.splice(idx, 1)[0];
     dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Hapus Divisi', `Menghapus divisi '${deleted.nama}' (${deleted.kode})`, req.ip);
     await syncDeleteDoc('divisi', id);
+    const updatedBastsOnDel = dbStore.syncBastDistribusiSignerFromDivisi();
+    if (updatedBastsOnDel.length > 0) {
+      await syncSaveBatch('bastDocuments', updatedBastsOnDel);
+    }
     saveSnapshotToDiskNow();
     res.json({ success: true, message: 'Divisi berhasil dihapus', data: deleted });
   } else {

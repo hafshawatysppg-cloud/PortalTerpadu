@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FileText,
   FileCheck,
@@ -28,9 +28,11 @@ import {
   Settings,
   Sliders
 } from 'lucide-react';
-import { BastDocument, BastStatus } from '../../types';
+import { BastDocument, BastStatus, MasterDivisi } from '../../types';
 import { downloadBastDocx } from '../../utils/bastDocxGenerator';
 import { printBastDocumentDirectly, printAllBastDocumentsDirectly } from '../../utils/bastPrintHelper';
+import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import { resolveDivisiDistribusiName } from '../../utils/divisiDistribusiHelper';
 
 interface BastSubViewProps {
   initialDate?: string;
@@ -86,6 +88,41 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
     resetMonthly: true
   });
   const [groupsMaster, setGroupsMaster] = useState<any[]>([]);
+
+  // Real-time sinkronisasi Master Divisi (bagian Divisi Distribusi) untuk tanda tangan Tim Distribusi
+  const fetchMasterDivisiFallback = useCallback(async (): Promise<MasterDivisi[]> => {
+    try {
+      const res = await fetch('/api/v1/master/divisi');
+      const json = await res.json();
+      return json?.success && Array.isArray(json.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
+  const { data: realtimeDivisi } = useFirestoreRealtime<MasterDivisi>('divisi', fetchMasterDivisiFallback);
+  const [apiDivisiList, setApiDivisiList] = useState<MasterDivisi[]>([]);
+
+  useEffect(() => {
+    fetchMasterDivisiFallback().then((list) => {
+      if (list.length > 0) setApiDivisiList(list);
+    });
+  }, [fetchMasterDivisiFallback]);
+
+  const masterDistribusiSignerName = useMemo(() => {
+    const sourceList = realtimeDivisi && realtimeDivisi.length > 0 ? realtimeDivisi : apiDivisiList;
+    return resolveDivisiDistribusiName(sourceList);
+  }, [realtimeDivisi, apiDivisiList]);
+
+  const withSyncedDistribusiName = useCallback(
+    (doc: BastDocument): BastDocument => {
+      if (!masterDistribusiSignerName) return doc;
+      return {
+        ...doc,
+        namaPetugasDistribusi: masterDistribusiSignerName
+      };
+    },
+    [masterDistribusiSignerName]
+  );
 
   // Form for manual creation or editing
   const [formData, setFormData] = useState<Partial<BastDocument>>({});
@@ -354,9 +391,10 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
 
   // Open Edit Modal
   const openEditModal = (doc: BastDocument) => {
-    setEditDoc(doc);
+    const synced = withSyncedDistribusiName(doc);
+    setEditDoc(synced);
     setFormData({
-      ...doc
+      ...synced
     });
   };
 
@@ -371,7 +409,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
       telponPic: '',
       jumlahPaketMakanan: 0,
       jumlahAlatMakan: 0,
-      namaPetugasDistribusi: 'Abdus Salam',
+      namaPetugasDistribusi: masterDistribusiSignerName || 'Abdus Salam',
       telponPetugasDistribusi: '085212581665',
       namaTimDistribusi: 'Tim Distribusi SPPG Hafshawaty 001 Genggong',
       namaKepalaSppg: 'Sri Rohayu, S.Pd.',
@@ -384,8 +422,9 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
   const handlePrintDocument = (doc?: BastDocument) => {
     const target = doc || previewDoc;
     if (!target) return;
-    onShowToast(`Membuka kotak dialog cetak ${target.nomorBast}...`, 'success');
-    printBastDocumentDirectly(target);
+    const synced = withSyncedDistribusiName(target);
+    onShowToast(`Membuka kotak dialog cetak ${synced.nomorBast}...`, 'success');
+    printBastDocumentDirectly(synced);
   };
 
   // Print All BAST Documents simultaneously (Batch Print Out All)
@@ -394,20 +433,22 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
       onShowToast('Tidak ada dokumen BAST yang siap dicetak untuk filter saat ini', 'error');
       return;
     }
-    onShowToast(`Membuka kotak dialog cetak untuk seluruh ${filteredBast.length} dokumen BAST sekaligus...`, 'success');
-    printAllBastDocumentsDirectly(filteredBast);
+    const syncedList = filteredBast.map(withSyncedDistribusiName);
+    onShowToast(`Membuka kotak dialog cetak untuk seluruh ${syncedList.length} dokumen BAST sekaligus...`, 'success');
+    printAllBastDocumentsDirectly(syncedList);
   };
 
   // Download Word (.docx)
   const handleDownloadWord = async (doc: BastDocument) => {
+    const synced = withSyncedDistribusiName(doc);
     try {
-      onShowToast(`Menyiapkan unduhan Word: ${doc.nomorBast}...`, 'success');
-      await downloadBastDocx(doc);
+      onShowToast(`Menyiapkan unduhan Word: ${synced.nomorBast}...`, 'success');
+      await downloadBastDocx(synced);
       onShowToast('File Word (.docx) berhasil diunduh', 'success');
     } catch (err) {
       console.error('Download error:', err);
       // Fallback to server route
-      window.location.href = `/api/v1/penerima-manfaat/bast/${doc.id}/docx`;
+      window.location.href = `/api/v1/penerima-manfaat/bast/${synced.id}/docx`;
     }
   };
 
@@ -1215,7 +1256,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                           </div>
                           <div className="pt-16">
                             <span className="font-bold">
-                              ({previewDoc.namaPetugasDistribusi || 'Abdus Salam' } )
+                              ({masterDistribusiSignerName || previewDoc.namaPetugasDistribusi || 'Abdus Salam'} )
                             </span>
                             <div className="w-56 border-b border-black mt-0.5"></div>
                           </div>
@@ -1361,7 +1402,7 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                             </div>
                             <div className="pt-16">
                               <div className="font-bold">
-                                ({previewDoc.namaPetugasDistribusi || 'Abdus Salam'})
+                                ({masterDistribusiSignerName || previewDoc.namaPetugasDistribusi || 'Abdus Salam'})
                               </div>
                               <div className="w-56 border-b border-black mt-0.5"></div>
                             </div>
@@ -1628,6 +1669,11 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                     }
                     className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-sm outline-none focus:border-emerald-500"
                   />
+                  {masterDistribusiSignerName && (
+                    <p className="text-[10px] text-emerald-700 font-medium mt-1">
+                      Otomatis menyesuaikan dari Master Divisi (Divisi Distribusi): <strong>{masterDistribusiSignerName}</strong>
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">

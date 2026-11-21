@@ -45,8 +45,10 @@ import {
   DailyBeneficiarySummary,
   BeneficiaryAuditLog,
   KlasifikasiPorsi,
-  KategoriLembaga
+  KategoriLembaga,
+  MasterDivisi
 } from '../types';
+import { resolveDivisiDistribusiName } from '../utils/divisiDistribusiHelper';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmModal } from '../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../lib/useFirestoreRealtime';
@@ -131,6 +133,21 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   const [groups, setGroups] = useState<BeneficiaryGroup[]>([]);
   const [locations, setLocations] = useState<BeneficiaryLocation[]>([]);
   const deletedGroupIds = useRef<Set<string>>(new Set());
+
+  // Real-time Divisi Distribusi signer name
+  const { data: realtimeDivisiList } = useFirestoreRealtime<MasterDivisi>('divisi', async () => {
+    try {
+      const res = await fetch('/api/v1/master/divisi');
+      const json = await res.json();
+      return json?.success && Array.isArray(json.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  });
+  const masterDistribusiSignerName = React.useMemo(
+    () => resolveDivisiDistribusiName(realtimeDivisiList || []),
+    [realtimeDivisiList]
+  );
 
   // Modals & Form states
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
@@ -2992,7 +3009,9 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
                   <div className="h-14 flex items-end justify-center font-serif italic text-slate-400 text-xs pb-1">
                     ( Tanda Tangan Basah / Sah )
                   </div>
-                  <div className="font-bold underline text-slate-900 uppercase">Abdus Salam</div>
+                  <div className="font-bold underline text-slate-900 uppercase">
+                    {masterDistribusiSignerName || 'Abdus Salam'}
+                  </div>
                   <div className="text-[8pt] text-slate-500">ID Petugas: SPPG-DS-014</div>
                 </div>
               </div>

@@ -1572,7 +1572,11 @@ router.get('/bast/:id/docx', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const wordDoc = await createBastWordDocument(doc);
+    const syncedDoc = {
+      ...doc,
+      namaPetugasDistribusi: dbStore.getDistribusiSignerName(doc.namaPetugasDistribusi || 'Abdus Salam')
+    };
+    const wordDoc = await createBastWordDocument(syncedDoc);
     const buffer = await Packer.toBuffer(wordDoc);
 
     const cleanSchool = doc.namaSekolah.replace(/[^a-zA-Z0-9_-]/g, '_');

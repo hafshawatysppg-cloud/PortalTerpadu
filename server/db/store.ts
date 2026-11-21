@@ -66,6 +66,7 @@ import {
   BastDocument,
   BastStatus
 } from '../../src/types';
+import { resolveDivisiDistribusiName } from '../../src/utils/divisiDistribusiHelper';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
 
@@ -4402,7 +4403,27 @@ class EnterpriseDataStore {
   }
 
   // --- BAST (BERITA ACARA SERAH TERIMA) STORE METHODS ---
+  public getDistribusiSignerName(fallback = 'Abdus Salam'): string {
+    return resolveDivisiDistribusiName(this.divisi) || fallback;
+  }
+
+  public syncBastDistribusiSignerFromDivisi(): BastDocument[] {
+    const masterSigner = resolveDivisiDistribusiName(this.divisi);
+    if (!masterSigner) return [];
+    const updatedDocs: BastDocument[] = [];
+    this.bastDocuments = this.bastDocuments.map(b => {
+      if (b.namaPetugasDistribusi !== masterSigner) {
+        const updated = { ...b, namaPetugasDistribusi: masterSigner, updatedAt: new Date().toISOString() };
+        updatedDocs.push(updated);
+        return updated;
+      }
+      return b;
+    });
+    return updatedDocs;
+  }
+
   public getBastDocuments(options?: { tanggal?: string; startDate?: string; endDate?: string; search?: string }): BastDocument[] {
+    const masterSigner = resolveDivisiDistribusiName(this.divisi);
     let list = this.bastDocuments;
     if (options?.tanggal) {
       list = list.filter(d => d.tanggal === options.tanggal);
@@ -4422,11 +4443,16 @@ class EnterpriseDataStore {
         d.tanggal.includes(q)
       );
     }
-    return list.sort((a, b) => b.tanggal.localeCompare(a.tanggal) || a.nomorBast.localeCompare(b.nomorBast));
+    return list
+      .map(d => (masterSigner ? { ...d, namaPetugasDistribusi: masterSigner } : d))
+      .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || a.nomorBast.localeCompare(b.nomorBast));
   }
 
   public getBastById(id: string): BastDocument | undefined {
-    return this.bastDocuments.find(d => d.id === id || d.nomorBast === id);
+    const found = this.bastDocuments.find(d => d.id === id || d.nomorBast === id);
+    if (!found) return undefined;
+    const masterSigner = resolveDivisiDistribusiName(this.divisi);
+    return masterSigner ? { ...found, namaPetugasDistribusi: masterSigner } : found;
   }
 
   public getNextBastSequence(tanggal: string): number {
@@ -4503,7 +4529,7 @@ class EnterpriseDataStore {
       namaSppg: doc.namaSppg || 'Satuan Pelayanan Pemenuhan Gizi (SPPG) Probolinggo Krejengan Temenggungan Yayasan Hafshawaty Pesantren Zainul Hasan Genggong Kecamatan Pajarakan Kabupaten Probolinggo',
       unitCode: doc.unitCode || 'SPPG-TMG',
       namaTimDistribusi: doc.namaTimDistribusi || 'Tim Distribusi SPPG Hafshawaty 001 Genggong',
-      namaPetugasDistribusi: doc.namaPetugasDistribusi || 'Abdus Salam',
+      namaPetugasDistribusi: this.getDistribusiSignerName(doc.namaPetugasDistribusi || 'Abdus Salam'),
       telponPetugasDistribusi: doc.telponPetugasDistribusi || '085212581665',
       namaKepalaSppg: doc.namaKepalaSppg || 'Sri Rohayu, S.Pd.',
       jabatanKepalaSppg: doc.jabatanKepalaSppg || 'Kepala SPPG Probolinggo Krejengan Temenggungan',
@@ -4676,7 +4702,7 @@ class EnterpriseDataStore {
         namaSppg: 'Satuan Pelayanan Pemenuhan Gizi (SPPG) Probolinggo Krejengan Temenggungan Yayasan Hafshawaty Pesantren Zainul Hasan Genggong Kecamatan Pajarakan Kabupaten Probolinggo',
         unitCode: 'SPPG-TMG',
         namaTimDistribusi: 'Tim Distribusi SPPG Hafshawaty 001 Genggong',
-        namaPetugasDistribusi: 'Abdus Salam',
+        namaPetugasDistribusi: this.getDistribusiSignerName('Abdus Salam'),
         telponPetugasDistribusi: '085212581665',
         namaKepalaSppg: 'Sri Rohayu, S.Pd.',
         jabatanKepalaSppg: 'Kepala SPPG Probolinggo Krejengan Temenggungan',
