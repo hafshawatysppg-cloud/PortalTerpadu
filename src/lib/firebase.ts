@@ -14,46 +14,37 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
-// Suppress benign internal transport warnings from Firestore client SDK
+// Tampilkan pesan error Firestore (mis. kegagalan sync cloud atau Security Rules) di console browser
 try {
-  setLogLevel('silent');
+  setLogLevel('error');
 } catch (_) {}
 
-let _db: Firestore | null = null;
+const dbId = (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId;
 
-export const getDb = (): Firestore => {
-  if (!_db) {
-    const dbId = (firebaseConfig as any).firestoreDatabaseId;
+function createFirestoreInstance(): Firestore {
+  try {
+    const settings = {
+      experimentalForceLongPolling: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    };
+    return dbId ? initializeFirestore(app, settings, dbId) : initializeFirestore(app, settings);
+  } catch (_err) {
     try {
-      const settings = {
-        experimentalForceLongPolling: true,
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager()
-        })
-      };
-      _db = dbId ? initializeFirestore(app, settings, dbId) : initializeFirestore(app, settings);
-    } catch (_err) {
-      try {
-        const fallbackSettings = { experimentalForceLongPolling: true };
-        _db = dbId
-          ? initializeFirestore(app, fallbackSettings, dbId)
-          : initializeFirestore(app, fallbackSettings);
-      } catch (_err2) {
-        _db = dbId ? getFirestore(app, dbId) : getFirestore(app);
-      }
+      const fallbackSettings = { experimentalForceLongPolling: true };
+      return dbId
+        ? initializeFirestore(app, fallbackSettings, dbId)
+        : initializeFirestore(app, fallbackSettings);
+    } catch (_err2) {
+      return dbId ? getFirestore(app, dbId) : getFirestore(app);
     }
   }
-  return _db;
-};
+}
 
-// Lazy proxy so Firestore is only initialized when actually accessed
-export const db: Firestore = new Proxy({} as Firestore, {
-  get(_target, prop) {
-    const instance = getDb();
-    const val = (instance as any)[prop];
-    return typeof val === 'function' ? val.bind(instance) : val;
-  }
-});
+export const db: Firestore = createFirestoreInstance();
+
+export const getDb = (): Firestore => db;
 
 export default app;
 
