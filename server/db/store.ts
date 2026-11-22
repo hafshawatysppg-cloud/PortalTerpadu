@@ -4031,33 +4031,47 @@ class EnterpriseDataStore {
     return this.petugasList.find(p => p.id === id || p.nomor === id);
   }
 
-  public savePetugas(data: Partial<Petugas>): Petugas {
+  public savePetugas(data: Partial<Petugas>, options?: { forceCreate?: boolean }): Petugas {
     const now = new Date().toISOString();
-    let id = data.id;
-    if (!id) {
-      const nextNum = this.petugasList.length + 1;
-      id = `PTG-${String(nextNum).padStart(3, '0')}`;
+    const shouldCreate = Boolean(options?.forceCreate) || !data.id || !String(data.id).trim();
+
+    let id = data.id ? String(data.id).trim() : '';
+    if (shouldCreate) {
+      do {
+        const ts = Date.now().toString(36).toUpperCase();
+        const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+        id = `PTG-${ts}-${rand}`;
+      } while (this.petugasList.some(p => p.id === id));
     }
 
-    const nomor = data.nomor || id.replace('PTG-', '');
+    const existingIdx = shouldCreate ? -1 : this.petugasList.findIndex(p => p.id === id);
+    const existingItem = existingIdx !== -1 ? this.petugasList[existingIdx] : undefined;
+
+    const maxNomor = this.petugasList.reduce((max, p) => {
+      const m = String(p.nomor || '').match(/\d+/);
+      const n = m ? parseInt(m[0], 10) : 0;
+      return Number.isFinite(n) && n > max ? n : max;
+    }, 0);
+    const autoNomor = String(Math.max(maxNomor + 1, this.petugasList.length + 1)).padStart(2, '0');
+    const nomor = (data.nomor && String(data.nomor).trim()) || existingItem?.nomor || autoNomor;
+
     const item: Petugas = {
       id,
       nomor,
-      nama: data.nama || 'Petugas Baru',
-      jabatan: data.jabatan || 'Staf Operasional',
-      alamat: data.alamat || '',
-      besaranGaji: Number(data.besaranGaji) || 100000,
-      telepon: data.telepon || '',
-      status: data.status || 'Aktif',
-      tanggalMulai: data.tanggalMulai || now.split('T')[0],
-      nomorRekening: data.nomorRekening || '-',
-      namaBank: data.namaBank || 'Tunai',
-      keterangan: data.keterangan || '',
-      createdAt: data.createdAt || now,
+      nama: data.nama || existingItem?.nama || 'Petugas Baru',
+      jabatan: data.jabatan || existingItem?.jabatan || 'Staf Operasional',
+      alamat: data.alamat ?? existingItem?.alamat ?? '',
+      besaranGaji: Number(data.besaranGaji ?? existingItem?.besaranGaji ?? 100000),
+      telepon: data.telepon ?? existingItem?.telepon ?? '',
+      status: data.status || existingItem?.status || 'Aktif',
+      tanggalMulai: data.tanggalMulai || existingItem?.tanggalMulai || now.split('T')[0],
+      nomorRekening: data.nomorRekening ?? existingItem?.nomorRekening ?? '-',
+      namaBank: data.namaBank || existingItem?.namaBank || 'Tunai',
+      keterangan: data.keterangan ?? existingItem?.keterangan ?? '',
+      createdAt: data.createdAt || existingItem?.createdAt || now,
       updatedAt: now
     };
 
-    const existingIdx = this.petugasList.findIndex(p => p.id === id);
     if (existingIdx !== -1) {
       this.petugasList[existingIdx] = item;
     } else {
@@ -4094,8 +4108,14 @@ class EnterpriseDataStore {
     const now = new Date();
     const todayStr = data.tanggal || now.toISOString().split('T')[0];
     const cleanDate = todayStr.replace(/-/g, '');
-    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const id = data.id || `SLIP-${cleanDate}-${rand}`;
+    let id = data.id;
+    if (!id) {
+      do {
+        const ts = Date.now().toString(36).slice(-4).toUpperCase();
+        const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+        id = `SLIP-${cleanDate}-${ts}${rand}`;
+      } while (this.slipGajiList.some(s => s.id === id));
+    }
 
     const petugas = data.petugasId ? this.getPetugasById(data.petugasId) : undefined;
     const nomorPetugas = data.nomorPetugas || petugas?.nomor || '';
@@ -4116,7 +4136,13 @@ class EnterpriseDataStore {
     const totalGajiBersih = Math.max(0, totalPenghasilanKotor - potonganHarian);
     const terbilang = data.terbilang || angkaKeTerbilang(totalGajiBersih);
 
-    const nomorSlip = data.nomorSlip || `SLIP/SPPG/${cleanDate.substring(0, 4)}/${cleanDate.substring(4, 6)}/${String(this.slipGajiList.length + 1).padStart(3, '0')}`;
+    const maxSlipNum = this.slipGajiList.reduce((max, s) => {
+      const lastSeg = String(s.nomorSlip || '').split('/').pop() || '';
+      const n = parseInt(lastSeg.replace(/\D/g, ''), 10);
+      return Number.isFinite(n) && n > max ? n : max;
+    }, 0);
+    const nextSlipNum = Math.max(maxSlipNum + 1, this.slipGajiList.length + 1);
+    const nomorSlip = data.nomorSlip || `SLIP/SPPG/${cleanDate.substring(0, 4)}/${cleanDate.substring(4, 6)}/${String(nextSlipNum).padStart(3, '0')}`;
 
     const record: SlipGajiHarian = {
       id,
@@ -4240,13 +4266,50 @@ class EnterpriseDataStore {
   // ==========================================
 
   public getRekapAbsensi(tanggal: string): RekapAbsensiHarian {
+    const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
     const existing = this.rekapAbsensiList.find(a => a.tanggal === tanggal);
     if (existing) {
+      if (existing.statusRekap === 'Draft') {
+        const existingIds = new Set(existing.items.map(i => i.petugasId));
+        const missingItems: AbsensiPetugasItem[] = activeStaff
+          .filter(p => !existingIds.has(p.id))
+          .map(p => ({
+            petugasId: p.id,
+            nomorPetugas: p.nomor,
+            namaPetugas: p.nama,
+            jabatan: p.jabatan,
+            besaranGaji: p.besaranGaji,
+            statusAbsensi: 'Hadir',
+            kehadiranHari: 1,
+            jamMasuk: '05:30',
+            jamKeluar: '14:00',
+            keterangan: '-'
+          }));
+        if (missingItems.length > 0) {
+          const mergedItems = [...existing.items, ...missingItems];
+          const totalHadir = mergedItems.filter(i => i.statusAbsensi === 'Hadir').length;
+          const totalSetengahHari = mergedItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
+          const totalSakit = mergedItems.filter(i => i.statusAbsensi === 'Sakit').length;
+          const totalIzin = mergedItems.filter(i => i.statusAbsensi === 'Izin').length;
+          const totalAlpha = mergedItems.filter(i => i.statusAbsensi === 'Alpha').length;
+          return {
+            ...existing,
+            items: mergedItems,
+            totalPetugas: mergedItems.length,
+            totalHadir,
+            totalSetengahHari,
+            totalSakit,
+            totalIzin,
+            totalAlpha,
+            totalMasuk: totalHadir + totalSetengahHari,
+            totalTidakMasuk: totalSakit + totalIzin + totalAlpha
+          };
+        }
+      }
       return existing;
     }
 
     // Default auto-generated absensi for active staff
-    const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
     const items: AbsensiPetugasItem[] = activeStaff.map(p => ({
       petugasId: p.id,
       nomorPetugas: p.nomor,

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbStore, angkaKeTerbilang } from '../db/store';
 import { Petugas, SlipGajiHarian } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc } from '../db/firestore';
+import { syncSaveDoc, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
 
 const router = Router();
 
@@ -304,26 +304,57 @@ router.get('/:id', (req: Request, res: Response) => {
 
 /**
  * POST /api/petugas
- * Menambah atau mengupdate data petugas.
+ * Menambah data petugas baru (tanpa batas jumlah) atau memperbarui data petugas yang sudah ada.
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const payload = req.body as Partial<Petugas>;
+    const rawBody = (req.body || {}) as Partial<Petugas> & { _mode?: string };
+    const isCreateMode = rawBody._mode === 'create' || !rawBody.id;
+    const { _mode, ...payload } = rawBody;
+
     if (!payload.nama || !payload.jabatan) {
       return res.status(400).json({ success: false, message: 'Nama dan jabatan wajib diisi' });
     }
 
-    const saved = dbStore.savePetugas(payload);
+    const saved = dbStore.savePetugas(payload, { forceCreate: isCreateMode });
     await syncSaveDoc('petugasList', saved.id, saved);
+    saveSnapshotToDiskNow();
 
     return res.json({
       success: true,
-      message: 'Data petugas berhasil disimpan',
+      message: isCreateMode ? 'Petugas baru berhasil ditambahkan' : 'Data petugas berhasil diperbarui',
       data: saved
     });
   } catch (error: any) {
     console.error('Error saving petugas:', error);
     return res.status(500).json({ success: false, message: 'Gagal menyimpan data petugas', error: error.message });
+  }
+});
+
+/**
+ * PUT /api/petugas/:id
+ * Memperbarui data petugas berdasarkan ID.
+ */
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const payload = (req.body || {}) as Partial<Petugas>;
+    if (!payload.nama || !payload.jabatan) {
+      return res.status(400).json({ success: false, message: 'Nama dan jabatan wajib diisi' });
+    }
+
+    const saved = dbStore.savePetugas({ ...payload, id }, { forceCreate: false });
+    await syncSaveDoc('petugasList', saved.id, saved);
+    saveSnapshotToDiskNow();
+
+    return res.json({
+      success: true,
+      message: 'Data petugas berhasil diperbarui',
+      data: saved
+    });
+  } catch (error: any) {
+    console.error('Error updating petugas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal memperbarui data petugas', error: error.message });
   }
 });
 
@@ -338,6 +369,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Petugas tidak ditemukan' });
     }
     await syncDeleteDoc('petugasList', req.params.id);
+    saveSnapshotToDiskNow();
     return res.json({ success: true, message: 'Data petugas berhasil dihapus' });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: 'Gagal menghapus data petugas', error: error.message });
