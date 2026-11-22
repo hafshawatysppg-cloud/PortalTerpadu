@@ -53,6 +53,8 @@ const formatDateIndo = (dateStr?: string) => {
   }
 };
 
+const EMPTY_MASTER_BAHAN: MasterBahanPangan[] = [];
+
 interface RencanaAnggaranBelanjaViewProps {
   tanggalPelaksanaan?: string;
   onNavigateDate?: (tanggal: string) => void;
@@ -62,7 +64,7 @@ interface RencanaAnggaranBelanjaViewProps {
 export const RencanaAnggaranBelanjaView: React.FC<RencanaAnggaranBelanjaViewProps> = ({
   tanggalPelaksanaan: initialDate,
   onNavigateDate,
-  masterBahan = []
+  masterBahan = EMPTY_MASTER_BAHAN
 }) => {
   const todayStr = new Date().toISOString().split('T')[0];
   const [tanggal, setTanggal] = useState<string>(initialDate || todayStr);

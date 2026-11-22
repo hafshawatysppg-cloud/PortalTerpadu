@@ -56,11 +56,6 @@ interface GiziViewProps {
 }
 
 export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) => {
-  // If navigating to Food Cost, render the complete Food Cost & MultiGroup Nutrition Calculation System
-  if (currentPath.includes('/gizi/food-cost')) {
-    return <PerencanaanBahanView currentPath={currentPath} onNavigate={onNavigate} />;
-  }
-
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPeriod, setFilterPeriod] = useState('Semua');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
@@ -87,6 +82,11 @@ export const GiziView: React.FC<GiziViewProps> = ({ currentPath, onNavigate }) =
   );
   const [formMenuItems, setFormMenuItems] = useState<string[]>(['', '', '', '', '']);
   const [deleteTargetMenu, setDeleteTargetMenu] = useState<MasterMenuRecord | null>(null);
+
+  // If navigating to Food Cost, render the complete Food Cost & MultiGroup Nutrition Calculation System
+  if (currentPath.includes('/gizi/food-cost')) {
+    return <PerencanaanBahanView currentPath={currentPath} onNavigate={onNavigate} />;
+  }
 
   const formatDateIndo = (dateStr: string) => {
     try {

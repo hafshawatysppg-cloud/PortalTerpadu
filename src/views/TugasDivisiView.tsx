@@ -143,11 +143,16 @@ export const TugasDivisiView: React.FC<TugasDivisiViewProps> = ({ currentPath = 
   }, [selectedDate]);
 
   // Keep backend division records' menuHarian aligned with Master Menu for selectedDate
+  const lastMenuSyncRef = React.useRef<string>('');
   useEffect(() => {
     if (records.length === 0) return;
     const syncedMenu = getMasterMenuTextForDate(selectedDate);
     const needsSync = records.some((r) => (r.menuHarian || '') !== syncedMenu);
     if (!needsSync) return;
+
+    const syncKey = `${selectedDate}|${syncedMenu}|${records.length}`;
+    if (lastMenuSyncRef.current === syncKey) return;
+    lastMenuSyncRef.current = syncKey;
 
     setRecords((prev) => prev.map((r) => ({ ...r, menuHarian: syncedMenu })));
     fetch('/api/v1/tugas-divisi/menu-harian', {

@@ -191,8 +191,16 @@ export function renderBastSheet(bast: BastDocument, _showSignature: boolean = fa
     ? bast.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
     : '................ WIB';
 
-  // Digital signature has been removed for manual physical signature & stamp
-  const signatureSpace = '<div style="height: 54px;"></div>';
+  // TTD Kepala SPPG Probolinggo Krejengan Temenggungan
+  const signatureSpace = `
+    <div style="height: 54px; display: flex; align-items: center; justify-content: flex-start; margin: 2px 0;">
+      <img
+        src="/assets/aistudio/Untitled_design__4__71e57967.png"
+        alt="TTD Kepala SPPG Probolinggo Krejengan Temenggungan"
+        style="max-height: 52px; max-width: 150px; width: auto; object-fit: contain; mix-blend-mode: multiply;"
+      />
+    </div>
+  `;
 
   const npsnBadge = bast.npsn
     ? ` <span style="font-size: 9pt; font-weight: normal; color: #1e293b;">(NPSN: ${bast.npsn})</span>`
@@ -387,6 +395,56 @@ export function generateMultipleBastPrintHtml(basts: BastDocument[], showSignatu
 </html>`;
 }
 
+function waitForIframeImagesAndPrint(iframe: HTMLIFrameElement, cleanupDelayMs: number): void {
+  const frameDoc = iframe.contentWindow?.document;
+  const imgs = frameDoc ? Array.from(frameDoc.querySelectorAll('img')) : [];
+
+  const triggerPrint = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (err) {
+      console.warn('Direct iframe print error, falling back to window.print():', err);
+      window.print();
+    }
+
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe);
+      } catch (_) {}
+    }, cleanupDelayMs);
+  };
+
+  if (imgs.length === 0) {
+    setTimeout(triggerPrint, 250);
+    return;
+  }
+
+  let printed = false;
+  const printOnce = () => {
+    if (printed) return;
+    printed = true;
+    setTimeout(triggerPrint, 120);
+  };
+
+  const pending = imgs.map(
+    img =>
+      new Promise<void>(resolve => {
+        if (img.complete) {
+          resolve();
+          return;
+        }
+        img.addEventListener('load', () => resolve(), { once: true });
+        img.addEventListener('error', () => resolve(), { once: true });
+      })
+  );
+
+  Promise.race([
+    Promise.all(pending),
+    new Promise<void>(resolve => setTimeout(resolve, 1500))
+  ]).then(printOnce);
+}
+
 /**
  * Triggers the browser's native print dialog immediately using a hidden iframe for a single BAST.
  */
@@ -413,21 +471,7 @@ export function printBastDocumentDirectly(bast: BastDocument, showSignature: boo
   frameDoc.write(html);
   frameDoc.close();
 
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch (err) {
-      console.warn('Direct iframe print error, falling back to window.print():', err);
-      window.print();
-    }
-
-    setTimeout(() => {
-      try {
-        document.body.removeChild(iframe);
-      } catch (_) {}
-    }, 2000);
-  }, 250);
+  waitForIframeImagesAndPrint(iframe, 2000);
 }
 
 /**
@@ -458,19 +502,5 @@ export function printAllBastDocumentsDirectly(basts: BastDocument[], showSignatu
   frameDoc.write(html);
   frameDoc.close();
 
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch (err) {
-      console.warn('Direct iframe print all error, falling back to window.print():', err);
-      window.print();
-    }
-
-    setTimeout(() => {
-      try {
-        document.body.removeChild(iframe);
-      } catch (_) {}
-    }, 3500);
-  }, 350);
+  waitForIframeImagesAndPrint(iframe, 3500);
 }

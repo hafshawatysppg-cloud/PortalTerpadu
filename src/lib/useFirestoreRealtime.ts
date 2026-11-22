@@ -1,4 +1,4 @@
-import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { getDb } from './firebase';
 import { safeParseJson } from './safeJson';
@@ -245,14 +245,18 @@ export function useFirestoreRealtime<T extends { id: string }>(
     };
   }, [collectionName]);
 
-  const setCachedData: Dispatch<SetStateAction<T[]>> = (updater) => {
-    const currentEntry = getOrCreateEntry<T>(collectionName);
-    const nextValue =
-      typeof updater === 'function' ? (updater as (prev: T[]) => T[])(currentEntry.data) : updater;
-    currentEntry.data = nextValue;
-    currentEntry.hasData = true;
-    notifySubscribers(currentEntry);
-  };
+  const setCachedData: Dispatch<SetStateAction<T[]>> = useCallback(
+    (updater) => {
+      const currentEntry = getOrCreateEntry<T>(collectionName);
+      const nextValue =
+        typeof updater === 'function' ? (updater as (prev: T[]) => T[])(currentEntry.data) : updater;
+      if (nextValue === currentEntry.data) return;
+      currentEntry.data = nextValue;
+      currentEntry.hasData = true;
+      notifySubscribers(currentEntry);
+    },
+    [collectionName]
+  );
 
   return { data, setData: setCachedData, loading, error };
 }

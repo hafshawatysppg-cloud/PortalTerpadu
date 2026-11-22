@@ -63,11 +63,13 @@ const DEFAULT_ROWS: OrganoleptikRow[] = [
   { no: 6, namaMakanan: '', rasa: '', warna: '', aroma: '', tekstur: '', statusWaktu: '', ket: '' },
 ];
 
+const EMPTY_MASTER_MENUS: MasterMenuRecord[] = [];
+
 interface OrganoleptikViewProps {
   masterMenus?: MasterMenuRecord[];
 }
 
-export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus = [] }) => {
+export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus = EMPTY_MASTER_MENUS }) => {
   const [activeTab, setActiveTab] = useState<'form' | 'print' | 'riwayat'>('form');
   const [records, setRecords] = useState<OrganoleptikRecord[]>([]);
 
@@ -123,7 +125,7 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
       }));
       setRows(mappedRows);
     } else {
-      setRows([]);
+      setRows((prev) => (prev.length === 0 ? prev : []));
     }
   }, [tanggalPemeriksaan, masterMenus, editingId]);
 

@@ -1293,7 +1293,13 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                           <div className="col-span-5 border border-black p-2.5 rounded-none text-[10pt] min-h-[142px] flex flex-col justify-between">
                             <div>
                               <div>Mengetahui:</div>
-                              <div className="h-14"></div>
+                              <div className="h-14 flex items-center justify-start my-0.5">
+                                <img
+                                  src="/assets/aistudio/Untitled_design__4__71e57967.png"
+                                  alt="TTD Kepala SPPG Probolinggo Krejengan Temenggungan"
+                                  className="max-h-14 w-auto object-contain mix-blend-multiply"
+                                />
+                              </div>
                             </div>
                             <div>
                               <div className="font-bold underline leading-tight">
@@ -1412,7 +1418,13 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
                           <div className="col-span-5 border border-black p-2.5 rounded-none text-[10pt] min-h-[142px] flex flex-col justify-between">
                             <div>
                               <div>Mengetahui:</div>
-                              <div className="h-14"></div>
+                              <div className="h-14 flex items-center justify-start my-0.5">
+                                <img
+                                  src="/assets/aistudio/Untitled_design__4__71e57967.png"
+                                  alt="TTD Kepala SPPG Probolinggo Krejengan Temenggungan"
+                                  className="max-h-14 w-auto object-contain mix-blend-multiply"
+                                />
+                              </div>
                             </div>
                             <div>
                               <div className="font-bold underline leading-tight">

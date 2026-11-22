@@ -67,6 +67,7 @@ import {
   BastStatus
 } from '../../src/types';
 import { resolveDivisiDistribusiName } from '../../src/utils/divisiDistribusiHelper';
+import { getDefaultJamKerjaByJabatan, isLegacyDefaultJamKerja } from '../../src/utils/jamKerjaHelper';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
 
@@ -4372,23 +4373,36 @@ class EnterpriseDataStore {
         const petugasById = new Map(this.petugasList.map(p => [p.id, p]));
         const syncedExistingItems = existing.items.map(it => {
           const p = petugasById.get(it.petugasId);
-          return p ? { ...it, nomorPetugas: p.nomor, namaPetugas: p.nama, jabatan: p.jabatan, besaranGaji: p.besaranGaji } : it;
+          const resolvedJabatan = p ? p.jabatan : it.jabatan;
+          const autoHours = getDefaultJamKerjaByJabatan(resolvedJabatan, it.statusAbsensi);
+          const isPresent = it.statusAbsensi === 'Hadir' || it.statusAbsensi === 'Setengah Hari';
+          const shouldAutoFill = isPresent && isLegacyDefaultJamKerja(it.jamMasuk, it.jamKeluar);
+
+          return {
+            ...it,
+            ...(p ? { nomorPetugas: p.nomor, namaPetugas: p.nama, jabatan: p.jabatan, besaranGaji: p.besaranGaji } : {}),
+            jamMasuk: isPresent ? (shouldAutoFill ? autoHours.jamMasuk : it.jamMasuk) : '-',
+            jamKeluar: isPresent ? (shouldAutoFill ? autoHours.jamKeluar : it.jamKeluar) : '-'
+          };
         });
         const existingIds = new Set(syncedExistingItems.map(i => i.petugasId));
         const missingItems: AbsensiPetugasItem[] = activeStaff
           .filter(p => !existingIds.has(p.id))
-          .map(p => ({
-            petugasId: p.id,
-            nomorPetugas: p.nomor,
-            namaPetugas: p.nama,
-            jabatan: p.jabatan,
-            besaranGaji: p.besaranGaji,
-            statusAbsensi: 'Hadir',
-            kehadiranHari: 1,
-            jamMasuk: '05:30',
-            jamKeluar: '14:00',
-            keterangan: '-'
-          }));
+          .map(p => {
+            const autoHours = getDefaultJamKerjaByJabatan(p.jabatan, 'Hadir');
+            return {
+              petugasId: p.id,
+              nomorPetugas: p.nomor,
+              namaPetugas: p.nama,
+              jabatan: p.jabatan,
+              besaranGaji: p.besaranGaji,
+              statusAbsensi: 'Hadir',
+              kehadiranHari: 1,
+              jamMasuk: autoHours.jamMasuk,
+              jamKeluar: autoHours.jamKeluar,
+              keterangan: '-'
+            };
+          });
         const mergedItems = [...syncedExistingItems, ...missingItems].sort((a, b) =>
           this.comparePetugasNomor(a.nomorPetugas, b.nomorPetugas)
         );
@@ -4413,19 +4427,22 @@ class EnterpriseDataStore {
       return existing;
     }
 
-    // Default auto-generated absensi for active staff
-    const items: AbsensiPetugasItem[] = activeStaff.map(p => ({
-      petugasId: p.id,
-      nomorPetugas: p.nomor,
-      namaPetugas: p.nama,
-      jabatan: p.jabatan,
-      besaranGaji: p.besaranGaji,
-      statusAbsensi: 'Hadir',
-      kehadiranHari: 1,
-      jamMasuk: '05:30',
-      jamKeluar: '14:00',
-      keterangan: '-'
-    }));
+    // Default auto-generated absensi for active staff (jam kerja otomatis sesuai divisi)
+    const items: AbsensiPetugasItem[] = activeStaff.map(p => {
+      const autoHours = getDefaultJamKerjaByJabatan(p.jabatan, 'Hadir');
+      return {
+        petugasId: p.id,
+        nomorPetugas: p.nomor,
+        namaPetugas: p.nama,
+        jabatan: p.jabatan,
+        besaranGaji: p.besaranGaji,
+        statusAbsensi: 'Hadir',
+        kehadiranHari: 1,
+        jamMasuk: autoHours.jamMasuk,
+        jamKeluar: autoHours.jamKeluar,
+        keterangan: '-'
+      };
+    });
 
     const cleanDate = tanggal.replace(/-/g, '');
     const draftRekap: RekapAbsensiHarian = {
@@ -4463,11 +4480,12 @@ class EnterpriseDataStore {
       else if (it.statusAbsensi === 'Setengah Hari') kehadiranHari = 0.5;
       else kehadiranHari = 0;
 
+      const autoHours = getDefaultJamKerjaByJabatan(it.jabatan, it.statusAbsensi);
       return {
         ...it,
         kehadiranHari,
-        jamMasuk: it.jamMasuk || (kehadiranHari > 0 ? '05:30' : '-'),
-        jamKeluar: it.jamKeluar || (kehadiranHari > 0 ? '14:00' : '-'),
+        jamMasuk: kehadiranHari > 0 ? (it.jamMasuk && it.jamMasuk !== '-' ? it.jamMasuk : autoHours.jamMasuk) : '-',
+        jamKeluar: kehadiranHari > 0 ? (it.jamKeluar && it.jamKeluar !== '-' ? it.jamKeluar : autoHours.jamKeluar) : '-',
         keterangan: it.keterangan || '-'
       };
     });

@@ -3,6 +3,7 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   Table,
   TableRow,
   TableCell,
@@ -12,11 +13,78 @@ import {
 } from 'docx';
 import { BastDocument } from '../types';
 
+const KEPALA_SPPG_TTD_PATH = '/assets/aistudio/Untitled_design__4__71e57967.png';
+
+async function loadKepalaSppgSignatureBytes(): Promise<Uint8Array | null> {
+  try {
+    if (typeof window !== 'undefined' && typeof fetch === 'function') {
+      const res = await fetch(KEPALA_SPPG_TTD_PATH);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        return new Uint8Array(buf);
+      }
+      return null;
+    }
+
+    const fsModule = await import(/* @vite-ignore */ 'node:fs');
+    const pathModule = await import(/* @vite-ignore */ 'node:path');
+    const filePath = pathModule.join(
+      process.cwd(),
+      'public',
+      'assets',
+      'aistudio',
+      'Untitled_design__4__71e57967.png'
+    );
+    if (fsModule.existsSync(filePath)) {
+      return new Uint8Array(fsModule.readFileSync(filePath));
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function buildMengetahuiSignatureParagraphs(sigBytes: Uint8Array | null): Paragraph[] {
+  if (!sigBytes) {
+    return [
+      new Paragraph({
+        spacing: { before: 0, after: 400 },
+        children: [
+          new TextRun({ text: 'Mengetahui:', font: 'Times New Roman', size: 20 }),
+        ],
+      }),
+    ];
+  }
+
+  return [
+    new Paragraph({
+      spacing: { before: 0, after: 40 },
+      children: [
+        new TextRun({ text: 'Mengetahui:', font: 'Times New Roman', size: 20 }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { before: 20, after: 40 },
+      children: [
+        new ImageRun({
+          data: sigBytes,
+          transformation: {
+            width: 88,
+            height: 56,
+          },
+          type: 'png',
+        }),
+      ],
+    }),
+  ];
+}
+
 /**
  * Generates an authentic Microsoft Word (.docx) document strictly matching
  * the official "BERITA ACARA PENERIMAAN PAKET MAKANA2.docx" template.
  */
 export async function createBastWordDocument(bast: BastDocument): Promise<Document> {
+  const signatureBytes = await loadKepalaSppgSignatureBytes();
   const waktuText = bast.waktuPenerimaan && bast.waktuPenerimaan !== 'Jam …………… WIB' && bast.waktuPenerimaan !== '07:30 WIB' && bast.waktuPenerimaan !== 'Jam 07:30 WIB' && !bast.waktuPenerimaan.includes('…………')
     ? bast.waktuPenerimaan.replace(/^Jam\s*/i, '').trim()
     : '................ WIB';
@@ -206,12 +274,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
                     borders: boxBorder,
                     margins: { top: 80, bottom: 80, left: 100, right: 100 },
                     children: [
-                      new Paragraph({
-                        spacing: { before: 0, after: 400 },
-                        children: [
-                          new TextRun({ text: 'Mengetahui:', font: 'Times New Roman', size: 20 }),
-                        ],
-                      }),
+                      ...buildMengetahuiSignatureParagraphs(signatureBytes),
                       new Paragraph({
                         spacing: { before: 0, after: 10 },
                         children: [
@@ -416,12 +479,7 @@ export async function createBastWordDocument(bast: BastDocument): Promise<Docume
                     borders: boxBorder,
                     margins: { top: 80, bottom: 80, left: 100, right: 100 },
                     children: [
-                      new Paragraph({
-                        spacing: { before: 0, after: 400 },
-                        children: [
-                          new TextRun({ text: 'Mengetahui:', font: 'Times New Roman', size: 20 }),
-                        ],
-                      }),
+                      ...buildMengetahuiSignatureParagraphs(signatureBytes),
                       new Paragraph({
                         spacing: { before: 0, after: 10 },
                         children: [

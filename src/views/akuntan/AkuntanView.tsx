@@ -681,6 +681,30 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   const [filterKategori, setFilterKategori] = useState('Semua');
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Refs keeping latest state for stable callbacks without re-triggering auto-sync useEffect loops
+  const akuntanStateRef = React.useRef({
+    selectedDate,
+    realisasiBbLockedMap,
+    realisasiOpLockedMap,
+    rabBahanBaku,
+    rabOperasionalBarang,
+    realisasiBahanBaku,
+    realisasiOperasional,
+    insentifFasilitas,
+    totalPm: beneficiaryInfo.totalPm
+  });
+  akuntanStateRef.current = {
+    selectedDate,
+    realisasiBbLockedMap,
+    realisasiOpLockedMap,
+    rabBahanBaku,
+    rabOperasionalBarang,
+    realisasiBahanBaku,
+    realisasiOperasional,
+    insentifFasilitas,
+    totalPm: beneficiaryInfo.totalPm
+  };
+
   // Auto Data Integration / Sync function: "Tarik Data Kedatangan Barang" tersinkron per tanggal aktif
   const handleTarikDataKedatanganBarang = React.useCallback(
     async (
@@ -688,11 +712,21 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       isAuto: boolean = false,
       targetDateParam?: string
     ) => {
-      const targetDate = targetDateParam || selectedDate;
+      const {
+        selectedDate: currentSelectedDate,
+        realisasiBbLockedMap: currentBbLockedMap,
+        realisasiOpLockedMap: currentOpLockedMap,
+        rabBahanBaku: currentRabBahanBaku,
+        rabOperasionalBarang: currentRabOpBarang,
+        realisasiBahanBaku: currentRealisasiBb,
+        realisasiOperasional: currentRealisasiOp
+      } = akuntanStateRef.current;
+
+      const targetDate = targetDateParam || currentSelectedDate;
       const lockedForDate =
         targetJenis === 'Bahan Baku'
-          ? Boolean(realisasiBbLockedMap[targetDate])
-          : Boolean(realisasiOpLockedMap[targetDate]);
+          ? Boolean(currentBbLockedMap[targetDate])
+          : Boolean(currentOpLockedMap[targetDate]);
 
       if (lockedForDate) {
         if (!isAuto) {
@@ -742,15 +776,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               triggerToast(`Belum ada data kedatangan Bahan Baku pada tanggal ${targetDate}.`);
             }
           } else {
-            const otherDates = realisasiBahanBaku.filter((p) => p.tanggal !== targetDate);
-            const existingForDate = realisasiBahanBaku.filter((p) => p.tanggal === targetDate);
+            const otherDates = currentRealisasiBb.filter((p) => p.tanggal !== targetDate);
+            const existingForDate = currentRealisasiBb.filter((p) => p.tanggal === targetDate);
 
             const syncedForDate: RealisasiBahanBakuItem[] = filtered.map((item: any, idx: number) => {
               const nama = item.namaBarang || 'Bahan Baku';
               const existingMatch = existingForDate.find(
                 (e) => e.idKedatangan === item.id || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
               );
-              const matchedRab = rabBahanBaku.find((r) =>
+              const matchedRab = currentRabBahanBaku.find((r) =>
                 r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
                 nama.toLowerCase().includes(r.namaBarang.toLowerCase())
               );
@@ -824,15 +858,15 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               triggerToast(`Belum ada data kedatangan Operasional pada tanggal ${targetDate}.`);
             }
           } else {
-            const otherDates = realisasiOperasional.filter((p) => p.tanggal !== targetDate);
-            const existingForDate = realisasiOperasional.filter((p) => p.tanggal === targetDate);
+            const otherDates = currentRealisasiOp.filter((p) => p.tanggal !== targetDate);
+            const existingForDate = currentRealisasiOp.filter((p) => p.tanggal === targetDate);
 
             const syncedForDate: RealisasiOperasionalItem[] = filtered.map((item: any, idx: number) => {
               const nama = item.namaBarang || 'Barang Operasional';
               const existingMatch = existingForDate.find(
                 (e) => e.id === `RLS-OP-${targetDate}-${item.id}` || e.namaBarang.toLowerCase().trim() === nama.toLowerCase().trim()
               );
-              const matchedRab = rabOperasionalBarang.find((r) =>
+              const matchedRab = currentRabOpBarang.find((r) =>
                 r.namaBarang.toLowerCase().includes(nama.toLowerCase()) ||
                 nama.toLowerCase().includes(r.namaBarang.toLowerCase())
               );
@@ -886,15 +920,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         }
       }
     },
-    [
-      selectedDate,
-      realisasiBbLockedMap,
-      realisasiOpLockedMap,
-      rabBahanBaku,
-      rabOperasionalBarang,
-      realisasiBahanBaku,
-      realisasiOperasional
-    ]
+    []
   );
 
   // Sinkronisasi Pagu Formula dari target PM
@@ -1015,7 +1041,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           namaBarang: nama,
           spesifikasi: `Standar Food Cost SPPG (${satuan})`,
           kebutuhanPorsi: Number(item.porsiBesarNet || item.netWeightGram || 0),
-          targetPorsi: beneficiaryInfo.totalPm,
+          targetPorsi: akuntanStateRef.current.totalPm,
           totalKebutuhanKg: Number(item.totalRequiredKg || pembulatanNum),
           pembulatan: pembulatanNum,
           satuan: satuan,
@@ -1041,7 +1067,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         setIsSyncing(false);
       }
     }
-  }, [beneficiaryInfo.totalPm]);
+  }, []);
 
   // Tarik Data dari Menu Food Cost (Tombol Manual)
   const handleTarikDataFoodCost = () => {
@@ -1811,29 +1837,32 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
   }, [beneficiaryInfo.totalPm, insentifFasilitas]);
 
   // Sinkronisasi otomatis insentif fasilitas jika total PM berubah
+  const lastSyncedFasilitasKeyRef = React.useRef<string>('');
   useEffect(() => {
-    if (beneficiaryInfo.totalPm > 0) {
-      const calculated = beneficiaryInfo.totalPm * 2000;
-      const needsUpdate = insentifFasilitas.some((fas) => fas.totalInsentif !== calculated);
-      if (needsUpdate) {
-        const updated = insentifFasilitas.map((fas) => ({
-          ...fas,
-          kompensasiBulan: calculated,
-          biayaUtilitas: 0,
-          totalInsentif: calculated,
-          periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
-        }));
-        setInsentifFasilitas(updated);
-        void replaceAkuntanDocsForPredicate(
-          'akuntan_insentif_fasilitas',
-          updated,
-          getInsentifFasilitasSnapshot()
-        ).catch((err) => {
-          console.error('Gagal auto-sync Insentif Fasilitas ke Firebase:', err);
-        });
-      }
-    }
-  }, [beneficiaryInfo.totalPm, insentifFasilitas]);
+    const currentFasilitas = akuntanStateRef.current.insentifFasilitas;
+    if (beneficiaryInfo.totalPm <= 0 || currentFasilitas.length === 0) return;
+    const calculated = beneficiaryInfo.totalPm * 2000;
+    const needsUpdate = currentFasilitas.some((fas) => fas.totalInsentif !== calculated);
+    const syncKey = `${beneficiaryInfo.totalPm}:${currentFasilitas.length}`;
+    if (!needsUpdate || lastSyncedFasilitasKeyRef.current === syncKey) return;
+
+    lastSyncedFasilitasKeyRef.current = syncKey;
+    const updated = currentFasilitas.map((fas) => ({
+      ...fas,
+      kompensasiBulan: calculated,
+      biayaUtilitas: 0,
+      totalInsentif: calculated,
+      periode: `November 2026 (${beneficiaryInfo.totalPm.toLocaleString('id-ID')} PM @ Rp 2.000)`
+    }));
+    setInsentifFasilitas(updated);
+    void replaceAkuntanDocsForPredicate(
+      'akuntan_insentif_fasilitas',
+      updated,
+      getInsentifFasilitasSnapshot()
+    ).catch((err) => {
+      console.error('Gagal auto-sync Insentif Fasilitas ke Firebase:', err);
+    });
+  }, [beneficiaryInfo.totalPm, insentifFasilitas.length]);
 
   // Kalkulasi semua total anggaran operasional: Rab Op. Barang, Gaji Karyawan, Insentif PIC Sekolah, Insentif PIC Posyandu, Operasional Lainnya
   const totalOperasionalLainnya = useMemo(() => {

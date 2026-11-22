@@ -50,6 +50,11 @@ import {
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 import { safeParseJson } from '../../lib/safeJson';
+import {
+  DIVISI_JAM_KERJA_RULES,
+  getDefaultJamKerjaByJabatan,
+  isLegacyDefaultJamKerja
+} from '../../utils/jamKerjaHelper';
 
 interface PetugasViewProps {
   currentPath?: string;
@@ -727,14 +732,18 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       if (item.petugasId !== petugasId) return item;
       const updated = { ...item, ...updates };
       if (updates.statusAbsensi) {
-        if (updates.statusAbsensi === 'Hadir') {
-          updated.kehadiranHari = 1;
-          if (!updated.jamMasuk || updated.jamMasuk === '-') updated.jamMasuk = '05:30';
-          if (!updated.jamKeluar || updated.jamKeluar === '-') updated.jamKeluar = '14:00';
-        } else if (updates.statusAbsensi === 'Setengah Hari') {
-          updated.kehadiranHari = 0.5;
-          if (!updated.jamMasuk || updated.jamMasuk === '-') updated.jamMasuk = '05:30';
-          if (!updated.jamKeluar || updated.jamKeluar === '-') updated.jamKeluar = '10:30';
+        if (updates.statusAbsensi === 'Hadir' || updates.statusAbsensi === 'Setengah Hari') {
+          updated.kehadiranHari = updates.statusAbsensi === 'Hadir' ? 1 : 0.5;
+          const prevSched = getDefaultJamKerjaByJabatan(item.jabatan, item.statusAbsensi);
+          const nextSched = getDefaultJamKerjaByJabatan(item.jabatan, updates.statusAbsensi);
+          const usesDefaultOrLegacy = isLegacyDefaultJamKerja(item.jamMasuk, item.jamKeluar);
+
+          if (usesDefaultOrLegacy || item.jamMasuk === prevSched.jamMasuk) {
+            updated.jamMasuk = nextSched.jamMasuk;
+          }
+          if (usesDefaultOrLegacy || item.jamKeluar === prevSched.jamKeluar) {
+            updated.jamKeluar = nextSched.jamKeluar;
+          }
         } else {
           updated.kehadiranHari = 0;
           updated.jamMasuk = '-';
@@ -766,14 +775,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
   const handleMarkAllAbsensi = (status: StatusAbsensi) => {
     if (!rekapAbsensi) return;
-    const newItems = rekapAbsensi.items.map(item => ({
-      ...item,
-      statusAbsensi: status,
-      kehadiranHari: status === 'Hadir' ? 1 : status === 'Setengah Hari' ? 0.5 : 0,
-      jamMasuk: (status === 'Hadir' || status === 'Setengah Hari') ? '05:30' : '-',
-      jamKeluar: status === 'Hadir' ? '14:00' : status === 'Setengah Hari' ? '10:30' : '-',
-      keterangan: status === 'Hadir' ? '-' : item.keterangan
-    }));
+    const newItems = rekapAbsensi.items.map(item => {
+      const sched = getDefaultJamKerjaByJabatan(item.jabatan, status);
+      return {
+        ...item,
+        statusAbsensi: status,
+        kehadiranHari: status === 'Hadir' ? 1 : status === 'Setengah Hari' ? 0.5 : 0,
+        jamMasuk: sched.jamMasuk,
+        jamKeluar: sched.jamKeluar,
+        keterangan: status === 'Hadir' ? '-' : item.keterangan
+      };
+    });
 
     const totalHadir = newItems.filter(i => i.statusAbsensi === 'Hadir').length;
     const totalSetengahHari = newItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
@@ -793,6 +805,23 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       totalMasuk: totalHadir + totalSetengahHari,
       totalTidakMasuk: totalSakit + totalIzin + totalAlpha
     });
+  };
+
+  const handleApplyDivisiJamKerjaAll = () => {
+    if (!rekapAbsensi) return;
+    const newItems = rekapAbsensi.items.map(item => {
+      const sched = getDefaultJamKerjaByJabatan(item.jabatan, item.statusAbsensi);
+      return {
+        ...item,
+        jamMasuk: sched.jamMasuk,
+        jamKeluar: sched.jamKeluar
+      };
+    });
+    setRekapAbsensi({
+      ...rekapAbsensi,
+      items: newItems
+    });
+    showNotif('success', 'Jam kerja seluruh petugas berhasil disesuaikan otomatis sesuai divisi masing-masing');
   };
 
   const handleSaveAndSyncAbsensi = async (goToSlipAfterSync = false) => {
@@ -1559,6 +1588,15 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 </button>
 
                 <button
+                  onClick={handleApplyDivisiJamKerjaAll}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  title="Terapkan otomatis jam kerja masuk & keluar sesuai divisi masing-masing"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Terapkan Jam Divisi
+                </button>
+
+                <button
                   onClick={() => setIsModalPrintAbsensiOpen(true)}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-bold transition-all shadow-xs cursor-pointer"
                 >
@@ -1634,6 +1672,30 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <ArrowUpRight className="w-3.5 h-3.5" />
                 Selesai & Buka Slip Gaji
               </button>
+            </div>
+          </div>
+
+          {/* Division Shift Automation Reference Strip */}
+          <div className="bg-white dark:bg-slate-900 px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+                <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Otomatisasi Jam Kerja per Divisi</span>
+              </div>
+              <span className="text-[11px] text-slate-500">Terisi otomatis saat hadir sesuai divisi/jabatan</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {DIVISI_JAM_KERJA_RULES.map(rule => (
+                <div
+                  key={rule.key}
+                  className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 text-[11px]"
+                >
+                  <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{rule.label}</span>
+                  <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 shrink-0">
+                    {rule.jamMasuk}–{rule.jamKeluar}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 

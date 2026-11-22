@@ -14,6 +14,27 @@ interface OfficialPdfPrintModalProps {
   tanggalPelaksanaan: string;
 }
 
+interface SPPGHeaderProps {
+  tanggalPelaksanaan: string;
+  menuName: string;
+  showLogo?: boolean;
+}
+
+// Centralized Header from Master Template Dokumen (Single Source of Truth)
+const SPPGHeader: React.FC<SPPGHeaderProps> = ({ tanggalPelaksanaan, menuName, showLogo = true }) => (
+  <div className="mb-3">
+    <GlobalReportHeader
+      documentTypeId="laporan-menu"
+      showLogo={showLogo}
+      metadata={[
+        { label: 'Hari/Tanggal', value: tanggalPelaksanaan || 'Minggu, 13 September 2026' },
+        { label: 'Menu Perencanaan', value: menuName },
+        { label: 'Kode Form', value: 'FORM SPPG-01' }
+      ]}
+    />
+  </div>
+);
+
 export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
   isOpen,
   onClose,
@@ -38,21 +59,6 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
   const calcReqKg = (gross: number, target: number) => {
     return Number(((gross * target) / 1000).toFixed(2));
   };
-
-  // Centralized Header from Master Template Dokumen (Single Source of Truth)
-  const SPPGHeader = ({ showLogo = true }: { showLogo?: boolean }) => (
-    <div className="mb-3">
-      <GlobalReportHeader
-        documentTypeId="laporan-menu"
-        showLogo={showLogo}
-        metadata={[
-          { label: 'Hari/Tanggal', value: tanggalPelaksanaan || 'Minggu, 13 September 2026' },
-          { label: 'Menu Perencanaan', value: menuName },
-          { label: 'Kode Form', value: 'FORM SPPG-01' }
-        ]}
-      />
-    </div>
-  );
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex justify-center p-2 sm:p-4 print:p-0 print:bg-white">
@@ -95,7 +101,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
           
           {/* ================= PAGE 1: PORSI KECIL ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0 page-break-after">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-2 font-bold text-xs uppercase bg-gray-100 p-1 border border-gray-300 text-center">
               TABEL KEBUTUHAN BAHAN PANGAN - KELOMPOK SASARAN: PORSI KECIL (JUMLAH SASARAN: {targetCounts.porsiKecil})
             </div>
@@ -140,7 +146,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
 
           {/* ================= PAGE 2: PORSI BESAR ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0 page-break-after">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-2 font-bold text-xs uppercase bg-gray-100 p-1 border border-gray-300 text-center">
               TABEL KEBUTUHAN BAHAN PANGAN - KELOMPOK SASARAN: PORSI BESAR (JUMLAH SASARAN: {targetCounts.porsiBesar})
             </div>
@@ -185,7 +191,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
 
           {/* ================= PAGE 3: BALITA ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0 page-break-after">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-2 font-bold text-xs uppercase bg-gray-100 p-1 border border-gray-300 text-center">
               TABEL KEBUTUHAN BAHAN PANGAN - KELOMPOK SASARAN: BALITA (JUMLAH SASARAN: {targetCounts.balita})
             </div>
@@ -230,7 +236,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
 
           {/* ================= PAGE 4: BUMIL & BUSUI ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0 page-break-after">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-2 font-bold text-xs uppercase bg-gray-100 p-1 border border-gray-300 text-center">
               TABEL KEBUTUHAN BAHAN PANGAN - KELOMPOK SASARAN: BUMIL & BUSUI (JUMLAH SASARAN: {targetCounts.bumilBusui})
             </div>
@@ -275,7 +281,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
 
           {/* ================= PAGE 5: REKAPITULASI + BUFFER 5% ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0 page-break-after">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-2 font-bold text-xs uppercase bg-gray-100 p-1 border border-gray-300 text-center">
               REKAPITULASI KEBUTUHAN BAHAN PANGAN DENGAN CADANGAN BUFFER 5% (HALAMAN 5)
             </div>
@@ -323,7 +329,7 @@ export const OfficialPdfPrintModal: React.FC<OfficialPdfPrintModalProps> = ({
 
           {/* ================= PAGE 6: LEMBAR PENGESAHAN TANDA TANGAN ================= */}
           <div className="p-6 border border-gray-300 rounded-xl bg-white print:border-none print:p-0 print:m-0">
-            <SPPGHeader />
+            <SPPGHeader tanggalPelaksanaan={tanggalPelaksanaan} menuName={menuName} />
             <div className="mb-6 font-bold text-xs uppercase bg-gray-100 p-2 border border-gray-300 text-center">
               LEMBAR PENGESAHAN PERENCANAAN BAHAN PANGAN SPPG
             </div>
