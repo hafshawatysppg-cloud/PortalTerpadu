@@ -34,7 +34,8 @@ import {
   Check,
   Filter,
   ClipboardList,
-  CheckSquare
+  CheckSquare,
+  ListOrdered
 } from 'lucide-react';
 import {
   Petugas,
@@ -169,6 +170,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const [editingPetugas, setEditingPetugas] = useState<Partial<Petugas> | null>(null);
   const [isPetugasEditMode, setIsPetugasEditMode] = useState<boolean>(false);
   const [isSavingPetugas, setIsSavingPetugas] = useState<boolean>(false);
+  const [isResequencing, setIsResequencing] = useState<boolean>(false);
 
   const [isModalSlipOpen, setIsModalSlipOpen] = useState<boolean>(false);
   const [editingSlip, setEditingSlip] = useState<Partial<SlipGajiHarian> | null>(null);
@@ -224,7 +226,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       ]);
 
       if (resPetugas.success) {
-        setPetugasList(resPetugas.data || []);
+        setPetugasList(sortPetugasByNomor(resPetugas.data || []));
       }
       if (resSlip.success) {
         setSlipList(resSlip.data || []);
@@ -287,21 +289,62 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     return Array.from(map.values());
   }, [masterJabatanList, petugasList]);
 
+  const compareNomorPetugas = (aNomor?: string, bNomor?: string): number => {
+    const aStr = String(aNomor || '').trim();
+    const bStr = String(bNomor || '').trim();
+    const aMatch = aStr.match(/\d+/);
+    const bMatch = bStr.match(/\d+/);
+    const aNum = aMatch ? parseInt(aMatch[0], 10) : Number.MAX_SAFE_INTEGER;
+    const bNum = bMatch ? parseInt(bMatch[0], 10) : Number.MAX_SAFE_INTEGER;
+    if (aNum !== bNum) return aNum - bNum;
+    return aStr.localeCompare(bStr, 'id', { numeric: true, sensitivity: 'base' });
+  };
+
+  const sortPetugasByNomor = (list: Petugas[]): Petugas[] => {
+    return [...list].sort((a, b) => {
+      const cmp = compareNomorPetugas(a.nomor, b.nomor);
+      if (cmp !== 0) return cmp;
+      return String(a.createdAt || a.id).localeCompare(String(b.createdAt || b.id));
+    });
+  };
+
   // ==========================================
   // DAFTAR PETUGAS LOGIC
   // ==========================================
   const filteredPetugas = useMemo(() => {
-    return petugasList.filter(p => {
-      const matchSearch =
-        p.nama.toLowerCase().includes(searchPetugas.toLowerCase()) ||
-        p.nomor.toLowerCase().includes(searchPetugas.toLowerCase()) ||
-        p.jabatan.toLowerCase().includes(searchPetugas.toLowerCase()) ||
-        p.alamat.toLowerCase().includes(searchPetugas.toLowerCase());
-      const matchJabatan = filterJabatan === 'Semua' || p.jabatan === filterJabatan;
-      const matchStatus = filterStatus === 'Semua' || p.status === filterStatus;
-      return matchSearch && matchJabatan && matchStatus;
-    });
+    return sortPetugasByNomor(
+      petugasList.filter(p => {
+        const matchSearch =
+          p.nama.toLowerCase().includes(searchPetugas.toLowerCase()) ||
+          p.nomor.toLowerCase().includes(searchPetugas.toLowerCase()) ||
+          p.jabatan.toLowerCase().includes(searchPetugas.toLowerCase()) ||
+          p.alamat.toLowerCase().includes(searchPetugas.toLowerCase());
+        const matchJabatan = filterJabatan === 'Semua' || p.jabatan === filterJabatan;
+        const matchStatus = filterStatus === 'Semua' || p.status === filterStatus;
+        return matchSearch && matchJabatan && matchStatus;
+      })
+    );
   }, [petugasList, searchPetugas, filterJabatan, filterStatus]);
+
+  const handleResequenceNomorPetugas = async () => {
+    if (isResequencing || petugasList.length === 0) return;
+    setIsResequencing(true);
+    try {
+      const res = await fetch('/api/petugas/resequence', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setPetugasList(sortPetugasByNomor(data.data));
+        showNotif('success', data.message || 'Nomer urut petugas berhasil diurutkan mulai dari 01');
+        void fetchData();
+      } else {
+        showNotif('error', data.message || 'Gagal mengurutkan nomer urut petugas');
+      }
+    } catch (err: any) {
+      showNotif('error', err?.message || 'Gagal mengurutkan nomer urut petugas');
+    } finally {
+      setIsResequencing(false);
+    }
+  };
 
   // Statistik Petugas
   const statsPetugas = useMemo(() => {
@@ -390,9 +433,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         let updatedList = petugasList;
         if (savedPetugas) {
           const exists = petugasList.some(p => p.id === savedPetugas.id);
-          updatedList = exists
-            ? petugasList.map(p => (p.id === savedPetugas.id ? savedPetugas : p))
-            : [...petugasList, savedPetugas];
+          updatedList = sortPetugasByNomor(
+            exists
+              ? petugasList.map(p => (p.id === savedPetugas.id ? savedPetugas : p))
+              : [...petugasList, savedPetugas]
+          );
           setPetugasList(updatedList);
         }
 
@@ -1042,6 +1087,16 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResequenceNomorPetugas}
+                  disabled={isResequencing || petugasList.length === 0}
+                  title="Urutkan & rapikan seluruh nomer urut petugas mulai dari 01 dari atas"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <ListOrdered className={`w-3.5 h-3.5 ${isResequencing ? 'animate-spin' : ''}`} />
+                  {isResequencing ? 'Mengurutkan...' : 'Urutkan Nomer (01..)'}
+                </button>
                 <button
                   onClick={() => setIsModalPrintDaftarOpen(true)}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold transition-all shadow-xs"

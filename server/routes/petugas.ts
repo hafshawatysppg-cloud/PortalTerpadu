@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbStore, angkaKeTerbilang } from '../db/store';
 import { Petugas, SlipGajiHarian } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
+import { syncSaveDoc, syncSaveBatch, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
 
 const router = Router();
 
@@ -279,6 +279,29 @@ router.delete('/slip-gaji/:slipId', async (req: Request, res: Response) => {
     return res.json({ success: true, message: 'Slip gaji harian berhasil dihapus' });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: 'Gagal menghapus slip gaji', error: error.message });
+  }
+});
+
+/**
+ * POST /api/petugas/resequence
+ * Mengurutkan seluruh nomer urut daftar petugas mulai dari 01 dari atas ke bawah.
+ */
+router.post('/resequence', async (_req: Request, res: Response) => {
+  try {
+    const updated = dbStore.resequencePetugasNomor();
+    if (updated.length > 0) {
+      await syncSaveBatch('petugasList', updated);
+    }
+    saveSnapshotToDiskNow();
+    return res.json({
+      success: true,
+      message: `Semua ${updated.length} nomer urut petugas berhasil diurutkan mulai dari 01 dari atas`,
+      total: updated.length,
+      data: updated
+    });
+  } catch (error: any) {
+    console.error('Error resequencing petugas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengurutkan nomer urut petugas', error: error.message });
   }
 });
 

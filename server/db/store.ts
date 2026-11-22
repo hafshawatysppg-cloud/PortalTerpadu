@@ -4023,7 +4023,27 @@ class EnterpriseDataStore {
   }
 
   // --- PETUGAS & SLIP GAJI HARIAN STORE METHODS ---
+  private comparePetugasNomor(aNomor?: string, bNomor?: string): number {
+    const aStr = String(aNomor || '').trim();
+    const bStr = String(bNomor || '').trim();
+    const aMatch = aStr.match(/\d+/);
+    const bMatch = bStr.match(/\d+/);
+    const aNum = aMatch ? parseInt(aMatch[0], 10) : Number.MAX_SAFE_INTEGER;
+    const bNum = bMatch ? parseInt(bMatch[0], 10) : Number.MAX_SAFE_INTEGER;
+    if (aNum !== bNum) return aNum - bNum;
+    return aStr.localeCompare(bStr, 'id', { numeric: true, sensitivity: 'base' });
+  }
+
+  public sortPetugasList(list: Petugas[] = this.petugasList): Petugas[] {
+    return [...list].sort((a, b) => {
+      const cmp = this.comparePetugasNomor(a.nomor, b.nomor);
+      if (cmp !== 0) return cmp;
+      return String(a.createdAt || a.id).localeCompare(String(b.createdAt || b.id));
+    });
+  }
+
   public getPetugasList(): Petugas[] {
+    this.petugasList = this.sortPetugasList(this.petugasList);
     return this.petugasList;
   }
 
@@ -4077,7 +4097,19 @@ class EnterpriseDataStore {
     } else {
       this.petugasList.push(item);
     }
+    this.petugasList = this.sortPetugasList(this.petugasList);
     return item;
+  }
+
+  public resequencePetugasNomor(): Petugas[] {
+    const now = new Date().toISOString();
+    const sorted = this.sortPetugasList(this.petugasList);
+    this.petugasList = sorted.map((p, idx) => ({
+      ...p,
+      nomor: String(idx + 1).padStart(2, '0'),
+      updatedAt: now
+    }));
+    return this.petugasList;
   }
 
   public deletePetugas(id: string): boolean {
@@ -4266,11 +4298,16 @@ class EnterpriseDataStore {
   // ==========================================
 
   public getRekapAbsensi(tanggal: string): RekapAbsensiHarian {
-    const activeStaff = this.petugasList.filter(p => p.status === 'Aktif');
+    const activeStaff = this.sortPetugasList(this.petugasList).filter(p => p.status === 'Aktif');
     const existing = this.rekapAbsensiList.find(a => a.tanggal === tanggal);
     if (existing) {
       if (existing.statusRekap === 'Draft') {
-        const existingIds = new Set(existing.items.map(i => i.petugasId));
+        const petugasById = new Map(this.petugasList.map(p => [p.id, p]));
+        const syncedExistingItems = existing.items.map(it => {
+          const p = petugasById.get(it.petugasId);
+          return p ? { ...it, nomorPetugas: p.nomor, namaPetugas: p.nama, jabatan: p.jabatan, besaranGaji: p.besaranGaji } : it;
+        });
+        const existingIds = new Set(syncedExistingItems.map(i => i.petugasId));
         const missingItems: AbsensiPetugasItem[] = activeStaff
           .filter(p => !existingIds.has(p.id))
           .map(p => ({
@@ -4285,26 +4322,26 @@ class EnterpriseDataStore {
             jamKeluar: '14:00',
             keterangan: '-'
           }));
-        if (missingItems.length > 0) {
-          const mergedItems = [...existing.items, ...missingItems];
-          const totalHadir = mergedItems.filter(i => i.statusAbsensi === 'Hadir').length;
-          const totalSetengahHari = mergedItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
-          const totalSakit = mergedItems.filter(i => i.statusAbsensi === 'Sakit').length;
-          const totalIzin = mergedItems.filter(i => i.statusAbsensi === 'Izin').length;
-          const totalAlpha = mergedItems.filter(i => i.statusAbsensi === 'Alpha').length;
-          return {
-            ...existing,
-            items: mergedItems,
-            totalPetugas: mergedItems.length,
-            totalHadir,
-            totalSetengahHari,
-            totalSakit,
-            totalIzin,
-            totalAlpha,
-            totalMasuk: totalHadir + totalSetengahHari,
-            totalTidakMasuk: totalSakit + totalIzin + totalAlpha
-          };
-        }
+        const mergedItems = [...syncedExistingItems, ...missingItems].sort((a, b) =>
+          this.comparePetugasNomor(a.nomorPetugas, b.nomorPetugas)
+        );
+        const totalHadir = mergedItems.filter(i => i.statusAbsensi === 'Hadir').length;
+        const totalSetengahHari = mergedItems.filter(i => i.statusAbsensi === 'Setengah Hari').length;
+        const totalSakit = mergedItems.filter(i => i.statusAbsensi === 'Sakit').length;
+        const totalIzin = mergedItems.filter(i => i.statusAbsensi === 'Izin').length;
+        const totalAlpha = mergedItems.filter(i => i.statusAbsensi === 'Alpha').length;
+        return {
+          ...existing,
+          items: mergedItems,
+          totalPetugas: mergedItems.length,
+          totalHadir,
+          totalSetengahHari,
+          totalSakit,
+          totalIzin,
+          totalAlpha,
+          totalMasuk: totalHadir + totalSetengahHari,
+          totalTidakMasuk: totalSakit + totalIzin + totalAlpha
+        };
       }
       return existing;
     }
