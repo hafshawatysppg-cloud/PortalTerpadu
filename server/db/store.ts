@@ -4101,6 +4101,69 @@ class EnterpriseDataStore {
     return item;
   }
 
+  public savePetugasBatch(items: Array<Partial<Petugas>>): Petugas[] {
+    const now = new Date().toISOString();
+    const created: Petugas[] = [];
+
+    let nextNomorInt = Math.max(
+      this.petugasList.reduce((max, p) => {
+        const m = String(p.nomor || '').match(/\d+/);
+        const n = m ? parseInt(m[0], 10) : 0;
+        return Number.isFinite(n) && n > max ? n : max;
+      }, 0) + 1,
+      this.petugasList.length + 1
+    );
+
+    const existingIds = new Set(this.petugasList.map(p => p.id));
+
+    for (const raw of items) {
+      const nama = String(raw.nama || '').trim();
+      if (!nama) continue;
+
+      let id = '';
+      do {
+        const ts = Date.now().toString(36).toUpperCase();
+        const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+        id = `PTG-${ts}-${rand}`;
+      } while (existingIds.has(id));
+      existingIds.add(id);
+
+      const customNomor = raw.nomor && String(raw.nomor).trim();
+      const nomor = customNomor || String(nextNomorInt).padStart(2, '0');
+      if (!customNomor) {
+        nextNomorInt++;
+      } else {
+        const parsedCustom = parseInt(customNomor.replace(/\D/g, ''), 10);
+        if (Number.isFinite(parsedCustom) && parsedCustom >= nextNomorInt) {
+          nextNomorInt = parsedCustom + 1;
+        }
+      }
+
+      const item: Petugas = {
+        id,
+        nomor,
+        nama,
+        jabatan: String(raw.jabatan || '').trim() || 'Staf Operasional',
+        alamat: String(raw.alamat ?? '').trim() || '-',
+        besaranGaji: Math.max(0, Number(raw.besaranGaji ?? 120000) || 0),
+        telepon: String(raw.telepon ?? '').trim(),
+        status: (raw.status === 'Cuti' || raw.status === 'Nonaktif' ? raw.status : 'Aktif'),
+        tanggalMulai: raw.tanggalMulai || now.split('T')[0],
+        nomorRekening: String(raw.nomorRekening ?? '-').trim() || '-',
+        namaBank: String(raw.namaBank || 'Tunai').trim() || 'Tunai',
+        keterangan: String(raw.keterangan ?? '').trim(),
+        createdAt: now,
+        updatedAt: now
+      };
+
+      this.petugasList.push(item);
+      created.push(item);
+    }
+
+    this.petugasList = this.sortPetugasList(this.petugasList);
+    return created;
+  }
+
   public resequencePetugasNomor(): Petugas[] {
     const now = new Date().toISOString();
     const sorted = this.sortPetugasList(this.petugasList);
@@ -4129,7 +4192,11 @@ class EnterpriseDataStore {
     if (filters?.status) {
       list = list.filter(s => s.statusPembayaran.toLowerCase() === filters.status?.toLowerCase());
     }
-    return list.sort((a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime());
+    return list.sort((a, b) => {
+      const dateDiff = new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return this.comparePetugasNomor(a.nomorPetugas, b.nomorPetugas);
+    });
   }
 
   public getSlipGajiById(id: string): SlipGajiHarian | undefined {

@@ -1,7 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { dbStore, angkaKeTerbilang } from '../db/store';
 import { Petugas, SlipGajiHarian } from '../../src/types';
-import { syncSaveDoc, syncSaveBatch, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
+import {
+  syncSaveDoc,
+  syncSaveBatch,
+  syncDeleteDoc,
+  syncSaveDocNow,
+  syncSaveBatchNow,
+  syncDeleteDocNow,
+  saveSnapshotToDiskNow
+} from '../db/firestore';
 
 const router = Router();
 
@@ -83,12 +91,10 @@ router.post('/absensi', async (req: Request, res: Response) => {
     const autoSync = req.body.autoSync !== false;
     const result = dbStore.saveRekapAbsensi(req.body, autoSync);
 
-    // Sync absensi to Firestore
-    await syncSaveDoc('rekapAbsensiList', result.absensi.id, result.absensi);
-
-    // Sync generated slips to Firestore
-    for (const slip of result.generatedSlips) {
-      await syncSaveDoc('slipGajiList', slip.id, slip);
+    // Sync absensi and generated slips to Firestore in batch
+    await syncSaveDocNow('rekapAbsensiList', result.absensi.id, result.absensi);
+    if (result.generatedSlips.length > 0) {
+      await syncSaveBatchNow('slipGajiList', result.generatedSlips);
     }
 
     return res.json({
@@ -174,9 +180,9 @@ router.post('/slip-gaji/batch-generate', async (req: Request, res: Response) => 
 
     const generated = dbStore.generateDailySlipBatch(tanggal);
 
-    // Sync generated slips to Firestore
-    for (const slip of generated) {
-      await syncSaveDoc('slipGajiList', slip.id, slip);
+    // Sync generated slips to Firestore in batch
+    if (generated.length > 0) {
+      await syncSaveBatchNow('slipGajiList', generated);
     }
 
     return res.json({
@@ -290,7 +296,7 @@ router.post('/resequence', async (_req: Request, res: Response) => {
   try {
     const updated = dbStore.resequencePetugasNomor();
     if (updated.length > 0) {
-      await syncSaveBatch('petugasList', updated);
+      await syncSaveBatchNow('petugasList', updated);
     }
     saveSnapshotToDiskNow();
     return res.json({
@@ -302,6 +308,55 @@ router.post('/resequence', async (_req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error resequencing petugas:', error);
     return res.status(500).json({ success: false, message: 'Gagal mengurutkan nomer urut petugas', error: error.message });
+  }
+});
+
+/**
+ * POST /api/petugas/batch
+ * Menambah banyak data petugas sekaligus (tanpa batasan jumlah, mendukung 50+ data sekaligus).
+ */
+router.post('/batch', async (req: Request, res: Response) => {
+  try {
+    const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+    const validItems = rawItems
+      .map((item: any) => ({
+        ...item,
+        nama: String(item?.nama || '').trim(),
+        jabatan: String(item?.jabatan || '').trim() || 'Staf Operasional',
+        alamat: String(item?.alamat ?? '').trim() || '-',
+        besaranGaji: Math.max(0, Number(item?.besaranGaji ?? 120000) || 0)
+      }))
+      .filter((item: any) => item.nama.length > 0);
+
+    if (validItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Minimal 1 data petugas dengan nama yang valid wajib diisi.'
+      });
+    }
+
+    const created = dbStore.savePetugasBatch(validItems);
+    if (created.length > 0) {
+      await syncSaveBatchNow('petugasList', created);
+    }
+    saveSnapshotToDiskNow();
+
+    const allList = dbStore.getPetugasList();
+    return res.json({
+      success: true,
+      message: `Berhasil menambahkan ${created.length} petugas baru (Total saat ini: ${allList.length} petugas)`,
+      count: created.length,
+      total: allList.length,
+      data: created,
+      allData: allList
+    });
+  } catch (error: any) {
+    console.error('Error batch creating petugas:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menyimpan data petugas massal',
+      error: error.message
+    });
   }
 });
 
@@ -335,18 +390,30 @@ router.post('/', async (req: Request, res: Response) => {
     const isCreateMode = rawBody._mode === 'create' || !rawBody.id;
     const { _mode, ...payload } = rawBody;
 
-    if (!payload.nama || !payload.jabatan) {
+    const cleanNama = String(payload.nama || '').trim();
+    const cleanJabatan = String(payload.jabatan || '').trim();
+    if (!cleanNama || !cleanJabatan) {
       return res.status(400).json({ success: false, message: 'Nama dan jabatan wajib diisi' });
     }
 
-    const saved = dbStore.savePetugas(payload, { forceCreate: isCreateMode });
-    await syncSaveDoc('petugasList', saved.id, saved);
+    const normalizedPayload: Partial<Petugas> = {
+      ...payload,
+      nama: cleanNama,
+      jabatan: cleanJabatan,
+      alamat: String(payload.alamat ?? '').trim() || '-'
+    };
+
+    const saved = dbStore.savePetugas(normalizedPayload, { forceCreate: isCreateMode });
+    await syncSaveDocNow('petugasList', saved.id, saved);
     saveSnapshotToDiskNow();
 
+    const allList = dbStore.getPetugasList();
     return res.json({
       success: true,
       message: isCreateMode ? 'Petugas baru berhasil ditambahkan' : 'Data petugas berhasil diperbarui',
-      data: saved
+      data: saved,
+      allData: allList,
+      total: allList.length
     });
   } catch (error: any) {
     console.error('Error saving petugas:', error);
@@ -362,18 +429,32 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const payload = (req.body || {}) as Partial<Petugas>;
-    if (!payload.nama || !payload.jabatan) {
+    const cleanNama = String(payload.nama || '').trim();
+    const cleanJabatan = String(payload.jabatan || '').trim();
+    if (!cleanNama || !cleanJabatan) {
       return res.status(400).json({ success: false, message: 'Nama dan jabatan wajib diisi' });
     }
 
-    const saved = dbStore.savePetugas({ ...payload, id }, { forceCreate: false });
-    await syncSaveDoc('petugasList', saved.id, saved);
+    const saved = dbStore.savePetugas(
+      {
+        ...payload,
+        id,
+        nama: cleanNama,
+        jabatan: cleanJabatan,
+        alamat: String(payload.alamat ?? '').trim() || '-'
+      },
+      { forceCreate: false }
+    );
+    await syncSaveDocNow('petugasList', saved.id, saved);
     saveSnapshotToDiskNow();
 
+    const allList = dbStore.getPetugasList();
     return res.json({
       success: true,
       message: 'Data petugas berhasil diperbarui',
-      data: saved
+      data: saved,
+      allData: allList,
+      total: allList.length
     });
   } catch (error: any) {
     console.error('Error updating petugas:', error);
@@ -391,9 +472,15 @@ router.delete('/:id', async (req: Request, res: Response) => {
     if (!ok) {
       return res.status(404).json({ success: false, message: 'Petugas tidak ditemukan' });
     }
-    await syncDeleteDoc('petugasList', req.params.id);
+    await syncDeleteDocNow('petugasList', req.params.id);
     saveSnapshotToDiskNow();
-    return res.json({ success: true, message: 'Data petugas berhasil dihapus' });
+    const allList = dbStore.getPetugasList();
+    return res.json({
+      success: true,
+      message: 'Data petugas berhasil dihapus',
+      allData: allList,
+      total: allList.length
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: 'Gagal menghapus data petugas', error: error.message });
   }

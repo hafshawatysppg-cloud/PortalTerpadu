@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../db/store';
 import { User } from '../../src/types';
-import { syncSaveDoc, syncSaveBatch, syncDeleteDoc, saveSnapshotToDiskNow } from '../db/firestore';
+import {
+  syncSaveDoc,
+  syncSaveBatch,
+  syncDeleteDoc,
+  saveSnapshotToDiskNow,
+  generateUniqueId
+} from '../db/firestore';
 
 const router = Router();
 
@@ -44,8 +50,13 @@ router.post('/pegawai', (req: Request, res: Response): void => {
     return;
   }
 
+  let newUserId = '';
+  do {
+    newUserId = generateUniqueId('USR');
+  } while (dbStore.users.some(u => u.id === newUserId));
+
   const newUser: User = {
-    id: `USR-${String(dbStore.users.length + 1).padStart(3, '0')}`,
+    id: newUserId,
     nama,
     username: generatedUsername,
     email,
@@ -356,8 +367,12 @@ router.post('/gudang', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ success: false, message: 'Nama gudang wajib diisi.' });
     return;
   }
+  let newGdgId = '';
+  do {
+    newGdgId = generateUniqueId('GDG');
+  } while (dbStore.gudang.some(g => g.id === newGdgId));
   const newGdg = {
-    id: `GDG-${String(dbStore.gudang.length + 1).padStart(3, '0')}`,
+    id: newGdgId,
     nama,
     kode: kode || `GDG-${nama.slice(0, 3).toUpperCase()}`,
     lokasi: lokasi || 'Area SPPG Kraksaan',
@@ -406,8 +421,12 @@ router.post('/kategori', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ success: false, message: 'Nama kategori wajib diisi.' });
     return;
   }
+  let newKatId = '';
+  do {
+    newKatId = generateUniqueId('KAT');
+  } while (dbStore.kategori.some(k => k.id === newKatId));
   const newKat = {
-    id: `KAT-${String(dbStore.kategori.length + 1).padStart(3, '0')}`,
+    id: newKatId,
     nama,
     kode: kode || `KAT-${nama.slice(0, 3).toUpperCase()}`,
     deskripsi: deskripsi || '',
@@ -454,9 +473,13 @@ router.post('/instansi', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ success: false, message: 'Nama instansi mitra wajib diisi.' });
     return;
   }
+  let newInsId = '';
+  do {
+    newInsId = generateUniqueId('INS');
+  } while (dbStore.instansi.some(i => i.id === newInsId));
   const newInstansi = {
-    id: `INS-${String(dbStore.instansi.length + 1).padStart(3, '0')}`,
-    kode: (req.body.kode as string) || `INS-${String(dbStore.instansi.length + 1).padStart(3, '0')}`,
+    id: newInsId,
+    kode: (req.body.kode as string) || newInsId,
     nama,
     jenis: jenis || 'Sekolah / Madrasah',
     alamat: alamat || 'Kabupaten Probolinggo',

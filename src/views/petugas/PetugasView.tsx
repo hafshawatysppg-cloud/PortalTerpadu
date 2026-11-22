@@ -35,7 +35,8 @@ import {
   Filter,
   ClipboardList,
   CheckSquare,
-  ListOrdered
+  ListOrdered,
+  UserPlus
 } from 'lucide-react';
 import {
   Petugas,
@@ -48,6 +49,7 @@ import {
 } from '../../types';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import { safeParseJson } from '../../lib/safeJson';
 
 interface PetugasViewProps {
   currentPath?: string;
@@ -170,7 +172,18 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const [editingPetugas, setEditingPetugas] = useState<Partial<Petugas> | null>(null);
   const [isPetugasEditMode, setIsPetugasEditMode] = useState<boolean>(false);
   const [isSavingPetugas, setIsSavingPetugas] = useState<boolean>(false);
+  const [petugasFormError, setPetugasFormError] = useState<string | null>(null);
   const [isResequencing, setIsResequencing] = useState<boolean>(false);
+
+  // Bulk / Batch Input Modal (supports adding 10, 20, 50+ officers quickly)
+  const [isModalBatchPetugasOpen, setIsModalBatchPetugasOpen] = useState<boolean>(false);
+  const [batchMode, setBatchMode] = useState<'rows' | 'paste'>('rows');
+  const [batchDefaultJabatan, setBatchDefaultJabatan] = useState<string>('Asisten Juru Masak');
+  const [batchDefaultGaji, setBatchDefaultGaji] = useState<number>(120000);
+  const [batchRows, setBatchRows] = useState<Array<{ nama: string; jabatan: string; besaranGaji: number; alamat: string; telepon: string }>>([]);
+  const [batchPasteText, setBatchPasteText] = useState<string>('');
+  const [isSavingBatch, setIsSavingBatch] = useState<boolean>(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   const [isModalSlipOpen, setIsModalSlipOpen] = useState<boolean>(false);
   const [editingSlip, setEditingSlip] = useState<Partial<SlipGajiHarian> | null>(null);
@@ -215,23 +228,32 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   };
 
   // Fetch Petugas & Slip Gaji & Absensi
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+    }
     try {
-      const [resPetugas, resSlip, resAbsensi, resJabatan] = await Promise.all([
-        fetch('/api/petugas').then(r => r.json()),
-        fetch('/api/petugas/slip-gaji').then(r => r.json()),
-        fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`).then(r => r.json()),
-        fetch('/api/v1/master/jabatan').then(r => r.json()).catch(() => ({ success: false, data: [] }))
+      const [resPetugasRaw, resSlipRaw, resAbsensiRaw, resJabatanRaw] = await Promise.all([
+        fetch('/api/petugas'),
+        fetch('/api/petugas/slip-gaji'),
+        fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`),
+        fetch('/api/v1/master/jabatan').catch(() => null)
       ]);
 
-      if (resPetugas.success) {
+      const [resPetugas, resSlip, resAbsensi, resJabatan] = await Promise.all([
+        safeParseJson(resPetugasRaw),
+        safeParseJson(resSlipRaw),
+        safeParseJson(resAbsensiRaw),
+        resJabatanRaw ? safeParseJson(resJabatanRaw) : Promise.resolve(null)
+      ]);
+
+      if (resPetugas?.success) {
         setPetugasList(sortPetugasByNomor(resPetugas.data || []));
       }
-      if (resSlip.success) {
+      if (resSlip?.success) {
         setSlipList(resSlip.data || []);
       }
-      if (resAbsensi.success && resAbsensi.data) {
+      if (resAbsensi?.success && resAbsensi.data) {
         setRekapAbsensi(resAbsensi.data);
       }
       if (resJabatan?.success && Array.isArray(resJabatan.data)) {
@@ -240,7 +262,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     } catch (err) {
       console.error('Failed to load petugas/slip data:', err);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -369,6 +393,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
   // Open Modal Petugas for Add/Edit
   const handleOpenPetugasModal = (petugas?: Petugas) => {
+    setPetugasFormError(null);
     if (petugas) {
       const inList = availableJabatanList.some(j => j === petugas.jabatan);
       setCustomJabatanInput(Boolean(petugas.jabatan) && !inList && availableJabatanList.length > 0);
@@ -395,25 +420,49 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     setIsModalPetugasOpen(true);
   };
 
-  // Save Petugas
+  // Save Petugas (Single Add / Edit)
   const handleSavePetugas = async (e: React.FormEvent, keepOpenForNext = false) => {
     e.preventDefault();
     if (isSavingPetugas) return;
-    if (keepOpenForNext) {
-      const form = (e.currentTarget as HTMLElement)?.closest('form');
-      if (form && !form.reportValidity()) {
-        return;
-      }
+
+    const cleanNama = (editingPetugas?.nama || '').trim();
+    const cleanJabatan = (editingPetugas?.jabatan || '').trim();
+    const gajiNum = Number(editingPetugas?.besaranGaji ?? 0);
+
+    if (!editingPetugas || !cleanNama) {
+      const msg = 'Nama Lengkap Petugas wajib diisi.';
+      setPetugasFormError(msg);
+      showNotif('error', msg);
+      return;
     }
-    if (!editingPetugas || !editingPetugas.nama?.trim() || !editingPetugas.jabatan?.trim()) {
-      showNotif('error', 'Nama dan jabatan petugas wajib diisi');
+    if (!cleanJabatan) {
+      const msg = 'Jabatan / Unit Kerja petugas wajib diisi atau dipilih.';
+      setPetugasFormError(msg);
+      showNotif('error', msg);
+      return;
+    }
+    if (!Number.isFinite(gajiNum) || gajiNum < 0) {
+      const msg = 'Besaran gaji harian harus berupa angka valid (>= 0).';
+      setPetugasFormError(msg);
+      showNotif('error', msg);
       return;
     }
 
+    setPetugasFormError(null);
     setIsSavingPetugas(true);
     try {
       const isEdit = isPetugasEditMode && Boolean(editingPetugas.id);
-      const payload: Record<string, any> = { ...editingPetugas };
+      const cleanNomor = (editingPetugas.nomor || '').trim() || computeNextNomorPetugas(petugasList);
+      const cleanAlamat = (editingPetugas.alamat || '').trim() || '-';
+
+      const payload: Record<string, any> = {
+        ...editingPetugas,
+        nomor: cleanNomor,
+        nama: cleanNama,
+        jabatan: cleanJabatan,
+        alamat: cleanAlamat,
+        besaranGaji: gajiNum
+      };
       if (!isEdit) {
         delete payload.id;
         payload._mode = 'create';
@@ -427,30 +476,48 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (data.success) {
-        const savedPetugas: Petugas | undefined = data.data;
-        let updatedList = petugasList;
-        if (savedPetugas) {
-          const exists = petugasList.some(p => p.id === savedPetugas.id);
-          updatedList = sortPetugasByNomor(
-            exists
-              ? petugasList.map(p => (p.id === savedPetugas.id ? savedPetugas : p))
-              : [...petugasList, savedPetugas]
-          );
-          setPetugasList(updatedList);
+      const data = await safeParseJson(res);
+      if (res.ok && data?.success) {
+        let latestList: Petugas[] = [];
+        if (Array.isArray(data.allData)) {
+          latestList = sortPetugasByNomor(data.allData);
+          setPetugasList(latestList);
+        } else if (data.data) {
+          const savedPetugas: Petugas = data.data;
+          setPetugasList(prev => {
+            const exists = prev.some(p => p.id === savedPetugas.id);
+            latestList = sortPetugasByNomor(
+              exists
+                ? prev.map(p => (p.id === savedPetugas.id ? savedPetugas : p))
+                : [...prev, savedPetugas]
+            );
+            return latestList;
+          });
         }
 
-        showNotif('success', isEdit ? 'Data petugas berhasil diperbarui' : 'Petugas baru berhasil ditambahkan');
+        if (!isEdit) {
+          // Ensure newly created item is immediately visible even if filter was previously narrowed
+          if (searchPetugas) setSearchPetugas('');
+          if (filterJabatan !== 'Semua' && filterJabatan !== cleanJabatan) setFilterJabatan('Semua');
+          if (filterStatus !== 'Semua' && filterStatus !== (editingPetugas.status || 'Aktif')) setFilterStatus('Semua');
+        }
+
+        showNotif(
+          'success',
+          isEdit
+            ? 'Data petugas berhasil diperbarui'
+            : `Petugas #${data.data?.nomor || cleanNomor} (${cleanNama}) berhasil ditambahkan (Total: ${data.total ?? latestList.length} petugas)`
+        );
 
         if (keepOpenForNext && !isEdit) {
           setCustomJabatanInput(false);
+          const nextNum = computeNextNomorPetugas(latestList.length > 0 ? latestList : petugasList);
           setEditingPetugas({
-            nomor: computeNextNomorPetugas(updatedList),
+            nomor: nextNum,
             nama: '',
-            jabatan: editingPetugas.jabatan || availableJabatanList[0] || 'Asisten Juru Masak',
+            jabatan: cleanJabatan || availableJabatanList[0] || 'Asisten Juru Masak',
             alamat: '',
-            besaranGaji: editingPetugas.besaranGaji || 120000,
+            besaranGaji: gajiNum || 120000,
             telepon: '',
             status: 'Aktif',
             tanggalMulai: todayStr,
@@ -463,14 +530,131 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
           setEditingPetugas(null);
           setIsPetugasEditMode(false);
         }
-        void fetchData();
+        void fetchAbsensi(selectedTanggal);
+        void fetchData({ silent: true });
       } else {
-        showNotif('error', data.message || 'Gagal menyimpan petugas');
+        const errMsg = data?.message || `Gagal menyimpan petugas (HTTP ${res.status})`;
+        setPetugasFormError(errMsg);
+        showNotif('error', errMsg);
       }
     } catch (err: any) {
-      showNotif('error', err.message || 'Terjadi kesalahan sistem');
+      const errMsg = err?.message || 'Terjadi kesalahan sistem saat menyimpan data petugas';
+      setPetugasFormError(errMsg);
+      showNotif('error', errMsg);
     } finally {
       setIsSavingPetugas(false);
+    }
+  };
+
+  // Batch / Bulk Add Handlers (supports adding up to 50+ officers effortlessly)
+  const createEmptyBatchRow = (jabatanDefault: string, gajiDefault: number) => ({
+    nama: '',
+    jabatan: jabatanDefault,
+    besaranGaji: gajiDefault,
+    alamat: '',
+    telepon: ''
+  });
+
+  const handleOpenBatchModal = () => {
+    const defJab = availableJabatanList[0] || 'Asisten Juru Masak';
+    const defGaji = 120000;
+    setBatchDefaultJabatan(defJab);
+    setBatchDefaultGaji(defGaji);
+    setBatchMode('rows');
+    setBatchError(null);
+    setBatchPasteText('');
+    setBatchRows(Array.from({ length: 10 }, () => createEmptyBatchRow(defJab, defGaji)));
+    setIsModalBatchPetugasOpen(true);
+  };
+
+  const handleAddBatchRows = (count: number) => {
+    setBatchRows(prev => [
+      ...prev,
+      ...Array.from({ length: count }, () => createEmptyBatchRow(batchDefaultJabatan, batchDefaultGaji))
+    ]);
+  };
+
+  const parsedPasteItems = useMemo(() => {
+    if (!batchPasteText.trim()) return [];
+    return batchPasteText
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.includes('\t')
+          ? line.split('\t')
+          : line.includes('|')
+          ? line.split('|')
+          : [line];
+        const nama = (parts[0] || '').trim();
+        const jabatan = (parts[1] || '').trim() || batchDefaultJabatan;
+        const gajiRaw = (parts[2] || '').replace(/[^\d]/g, '');
+        const besaranGaji = gajiRaw ? Number(gajiRaw) : batchDefaultGaji;
+        const alamat = (parts[3] || '').trim() || '-';
+        const telepon = (parts[4] || '').trim();
+        return { nama, jabatan, besaranGaji, alamat, telepon };
+      })
+      .filter(item => item.nama.length > 0);
+  }, [batchPasteText, batchDefaultJabatan, batchDefaultGaji]);
+
+  const handleSaveBatchPetugas = async () => {
+    if (isSavingBatch) return;
+    const itemsToSave =
+      batchMode === 'paste'
+        ? parsedPasteItems
+        : batchRows
+            .map(r => ({
+              nama: r.nama.trim(),
+              jabatan: (r.jabatan || batchDefaultJabatan).trim() || 'Staf Operasional',
+              besaranGaji: Math.max(0, Number(r.besaranGaji ?? batchDefaultGaji) || 0),
+              alamat: r.alamat.trim() || '-',
+              telepon: r.telepon.trim()
+            }))
+            .filter(r => r.nama.length > 0);
+
+    if (itemsToSave.length === 0) {
+      const msg =
+        batchMode === 'paste'
+          ? 'Tempel minimal 1 nama petugas di kotak teks.'
+          : 'Isi minimal 1 Nama Lengkap Petugas di baris tabel.';
+      setBatchError(msg);
+      showNotif('error', msg);
+      return;
+    }
+
+    setBatchError(null);
+    setIsSavingBatch(true);
+    try {
+      const res = await fetch('/api/petugas/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: itemsToSave })
+      });
+      const data = await safeParseJson(res);
+      if (res.ok && data?.success) {
+        if (Array.isArray(data.allData)) {
+          setPetugasList(sortPetugasByNomor(data.allData));
+        } else if (Array.isArray(data.data)) {
+          setPetugasList(prev => sortPetugasByNomor([...prev, ...data.data]));
+        }
+        setSearchPetugas('');
+        setFilterJabatan('Semua');
+        setFilterStatus('Semua');
+        setIsModalBatchPetugasOpen(false);
+        showNotif('success', data.message || `Berhasil menambahkan ${itemsToSave.length} petugas baru`);
+        void fetchAbsensi(selectedTanggal);
+        void fetchData({ silent: true });
+      } else {
+        const errMsg = data?.message || `Gagal menyimpan data massal (HTTP ${res.status})`;
+        setBatchError(errMsg);
+        showNotif('error', errMsg);
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Terjadi kesalahan saat menyimpan data massal';
+      setBatchError(errMsg);
+      showNotif('error', errMsg);
+    } finally {
+      setIsSavingBatch(false);
     }
   };
 
@@ -486,14 +670,18 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       onConfirm: async () => {
         try {
           const res = await fetch(`/api/petugas/${petugas.id}`, { method: 'DELETE' });
-          const data = await res.json();
-          if (data.success) {
+          const data = await safeParseJson(res);
+          if (res.ok && data?.success) {
             showNotif('success', 'Petugas berhasil dihapus');
             setIsModalPetugasOpen(false);
             setEditingPetugas(null);
-            fetchData();
+            if (Array.isArray(data.allData)) {
+              setPetugasList(sortPetugasByNomor(data.allData));
+            }
+            void fetchAbsensi(selectedTanggal);
+            void fetchData({ silent: true });
           } else {
-            showNotif('error', data.message || 'Gagal menghapus');
+            showNotif('error', data?.message || `Gagal menghapus (HTTP ${res.status})`);
           }
         } catch (err: any) {
           showNotif('error', err.message || 'Gagal menghapus');
@@ -1099,14 +1287,23 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 </button>
                 <button
                   onClick={() => setIsModalPrintDaftarOpen(true)}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold transition-all shadow-xs"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold transition-all shadow-xs cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   Cetak Daftar Petugas
                 </button>
                 <button
+                  type="button"
+                  onClick={handleOpenBatchModal}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-xs font-semibold transition-all shadow-xs cursor-pointer"
+                  title="Tambah banyak data petugas sekaligus (10, 20, 50+ data tanpa batas)"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Tambah Massal (50+)
+                </button>
+                <button
                   onClick={() => handleOpenPetugasModal()}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm shadow-indigo-600/30"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm shadow-indigo-600/30 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   Tambah Petugas Baru
@@ -2212,9 +2409,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       {/* MODAL 1: TAMBAH / EDIT PETUGAS */}
       {/* ========================================================= */}
       {isModalPetugasOpen && editingPetugas && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-8">
-            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
                   <Users className="w-5 h-5" />
@@ -2224,225 +2421,232 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     {isPetugasEditMode ? 'Edit Data Petugas' : 'Tambah Petugas Baru'}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Lengkapi rincian Nomer, Nama, Jabatan, Alamat, dan Besaran Gaji Harian
+                    Input data petugas tanpa batasan jumlah (mendukung 50+ data petugas)
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalPetugasOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSavePetugas} className="p-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Nomer Petugas */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Nomer Urut / ID Petugas *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: 01, PTG-001"
-                    value={editingPetugas.nomor || ''}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, nomor: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                  />
-                </div>
+            <form noValidate onSubmit={(e) => handleSavePetugas(e, false)} className="flex flex-col flex-1 min-h-0">
+              <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                {petugasFormError && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{petugasFormError}</span>
+                  </div>
+                )}
 
-                {/* Status */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Status Petugas *
-                  </label>
-                  <select
-                    value={editingPetugas.status || 'Aktif'}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, status: e.target.value as any })}
-                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                  >
-                    <option value="Aktif">Aktif</option>
-                    <option value="Cuti">Cuti</option>
-                    <option value="Nonaktif">Nonaktif</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Nama Petugas */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Lengkap Petugas *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masukkan nama lengkap petugas..."
-                  value={editingPetugas.nama || ''}
-                  onChange={e => setEditingPetugas({ ...editingPetugas, nama: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              {/* Jabatan & Besaran Gaji */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Jabatan / Unit Kerja *
-                  </label>
-                  {!customJabatanInput && availableJabatanList.length > 0 ? (
-                    <select
-                      required
-                      value={availableJabatanList.includes(editingPetugas.jabatan || '') ? (editingPetugas.jabatan || '') : '__custom__'}
-                      onChange={e => {
-                        if (e.target.value === '__custom__') {
-                          setCustomJabatanInput(true);
-                          setEditingPetugas({ ...editingPetugas, jabatan: '' });
-                        } else {
-                          setEditingPetugas({ ...editingPetugas, jabatan: e.target.value });
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                    >
-                      {availableJabatanList.map(j => (
-                        <option key={j} value={j}>{j}</option>
-                      ))}
-                      <option value="__custom__">-- Ketik Jabatan Manual --</option>
-                    </select>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        list="jabatan-suggestions"
-                        required
-                        placeholder="Pilih atau ketik jabatan..."
-                        value={editingPetugas.jabatan || ''}
-                        onChange={e => setEditingPetugas({ ...editingPetugas, jabatan: e.target.value })}
-                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                      />
-                      {availableJabatanList.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCustomJabatanInput(false);
-                            setEditingPetugas({ ...editingPetugas, jabatan: availableJabatanList[0] });
-                          }}
-                          className="px-2.5 py-2 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 shrink-0"
-                        >
-                          Pilih List
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <datalist id="jabatan-suggestions">
-                    {availableJabatanList.map(j => (
-                      <option key={j} value={j} />
-                    ))}
-                  </datalist>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Besaran Gaji Harian (Rp / Hari) *
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">Rp</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Nomer Petugas */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Nomer Urut / ID Petugas
+                    </label>
                     <input
-                      type="number"
-                      required
-                      min={0}
-                      step={1000}
-                      placeholder="120000"
-                      value={editingPetugas.besaranGaji || 0}
-                      onChange={e => setEditingPetugas({ ...editingPetugas, besaranGaji: Number(e.target.value) })}
-                      className="w-full pl-9 pr-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      type="text"
+                      placeholder="Otomatis: 11, 12, ... 50"
+                      value={editingPetugas.nomor || ''}
+                      onChange={e => setEditingPetugas({ ...editingPetugas, nomor: e.target.value })}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
                     />
                   </div>
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
-                    {formatRupiah(editingPetugas.besaranGaji || 0)} per hari kerja
-                  </p>
+
+                  {/* Status */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Status Petugas *
+                    </label>
+                    <select
+                      value={editingPetugas.status || 'Aktif'}
+                      onChange={e => setEditingPetugas({ ...editingPetugas, status: e.target.value as any })}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    >
+                      <option value="Aktif">Aktif</option>
+                      <option value="Cuti">Cuti</option>
+                      <option value="Nonaktif">Nonaktif</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
 
-              {/* Alamat */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Alamat Lengkap Tempat Tinggal *
-                </label>
-                <textarea
-                  required
-                  rows={2}
-                  placeholder="Contoh: Dusun Krajan RT 02 RW 01, Desa Krejengan, Kab. Probolinggo"
-                  value={editingPetugas.alamat || ''}
-                  onChange={e => setEditingPetugas({ ...editingPetugas, alamat: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              {/* No HP & Pembayaran */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Nama Petugas */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    No Telepon / WhatsApp
+                    Nama Lengkap Petugas *
                   </label>
                   <input
                     type="text"
-                    placeholder="08123456789"
-                    value={editingPetugas.telepon || ''}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, telepon: e.target.value })}
+                    placeholder="Masukkan nama lengkap petugas..."
+                    value={editingPetugas.nama || ''}
+                    onChange={e => {
+                      if (petugasFormError) setPetugasFormError(null);
+                      setEditingPetugas({ ...editingPetugas, nama: e.target.value });
+                    }}
                     className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Metode Pembayaran
-                  </label>
-                  <select
-                    value={editingPetugas.namaBank || 'Tunai'}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, namaBank: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                  >
-                    <option value="Tunai">Tunai (Cash Harian)</option>
-                    <option value="BRI">Bank BRI</option>
-                    <option value="BCA">Bank BCA</option>
-                    <option value="Mandiri">Bank Mandiri</option>
-                    <option value="BSI">Bank BSI</option>
-                    <option value="Jatim">Bank Jatim</option>
-                  </select>
+                {/* Jabatan & Besaran Gaji */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Jabatan / Unit Kerja *
+                    </label>
+                    {!customJabatanInput && availableJabatanList.length > 0 ? (
+                      <select
+                        value={availableJabatanList.includes(editingPetugas.jabatan || '') ? (editingPetugas.jabatan || '') : '__custom__'}
+                        onChange={e => {
+                          if (e.target.value === '__custom__') {
+                            setCustomJabatanInput(true);
+                            setEditingPetugas({ ...editingPetugas, jabatan: '' });
+                          } else {
+                            setEditingPetugas({ ...editingPetugas, jabatan: e.target.value });
+                          }
+                        }}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      >
+                        {availableJabatanList.map(j => (
+                          <option key={j} value={j}>{j}</option>
+                        ))}
+                        <option value="__custom__">-- Ketik Jabatan Manual --</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          list="jabatan-suggestions"
+                          placeholder="Pilih atau ketik jabatan..."
+                          value={editingPetugas.jabatan || ''}
+                          onChange={e => setEditingPetugas({ ...editingPetugas, jabatan: e.target.value })}
+                          className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                        />
+                        {availableJabatanList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomJabatanInput(false);
+                              setEditingPetugas({ ...editingPetugas, jabatan: availableJabatanList[0] });
+                            }}
+                            className="px-2.5 py-2 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 shrink-0"
+                          >
+                            Pilih List
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <datalist id="jabatan-suggestions">
+                      {availableJabatanList.map(j => (
+                        <option key={j} value={j} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Besaran Gaji Harian (Rp / Hari)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">Rp</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        placeholder="120000"
+                        value={editingPetugas.besaranGaji ?? 0}
+                        onChange={e => setEditingPetugas({ ...editingPetugas, besaranGaji: Number(e.target.value) })}
+                        className="w-full pl-9 pr-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
+                      {formatRupiah(editingPetugas.besaranGaji || 0)} per hari kerja
+                    </p>
+                  </div>
                 </div>
 
+                {/* Alamat */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    No Rekening (Opsional)
+                    Alamat Lengkap Tempat Tinggal <span className="text-slate-400 font-normal">(Opsional)</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Kosongkan jika belum ada (otomatis diisi '-')"
+                    value={editingPetugas.alamat || ''}
+                    onChange={e => setEditingPetugas({ ...editingPetugas, alamat: e.target.value })}
+                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                {/* No HP & Pembayaran */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      No Telepon / WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="08123456789"
+                      value={editingPetugas.telepon || ''}
+                      onChange={e => setEditingPetugas({ ...editingPetugas, telepon: e.target.value })}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Metode Pembayaran
+                    </label>
+                    <select
+                      value={editingPetugas.namaBank || 'Tunai'}
+                      onChange={e => setEditingPetugas({ ...editingPetugas, namaBank: e.target.value })}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    >
+                      <option value="Tunai">Tunai (Cash Harian)</option>
+                      <option value="BRI">Bank BRI</option>
+                      <option value="BCA">Bank BCA</option>
+                      <option value="Mandiri">Bank Mandiri</option>
+                      <option value="BSI">Bank BSI</option>
+                      <option value="Jatim">Bank Jatim</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      No Rekening (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Nomor rekening / -"
+                      value={editingPetugas.nomorRekening || ''}
+                      onChange={e => setEditingPetugas({ ...editingPetugas, nomorRekening: e.target.value })}
+                      className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Keterangan */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Catatan / Keterangan Tugas Khusus
                   </label>
                   <input
                     type="text"
-                    placeholder="Nomor rekening / -"
-                    value={editingPetugas.nomorRekening || ''}
-                    onChange={e => setEditingPetugas({ ...editingPetugas, nomorRekening: e.target.value })}
+                    placeholder="Catatan penugasan harian atau shift..."
+                    value={editingPetugas.keterangan || ''}
+                    onChange={e => setEditingPetugas({ ...editingPetugas, keterangan: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
 
-              {/* Keterangan */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Catatan / Keterangan Tugas Khusus
-                </label>
-                <input
-                  type="text"
-                  placeholder="Catatan penugasan harian atau shift..."
-                  value={editingPetugas.keterangan || ''}
-                  onChange={e => setEditingPetugas({ ...editingPetugas, keterangan: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              {/* Modal Buttons */}
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              {/* Sticky Modal Buttons */}
+              <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex flex-wrap items-center justify-between gap-2 shrink-0">
                 {isPetugasEditMode && editingPetugas.id ? (
                   <button
                     type="button"
@@ -2471,7 +2675,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                       className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       <Plus className="w-4 h-4" />
-                      Simpan & Tambah Lagi
+                      {isSavingPetugas ? 'Menyimpan...' : 'Simpan & Tambah Lagi'}
                     </button>
                   )}
                   <button
@@ -3279,6 +3483,268 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     <p className="text-[10px] text-slate-500">Koordinator Administrasi & Keuangan</p>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 7: TAMBAH PETUGAS MASSAL (MENDUKUNG 50+ DATA SEKALIGUS) */}
+      {/* ========================================================= */}
+      {isModalBatchPetugasOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    Tambah Banyak Petugas Sekaligus (Input Massal)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Masukkan belasan hingga 50+ petugas sekaligus tanpa batasan jumlah. Nomer urut lanjutan mulai dari #{computeNextNomorPetugas(petugasList)}.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalBatchPetugasOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {batchError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{batchError}</span>
+                </div>
+              )}
+
+              {/* Mode Switcher & Defaults */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Mode Input
+                  </label>
+                  <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => setBatchMode('rows')}
+                      className={`flex-1 py-1.5 px-2 text-xs font-bold cursor-pointer ${
+                        batchMode === 'rows'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      Tabel Banyak Baris
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBatchMode('paste')}
+                      className={`flex-1 py-1.5 px-2 text-xs font-bold cursor-pointer ${
+                        batchMode === 'paste'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      Tempel Daftar Nama
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Jabatan Default
+                  </label>
+                  <select
+                    value={batchDefaultJabatan}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setBatchDefaultJabatan(val);
+                      setBatchRows(prev => prev.map(r => (!r.nama.trim() ? { ...r, jabatan: val } : r)));
+                    }}
+                    className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  >
+                    {availableJabatanList.map(j => (
+                      <option key={j} value={j}>{j}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Gaji Harian Default (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={5000}
+                    value={batchDefaultGaji}
+                    onChange={e => {
+                      const val = Number(e.target.value) || 0;
+                      setBatchDefaultGaji(val);
+                      setBatchRows(prev => prev.map(r => (!r.nama.trim() ? { ...r, besaranGaji: val } : r)));
+                    }}
+                    className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {batchMode === 'rows' ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">
+                      Baris terisi: <strong className="text-emerald-600">{batchRows.filter(r => r.nama.trim()).length}</strong> dari {batchRows.length} baris
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleAddBatchRows(5)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        +5 Baris
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddBatchRows(10)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        +10 Baris
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddBatchRows(25)}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 text-xs font-bold text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                      >
+                        +25 Baris (Sampai 50+)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2 px-2.5 text-center w-12">No</th>
+                          <th className="py-2 px-2.5">Nama Lengkap Petugas *</th>
+                          <th className="py-2 px-2.5 w-48">Jabatan</th>
+                          <th className="py-2 px-2.5 w-32">Gaji / Hari</th>
+                          <th className="py-2 px-2.5">Alamat (Opsional)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {batchRows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-400">
+                              {petugasList.length + idx + 1}
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="text"
+                                placeholder={`Nama petugas #${petugasList.length + idx + 1}`}
+                                value={row.nama}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setBatchRows(prev => prev.map((r, i) => (i === idx ? { ...r, nama: val } : r)));
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <select
+                                value={row.jabatan}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setBatchRows(prev => prev.map((r, i) => (i === idx ? { ...r, jabatan: val } : r)));
+                                }}
+                                className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                              >
+                                {availableJabatanList.map(j => (
+                                  <option key={j} value={j}>{j}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="number"
+                                min={0}
+                                step={5000}
+                                value={row.besaranGaji}
+                                onChange={e => {
+                                  const val = Number(e.target.value) || 0;
+                                  setBatchRows(prev => prev.map((r, i) => (i === idx ? { ...r, besaranGaji: val } : r)));
+                                }}
+                                className="w-full px-2 py-1.5 font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="text"
+                                placeholder="-"
+                                value={row.alamat}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setBatchRows(prev => prev.map((r, i) => (i === idx ? { ...r, alamat: val } : r)));
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-600 dark:text-slate-300">
+                    Tempel daftar nama petugas (1 baris = 1 petugas). Bisa langsung daftar nama saja, atau format{' '}
+                    <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800">Nama | Jabatan | Gaji | Alamat</code>.
+                  </div>
+                  <textarea
+                    rows={10}
+                    placeholder={'Contoh:\nAhmad Fauzi\nSiti Fatimah | Divisi Persiapan | 100000 | Desa Krejengan\nBudi Santoso | Divisi Pengolahan | 120000'}
+                    value={batchPasteText}
+                    onChange={e => setBatchPasteText(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-900 dark:text-white"
+                  />
+                  <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                    Terdeteksi {parsedPasteItems.length} petugas siap ditambahkan (total setelah simpan: {petugasList.length + parsedPasteItems.length} petugas).
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-500">
+                Total terhimpun saat ini: <strong>{petugasList.length}</strong> petugas
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalBatchPetugasOpen(false)}
+                  disabled={isSavingBatch}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingBatch}
+                  onClick={handleSaveBatchPetugas}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSavingBatch
+                    ? 'Menyimpan...'
+                    : `Simpan Semua (${batchMode === 'paste' ? parsedPasteItems.length : batchRows.filter(r => r.nama.trim()).length} Petugas)`}
+                </button>
               </div>
             </div>
           </div>

@@ -461,6 +461,45 @@ export async function syncDeleteDoc(collectionName: string, docId: string): Prom
   scheduleFlush(25);
 }
 
+export async function syncSaveDocNow(
+  collectionName: string,
+  docId: string,
+  data: any,
+  userMeta?: { name?: string; userId?: string }
+): Promise<void> {
+  await syncSaveDoc(collectionName, docId, data, userMeta);
+  if (flushTimeout) {
+    clearTimeout(flushTimeout);
+    flushTimeout = null;
+  }
+  await flushWriteQueue();
+  saveSnapshotToDiskNow();
+}
+
+export async function syncSaveBatchNow(
+  collectionName: string,
+  items: Array<{ id: string; data?: any; [key: string]: any }>,
+  userMeta?: { name?: string; userId?: string }
+): Promise<void> {
+  await syncSaveBatch(collectionName, items, userMeta);
+  if (flushTimeout) {
+    clearTimeout(flushTimeout);
+    flushTimeout = null;
+  }
+  await flushWriteQueue();
+  saveSnapshotToDiskNow();
+}
+
+export async function syncDeleteDocNow(collectionName: string, docId: string): Promise<void> {
+  await syncDeleteDoc(collectionName, docId);
+  if (flushTimeout) {
+    clearTimeout(flushTimeout);
+    flushTimeout = null;
+  }
+  await flushWriteQueue();
+  saveSnapshotToDiskNow();
+}
+
 // Generate collision-resistant unique ID (replaces array.length + 1)
 export function generateUniqueId(prefix: string): string {
   const timestamp = Date.now().toString(36).toUpperCase();
