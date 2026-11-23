@@ -132,12 +132,13 @@ export const MasterTemplateDokumenView: React.FC = () => {
   // Calculated preview document number
   const sampleNow = new Date();
   const romanMonths = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-  const sampleMonth = config.numbering.monthFormat === 'roman' ? romanMonths[sampleNow.getMonth()] : String(sampleNow.getMonth() + 1).padStart(2, '0');
-  const sampleYear = config.numbering.yearFormat === 'YY' ? String(sampleNow.getFullYear()).slice(2) : String(sampleNow.getFullYear());
-  const sampleCounter = String((config.numbering.currentCounters['STOK'] || 1)).padStart(config.numbering.counterLength || 3, '0');
-  const sampleDocNumber = config.numbering.formatPattern
+  const numbering = config.numbering;
+  const sampleMonth = numbering?.monthFormat === 'roman' ? romanMonths[sampleNow.getMonth()] : String(sampleNow.getMonth() + 1).padStart(2, '0');
+  const sampleYear = numbering?.yearFormat === 'YY' ? String(sampleNow.getFullYear()).slice(2) : String(sampleNow.getFullYear());
+  const sampleCounter = String((numbering?.currentCounters?.['STOK'] || 1)).padStart(numbering?.counterLength || 3, '0');
+  const sampleDocNumber = (numbering?.formatPattern || '{counter}/{prefix}/{code}/{month}/{year}')
     .replace('{counter}', sampleCounter)
-    .replace('{prefix}', config.numbering.prefix)
+    .replace('{prefix}', numbering?.prefix || 'SPPG-TMG')
     .replace('{code}', 'STOK')
     .replace('{month}', sampleMonth)
     .replace('{year}', sampleYear);

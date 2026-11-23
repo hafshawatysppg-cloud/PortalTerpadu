@@ -46,6 +46,20 @@ import { GlobalReportHeader } from '../../components/document/GlobalReportHeader
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../../components/document/DocumentSignatures';
 
+const BBM_AXIS_TICK_11 = { fontSize: 11 };
+const BBM_AXIS_TICK_10 = { fontSize: 10 };
+const BBM_TOOLTIP_STYLE: React.CSSProperties = {
+  backgroundColor: '#0f172a',
+  borderColor: '#334155',
+  borderRadius: '12px',
+  color: '#fff',
+  fontSize: '12px'
+};
+const BBM_LEGEND_STYLE: React.CSSProperties = { fontSize: '11px' };
+const formatBbmRb = (val: number) => `${val / 1000}rb`;
+const formatBbmCurrencyTooltip = (value: any) => [`Rp ${Number(value).toLocaleString('id-ID')}`, 'Total Pengeluaran'];
+const formatBbmKmTooltip = (val: any, name: any) => [`${val} KM/Liter`, name];
+
 export const LaporanBbmView: React.FC = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transaksi' | 'kendaraan'>('dashboard');
@@ -586,16 +600,16 @@ export const LaporanBbmView: React.FC = () => {
                 </span>
               </div>
 
-              <div className="h-64 w-full">
+              <div className="h-64 w-full min-w-0">
                 {summary?.pengeluaranPerBulan && (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
                     <BarChart data={summary.pengeluaranPerBulan}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                      <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `${val / 1000}rb`} />
+                      <XAxis dataKey="bulan" tick={BBM_AXIS_TICK_11} />
+                      <YAxis tick={BBM_AXIS_TICK_10} tickFormatter={formatBbmRb} />
                       <Tooltip 
-                        formatter={(value: any) => [`Rp ${Number(value).toLocaleString('id-ID')}`, 'Total Pengeluaran']}
-                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
+                        formatter={formatBbmCurrencyTooltip}
+                        contentStyle={BBM_TOOLTIP_STYLE}
                       />
                       <Bar dataKey="totalRupiah" fill="#0284c7" radius={[6, 6, 0, 0]} name="Pengeluaran BBM (Rp)" />
                     </BarChart>
@@ -615,18 +629,18 @@ export const LaporanBbmView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="h-64 w-full">
+              <div className="h-64 w-full min-w-0">
                 {summary?.efisiensiPerKendaraan && (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
                     <BarChart data={summary.efisiensiPerKendaraan}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                      <XAxis dataKey="platNomor" tick={{ fontSize: 10 }} />
-                      <YAxis tick={{ fontSize: 10 }} />
+                      <XAxis dataKey="platNomor" tick={BBM_AXIS_TICK_10} />
+                      <YAxis tick={BBM_AXIS_TICK_10} />
                       <Tooltip 
-                        formatter={(val: any, name: any) => [`${val} KM/Liter`, name]}
-                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
+                        formatter={formatBbmKmTooltip}
+                        contentStyle={BBM_TOOLTIP_STYLE}
                       />
-                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      <Legend wrapperStyle={BBM_LEGEND_STYLE} />
                       <Bar dataKey="kmLiterAktual" fill="#10b981" radius={[4, 4, 0, 0]} name="KM/L Aktual" />
                       <Bar dataKey="standarKmLiter" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Standar KM/L" />
                     </BarChart>

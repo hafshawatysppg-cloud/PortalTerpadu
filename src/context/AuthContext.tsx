@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User, MenuItem, NotificationItem, PortalSettings, UserRole } from '../types';
 import { safeParseJson } from '../lib/safeJson';
 
@@ -78,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const setDemoSuperAdmin = (tok: string) => {
+  const setDemoSuperAdmin = useCallback((tok: string) => {
     const defaultUser: User = {
       id: 'USR-001',
       nama: 'Dr. H. Ahmad Pratama, M.Kom',
@@ -96,9 +96,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(defaultUser);
     setToken(tok);
     localStorage.setItem('pat_sso_token', tok);
-  };
+  }, []);
 
-  const refreshMenus = async () => {
+  const refreshMenus = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/menus');
       const data = await safeParseJson<{ success?: boolean; data?: MenuItem[] }>(res);
@@ -108,9 +108,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Failed to fetch dynamic menus', err);
     }
-  };
+  }, []);
 
-  const refreshNotifications = async () => {
+  const refreshNotifications = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/notifications');
       const data = await safeParseJson<{ success?: boolean; data?: NotificationItem[] }>(res);
@@ -120,9 +120,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Failed to fetch notifications', err);
     }
-  };
+  }, []);
 
-  const refreshSettings = async () => {
+  const refreshSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/settings');
       const data = await safeParseJson<{ success?: boolean; data?: PortalSettings }>(res);
@@ -132,33 +132,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Failed to fetch settings', err);
     }
-  };
+  }, []);
 
-  const markNotificationRead = async (id: string) => {
+  const markNotificationRead = useCallback(async (id: string) => {
     try {
       await fetch(`/api/v1/notifications/${id}/read`, { method: 'PUT' });
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     } catch (err) {
       console.error(err);
     }
-  };
+  }, []);
 
-  const markAllNotificationsRead = async () => {
+  const markAllNotificationsRead = useCallback(async () => {
     try {
       await fetch('/api/v1/notifications/read-all', { method: 'PUT' });
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (err) {
       console.error(err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     refreshMenus();
     refreshNotifications();
     refreshSettings();
-  }, [token]);
+  }, [token, refreshMenus, refreshNotifications, refreshSettings]);
 
-  const login = async (username: string, password = 'password123'): Promise<boolean> => {
+  const login = useCallback(async (username: string, password = 'password123'): Promise<boolean> => {
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
@@ -179,37 +179,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setDemoSuperAdmin('demo-sso-jwt-token-2026');
       return true;
     }
-  };
+  }, [setDemoSuperAdmin]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('pat_sso_token');
-  };
+  }, []);
 
-  const updateCurrentUserProfile = (updatedData: Partial<User>) => {
+  const updateCurrentUserProfile = useCallback((updatedData: Partial<User>) => {
     setUser(prev => prev ? { ...prev, ...updatedData } : null);
-  };
+  }, []);
+
+  const contextValue = useMemo(() => ({
+    user,
+    token,
+    isAuthenticated: !!user,
+    isAuthLoading: isLoading,
+    menus,
+    notifications,
+    settings,
+    isLoading,
+    login,
+    logout,
+    refreshMenus,
+    refreshNotifications,
+    refreshSettings,
+    markNotificationRead,
+    markAllNotificationsRead,
+    updateCurrentUserProfile
+  }), [
+    user,
+    token,
+    isLoading,
+    menus,
+    notifications,
+    settings,
+    login,
+    logout,
+    refreshMenus,
+    refreshNotifications,
+    refreshSettings,
+    markNotificationRead,
+    markAllNotificationsRead,
+    updateCurrentUserProfile
+  ]);
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      token,
-      isAuthenticated: !!user,
-      isAuthLoading: isLoading,
-      menus,
-      notifications,
-      settings,
-      isLoading,
-      login,
-      logout,
-      refreshMenus,
-      refreshNotifications,
-      refreshSettings,
-      markNotificationRead,
-      markAllNotificationsRead,
-      updateCurrentUserProfile
-    }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

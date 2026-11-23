@@ -103,9 +103,13 @@ export const BastSubView: React.FC<BastSubViewProps> = ({
   const [apiDivisiList, setApiDivisiList] = useState<MasterDivisi[]>([]);
 
   useEffect(() => {
+    let active = true;
     fetchMasterDivisiFallback().then((list) => {
-      if (list.length > 0) setApiDivisiList(list);
+      if (active && list.length > 0) setApiDivisiList(list);
     });
+    return () => {
+      active = false;
+    };
   }, [fetchMasterDivisiFallback]);
 
   const masterDistribusiSignerName = useMemo(() => {

@@ -39,15 +39,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   // Synchronize realtime activity logs from Firestore
   const { data: realtimeLogs } = useFirestoreRealtime<ActivityLog>('activityLogs');
 
-  useEffect(() => {
-    if (realtimeLogs && realtimeLogs.length > 0) {
-      setLogs(realtimeLogs.slice(0, 15));
-    } else {
-      fetchLatestLogs();
-    }
-  }, [realtimeLogs]);
-
-  const fetchLatestLogs = async () => {
+  const fetchLatestLogs = React.useCallback(async () => {
     try {
       const res = await fetch('/api/v1/activity-logs');
       const data = await res.json();
@@ -57,7 +49,28 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
     } catch (err) {
       console.error('Failed to fetch activity logs for notifications', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (realtimeLogs && realtimeLogs.length > 0) {
+      setLogs(realtimeLogs.slice(0, 15));
+    } else {
+      fetch('/api/v1/activity-logs')
+        .then((res) => res.json())
+        .then((data) => {
+          if (active && data?.success && Array.isArray(data.data)) {
+            setLogs(data.data.slice(0, 15));
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to fetch activity logs for notifications', err);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [realtimeLogs]);
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);

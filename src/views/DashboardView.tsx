@@ -45,22 +45,31 @@ interface DashboardViewProps {
   onNavigate: (path: string) => void;
 }
 
+const MONTHLY_ANALYTICS_DATA = [
+  { month: 'Jan', inventory: 3200, fuelExpense: 2.8, value: 1.1 },
+  { month: 'Feb', inventory: 3500, fuelExpense: 2.9, value: 1.25 },
+  { month: 'Mar', inventory: 3800, fuelExpense: 3.1, value: 1.32 },
+  { month: 'Apr', inventory: 3600, fuelExpense: 3.0, value: 1.28 },
+  { month: 'May', inventory: 4000, fuelExpense: 3.3, value: 1.40 },
+  { month: 'Jun', inventory: 4150, fuelExpense: 3.4, value: 1.45 },
+  { month: 'Jul', inventory: 4280, fuelExpense: 3.45, value: 1.485 },
+];
+
+const DASHBOARD_CHART_MARGIN = { top: 10, right: 10, left: -20, bottom: 0 };
+const DASHBOARD_AXIS_TICK = { fill: '#64748B', fontSize: 12 };
+const DASHBOARD_TOOLTIP_STYLE: React.CSSProperties = {
+  backgroundColor: '#FFFFFF',
+  borderRadius: '16px',
+  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+  border: '1px solid #E2E8F0',
+  fontSize: '12px'
+};
+
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
-
-  // Recharts Monthly Statistics Data
-  const monthlyAnalyticsData = [
-    { month: 'Jan', inventory: 3200, fuelExpense: 2.8, value: 1.1 },
-    { month: 'Feb', inventory: 3500, fuelExpense: 2.9, value: 1.25 },
-    { month: 'Mar', inventory: 3800, fuelExpense: 3.1, value: 1.32 },
-    { month: 'Apr', inventory: 3600, fuelExpense: 3.0, value: 1.28 },
-    { month: 'May', inventory: 4000, fuelExpense: 3.3, value: 1.40 },
-    { month: 'Jun', inventory: 4150, fuelExpense: 3.4, value: 1.45 },
-    { month: 'Jul', inventory: 4280, fuelExpense: 3.45, value: 1.485 },
-  ];
 
   interface StockItemSummary {
     id: string;
@@ -239,9 +248,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* Recharts Area Chart */}
-            <div className="h-64 sm:h-72 w-full pt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={monthlyAnalyticsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <div className="h-64 sm:h-72 w-full min-w-0 pt-2">
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
+                <AreaChart data={MONTHLY_ANALYTICS_DATA} margin={DASHBOARD_CHART_MARGIN}>
                   <defs>
                     <linearGradient id="blueGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#2563EB" stopOpacity={0.25} />
@@ -253,22 +262,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                     dataKey="month" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fill: '#64748B', fontSize: 12 }} 
+                    tick={DASHBOARD_AXIS_TICK} 
                   />
                   <YAxis 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fill: '#64748B', fontSize: 12 }} 
+                    tick={DASHBOARD_AXIS_TICK} 
                   />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#FFFFFF', 
-                      borderRadius: '16px', 
-                      boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', 
-                      border: '1px solid #E2E8F0',
-                      fontSize: '12px' 
-                    }} 
-                  />
+                  <Tooltip contentStyle={DASHBOARD_TOOLTIP_STYLE} />
                   <Area 
                     type="monotone" 
                     dataKey="inventory" 

@@ -54,11 +54,32 @@ const PortalMain: React.FC = () => {
     return unsub;
   }, []);
 
+  const handleNavigate = React.useCallback((path: string) => {
+    setCurrentPath(path);
+  }, []);
+
+  const handleToggleSidebar = React.useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  const handleCloseSidebar = React.useCallback(() => {
+    setSidebarCollapsed(true);
+  }, []);
+
+  const handleCloseSearch = React.useCallback(() => {
+    setIsSearchOpen(false);
+  }, []);
+
+  const handleSearchNavigate = React.useCallback((url: string) => {
+    setIsSearchOpen(false);
+    setCurrentPath(url);
+  }, []);
+
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains('dark');
   });
 
-  const toggleDarkMode = () => {
+  const toggleDarkMode = React.useCallback(() => {
     setDarkMode((prev) => {
       const next = !prev;
       if (next) {
@@ -68,7 +89,7 @@ const PortalMain: React.FC = () => {
       }
       return next;
     });
-  };
+  }, []);
 
   // Auto-redirect to dashboard if user is authenticated while on /login
   React.useEffect(() => {
@@ -143,7 +164,7 @@ const PortalMain: React.FC = () => {
 
   const renderView = () => {
     if (currentPath.startsWith('/akuntan')) {
-      return <AkuntanView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+      return <AkuntanView currentPath={currentPath} onNavigate={handleNavigate} />;
     }
 
     if (!checkAccess(currentPath)) {
@@ -168,13 +189,13 @@ const PortalMain: React.FC = () => {
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
               <button
-                onClick={() => setCurrentPath('/login')}
+                onClick={() => handleNavigate('/login')}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
               >
                 Login Pengguna Sekarang
               </button>
               <button
-                onClick={() => setCurrentPath('/dashboard')}
+                onClick={() => handleNavigate('/dashboard')}
                 className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl transition"
               >
                 Kembali ke Dashboard Utama
@@ -210,7 +231,7 @@ const PortalMain: React.FC = () => {
             )}
           </div>
           <button
-            onClick={() => setCurrentPath('/dashboard')}
+            onClick={() => handleNavigate('/dashboard')}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md transition"
           >
             Kembali ke Dashboard Utama
@@ -221,7 +242,7 @@ const PortalMain: React.FC = () => {
 
     switch (currentPath) {
       case '/dashboard':
-        return <DashboardView onNavigate={(path) => setCurrentPath(path)} />;
+        return <DashboardView onNavigate={handleNavigate} />;
       case '/esurat/masuk':
       case '/esurat':
         return <SuratMasukView />;
@@ -251,7 +272,7 @@ const PortalMain: React.FC = () => {
       case '/stock-opname/menu-planner':
       case '/stock-opname/google-docs':
       case '/stock-opname/settings':
-        return <StockOpnameModuleView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <StockOpnameModuleView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/master/terpadu':
       case '/master-data':
         return <MasterDataView />;
@@ -279,7 +300,7 @@ const PortalMain: React.FC = () => {
       case '/penerima-manfaat/rekap-harian':
       case '/penerima-manfaat/rekap-bulanan':
       case '/penerima-manfaat/kelompok':
-        return <PenerimaManfaatView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <PenerimaManfaatView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/gizi':
       case '/gizi/master-menu':
       case '/gizi/siklus-menu':
@@ -301,17 +322,17 @@ const PortalMain: React.FC = () => {
       case '/gizi/suhu/makanan/cetak-laporan':
       case '/gizi/kebersihan-dapur':
       case '/gizi/organoleptik':
-        return <GiziView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <GiziView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/purchase-order':
       case '/purchase-order/riwayat':
       case '/purchase-order/pengaturan':
       case '/po':
-        return <PurchaseOrderView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <PurchaseOrderView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/portal-supplier':
       case '/portal-supplier/pesanan':
       case '/portal-supplier/manifest':
       case '/portal-supplier/sop':
-        return <PortalSupplierView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <PortalSupplierView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/tugas-divisi':
       case '/tugas-divisi/hari-ini':
       case '/tugas-divisi/menu-harian':
@@ -319,30 +340,30 @@ const PortalMain: React.FC = () => {
       case '/tugas-divisi/template':
       case '/tugas-divisi/laporan':
       case '/tugas-divisi/whatsapp':
-        return <TugasDivisiView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <TugasDivisiView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/barang-datang':
       case '/barang-datang/form':
       case '/barang-datang/data':
-        return <BarangDatangView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <BarangDatangView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/menu-harian':
       case '/menu-harian/form':
-        return <MenuHarianView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <MenuHarianView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/laporan-distribusi':
       case '/laporan-distribusi/form':
       case '/laporan-distribusi/data':
       case '/laporan-distribusi/driver':
-        return <LaporanDistribusiView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <LaporanDistribusiView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/food-waste':
       case '/food-waste/form':
       case '/food-waste/rekap':
-        return <FoodWasteView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <FoodWasteView currentPath={currentPath} onNavigate={handleNavigate} />;
       case '/petugas':
       case '/petugas/daftar':
       case '/petugas/absensi':
       case '/petugas/slip-gaji':
-        return <PetugasView currentPath={currentPath} onNavigate={(path) => setCurrentPath(path)} />;
+        return <PetugasView currentPath={currentPath} onNavigate={handleNavigate} />;
       default:
-        return <DashboardView onNavigate={(path) => setCurrentPath(path)} />;
+        return <DashboardView onNavigate={handleNavigate} />;
     }
   };
 
@@ -350,8 +371,8 @@ const PortalMain: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       <Header
         currentPath={currentPath}
-        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onNavigate={(path) => setCurrentPath(path)}
+        onToggleSidebar={handleToggleSidebar}
+        onNavigate={handleNavigate}
         darkMode={darkMode}
         onToggleDarkMode={toggleDarkMode}
       />
@@ -359,9 +380,9 @@ const PortalMain: React.FC = () => {
       <div className="flex flex-1 overflow-hidden relative">
         <Sidebar
           currentPath={currentPath}
-          onNavigate={(path) => setCurrentPath(path)}
+          onNavigate={handleNavigate}
           isOpen={!sidebarCollapsed}
-          onClose={() => setSidebarCollapsed(true)}
+          onClose={handleCloseSidebar}
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 lg:p-8">
@@ -373,11 +394,8 @@ const PortalMain: React.FC = () => {
 
       <GlobalSearchModal
         isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        onNavigate={(url) => {
-          setIsSearchOpen(false);
-          setCurrentPath(url);
-        }}
+        onClose={handleCloseSearch}
+        onNavigate={handleSearchNavigate}
       />
 
       {firebaseErrorBanner && (

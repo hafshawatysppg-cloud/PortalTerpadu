@@ -96,6 +96,15 @@ const OPERATIONAL_COLORS = [
   '#EAB308', // Yellow
 ];
 
+const renderCustomCurrencyTooltip = (props: any) => <CustomCurrencyTooltip {...props} />;
+const AKUNTAN_BAR_MARGIN = { top: 10, right: 10, left: 0, bottom: 25 };
+const AKUNTAN_AREA_MARGIN = { top: 10, right: 10, left: 0, bottom: 0 };
+const AKUNTAN_AXIS_TICK_BOLD = { fontSize: 10, fill: '#64748B', fontWeight: 600 };
+const AKUNTAN_AXIS_TICK_NORMAL = { fontSize: 10, fill: '#64748B' };
+const AKUNTAN_AREA_Y_DOMAIN: [number, number] = [15000000, 21000000];
+const formatMillionTick = (val: number) => `${(val / 1000000).toFixed(1)}M`;
+const formatJutaTick = (val: number) => `${(val / 1000000).toFixed(0)}Jt`;
+
 // Custom Tooltip component for Recharts
 const CustomCurrencyTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -882,25 +891,25 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
             </div>
           </div>
 
-          <div className="h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 w-full min-w-0 pt-2">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
               <BarChart
                 data={categoryComparisonData}
-                margin={{ top: 10, right: 10, left: 0, bottom: 25 }}
+                margin={AKUNTAN_BAR_MARGIN}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.6} />
                 <XAxis
                   dataKey="kategori"
-                  tick={{ fontSize: 10, fill: '#64748B', fontWeight: 600 }}
+                  tick={AKUNTAN_AXIS_TICK_BOLD}
                   interval={0}
                   angle={-15}
                   textAnchor="end"
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: '#64748B' }}
-                  tickFormatter={(val) => `${(val / 1000000).toFixed(1)}M`}
+                  tick={AKUNTAN_AXIS_TICK_NORMAL}
+                  tickFormatter={formatMillionTick}
                 />
-                <Tooltip content={<CustomCurrencyTooltip />} />
+                <Tooltip content={renderCustomCurrencyTooltip} />
                 <Bar
                   dataKey="rab"
                   name="Anggaran RAB"
@@ -963,8 +972,8 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
             </p>
           </div>
 
-          <div className="h-56 w-full relative flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-56 w-full min-w-0 relative flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
               <PieChart>
                 <Pie
                   data={activeChartTab === 'bahanBaku' ? pieCategoryData : threePartPieData}
@@ -979,7 +988,7 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip content={<CustomCurrencyTooltip />} />
+                <Tooltip content={renderCustomCurrencyTooltip} />
               </PieChart>
             </ResponsiveContainer>
             {/* Center Donut summary */}
@@ -1086,11 +1095,11 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
             </span>
           </div>
 
-          <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0 pt-2">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
               <AreaChart
                 data={dailyTrendData}
-                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                margin={AKUNTAN_AREA_MARGIN}
               >
                 <defs>
                   <linearGradient id="colorRealisasi" x1="0" y1="0" x2="0" y2="1">
@@ -1103,13 +1112,13 @@ export const DashboardAkuntan: React.FC<DashboardAkuntanProps> = ({
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.6} />
-                <XAxis dataKey="tanggal" tick={{ fontSize: 10, fill: '#64748B', fontWeight: 600 }} />
+                <XAxis dataKey="tanggal" tick={AKUNTAN_AXIS_TICK_BOLD} />
                 <YAxis
-                  tick={{ fontSize: 10, fill: '#64748B' }}
-                  tickFormatter={(val) => `${(val / 1000000).toFixed(0)}Jt`}
-                  domain={[15000000, 21000000]}
+                  tick={AKUNTAN_AXIS_TICK_NORMAL}
+                  tickFormatter={formatJutaTick}
+                  domain={AKUNTAN_AREA_Y_DOMAIN}
                 />
-                <Tooltip content={<CustomCurrencyTooltip />} />
+                <Tooltip content={renderCustomCurrencyTooltip} />
                 <Area
                   type="monotone"
                   dataKey="paguMaksimal"

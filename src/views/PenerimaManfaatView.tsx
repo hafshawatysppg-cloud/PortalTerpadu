@@ -135,7 +135,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   const deletedGroupIds = useRef<Set<string>>(new Set());
 
   // Real-time Divisi Distribusi signer name
-  const { data: realtimeDivisiList } = useFirestoreRealtime<MasterDivisi>('divisi', async () => {
+  const fetchDivisiFallback = React.useCallback(async (): Promise<MasterDivisi[]> => {
     try {
       const res = await fetch('/api/v1/master/divisi');
       const json = await res.json();
@@ -143,7 +143,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
     } catch {
       return [];
     }
-  });
+  }, []);
+  const { data: realtimeDivisiList } = useFirestoreRealtime<MasterDivisi>('divisi', fetchDivisiFallback);
   const masterDistribusiSignerName = React.useMemo(
     () => resolveDivisiDistribusiName(realtimeDivisiList || []),
     [realtimeDivisiList]
@@ -1479,8 +1480,8 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       if (!text || !text.trim().startsWith('{')) return;
       const result = JSON.parse(text);
       if (result.success) {
-        setDailyRecords(result.records);
-        setDailySummary(result.summary);
+        setDailyRecords(Array.isArray(result.records) ? result.records : []);
+        setDailySummary(result.summary || null);
       }
     } catch (err) {
       console.warn('Failed to fetch daily beneficiaries:', err);
@@ -1500,7 +1501,7 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       const res = await fetch(`/api/v1/penerima-manfaat/history?${query.toString()}`);
       const result = await res.json();
       if (result.success) {
-        setHistoryRecords(result.data);
+        setHistoryRecords(Array.isArray(result.data) ? result.data : []);
       }
     } catch (err) {
       console.error('Failed to fetch history:', err);
@@ -2134,10 +2135,10 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
   };
 
   // Filtered Daily Records
-  const filteredDailyRecords = dailyRecords.filter(r => 
-    r.namaInstansi.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.groupNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.kategori.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredDailyRecords = (dailyRecords || []).filter(r => 
+    (r.namaInstansi || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (r.groupNama || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (r.kategori || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Perhitungan Akumulasi Porsi Besar dan Porsi Kecil Keseluruhan

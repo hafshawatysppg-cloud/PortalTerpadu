@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { 
   MasterDocumentTemplateConfig, 
@@ -34,11 +34,59 @@ interface DocumentTemplateContextType {
 
 const DocumentTemplateContext = createContext<DocumentTemplateContextType | undefined>(undefined);
 
+function mergeWithDefaultTemplate(
+  incoming?: Partial<MasterDocumentTemplateConfig> | null
+): MasterDocumentTemplateConfig {
+  if (!incoming || typeof incoming !== 'object') {
+    return DEFAULT_MASTER_TEMPLATE_CONFIG;
+  }
+  return {
+    ...DEFAULT_MASTER_TEMPLATE_CONFIG,
+    ...incoming,
+    profile: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.profile,
+      ...(incoming.profile || {}),
+    },
+    letterhead: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.letterhead,
+      ...(incoming.letterhead || {}),
+    },
+    format: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.format,
+      ...(incoming.format || {}),
+    },
+    footer: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.footer,
+      ...(incoming.footer || {}),
+    },
+    numbering: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.numbering,
+      ...(incoming.numbering || {}),
+      currentCounters: {
+        ...DEFAULT_MASTER_TEMPLATE_CONFIG.numbering.currentCounters,
+        ...(incoming.numbering?.currentCounters || {}),
+      },
+    },
+    pdfSettings: {
+      ...DEFAULT_MASTER_TEMPLATE_CONFIG.pdfSettings,
+      ...(incoming.pdfSettings || {}),
+    },
+    signatures: Array.isArray(incoming.signatures)
+      ? incoming.signatures
+      : DEFAULT_MASTER_TEMPLATE_CONFIG.signatures,
+    documentTypes: Array.isArray(incoming.documentTypes)
+      ? incoming.documentTypes
+      : DEFAULT_MASTER_TEMPLATE_CONFIG.documentTypes,
+  };
+}
+
 export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [config, setConfig] = useState<MasterDocumentTemplateConfig>(DEFAULT_MASTER_TEMPLATE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
 
   // Fetch initial config from REST API + subscribe real-time from Firestore
   const refreshConfig = useCallback(async () => {
@@ -47,7 +95,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       if (res.ok) {
         const json = await safeParseJson<{ success?: boolean; data?: MasterDocumentTemplateConfig }>(res);
         if (json?.success && json.data) {
-          setConfig(json.data);
+          setConfig(mergeWithDefaultTemplate(json.data));
         }
       }
     } catch (err) {
@@ -62,7 +110,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       doc(db, 'documentTemplate', 'main'),
       (snap) => {
         if (snap.exists()) {
-          setConfig(snap.data() as MasterDocumentTemplateConfig);
+          setConfig(mergeWithDefaultTemplate(snap.data() as MasterDocumentTemplateConfig));
           setLoading(false);
         }
       },
@@ -145,9 +193,9 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
   }, []);
 
   // Save directly to Firestore (with merge: true) and sync server REST API
-  const saveConfig = async (customConfig?: MasterDocumentTemplateConfig): Promise<{ success: boolean; message: string }> => {
+  const saveConfig = useCallback(async (customConfig?: MasterDocumentTemplateConfig): Promise<{ success: boolean; message: string }> => {
     setIsSaving(true);
-    const targetConfig = customConfig || config;
+    const targetConfig = mergeWithDefaultTemplate(customConfig || configRef.current);
     try {
       await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(targetConfig), { merge: true });
       setConfig(targetConfig);
@@ -162,7 +210,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success && data?.data) {
-        setConfig(data.data);
+        setConfig(mergeWithDefaultTemplate(data.data));
       }
       return { success: true, message: data?.message || 'Konfigurasi template berhasil disimpan ke Firebase' };
     } catch (err: any) {
@@ -171,10 +219,10 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [user?.nama]);
 
   // Reset to Factory Default
-  const resetToDefault = async (): Promise<{ success: boolean; message: string }> => {
+  const resetToDefault = useCallback(async (): Promise<{ success: boolean; message: string }> => {
     setIsSaving(true);
     try {
       const defaultPayload = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
@@ -190,7 +238,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success && data?.data) {
-        setConfig(data.data);
+        setConfig(mergeWithDefaultTemplate(data.data));
       }
       return { success: true, message: data?.message || 'Template berhasil di-reset ke standar default di Firebase.' };
     } catch (err: any) {
@@ -199,10 +247,10 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [user?.nama]);
 
   // Generate automated document number
-  const generateDocNumber = async (docCode: string): Promise<string> => {
+  const generateDocNumber = useCallback(async (docCode: string): Promise<string> => {
     try {
       const res = await fetch('/api/v1/document-template/generate-number', {
         method: 'POST',
@@ -216,7 +264,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
             ...prev,
             numbering: {
               ...prev.numbering,
-              currentCounters: { ...prev.numbering.currentCounters, [docCode]: json.data.counter }
+              currentCounters: { ...(prev.numbering?.currentCounters || {}), [docCode]: json.data.counter }
             }
           }));
           return json.data.number;
@@ -226,8 +274,8 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       console.error('Error generating document number from API:', err);
     }
 
-    const numbering = config.numbering;
-    const current = (numbering.currentCounters[docCode] || 0) + 1;
+    const numbering = configRef.current.numbering || DEFAULT_MASTER_TEMPLATE_CONFIG.numbering;
+    const current = (numbering.currentCounters?.[docCode] || 0) + 1;
     const padLen = numbering.counterLength || 3;
     const counterStr = String(current).padStart(padLen, '0');
     const now = new Date();
@@ -238,39 +286,58 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
 
     const num = `${counterStr}${sep}${numbering.prefix}${sep}${docCode}${sep}${monthStr}${sep}${yearStr}`;
     return num;
-  };
+  }, []);
 
   const getDocTypeConfig = useCallback((docTypeId: string): DocumentTypeTemplate | undefined => {
-    return config.documentTypes.find(dt => dt.id === docTypeId || dt.code === docTypeId);
+    return (config.documentTypes || []).find(dt => dt.id === docTypeId || dt.code === docTypeId);
   }, [config.documentTypes]);
 
-  const testPrint = useCallback((docTypeId?: string) => {
+  const testPrint = useCallback((_docTypeId?: string) => {
     window.print();
   }, []);
 
+  const contextValue = useMemo(() => ({
+    config,
+    loading,
+    isSaving,
+    updateConfig,
+    updateProfile,
+    updateLetterhead,
+    updateFormat,
+    updateFooter,
+    updateNumbering,
+    updateDocType,
+    saveSignature,
+    deleteSignature,
+    saveConfig,
+    resetToDefault,
+    generateDocNumber,
+    getDocTypeConfig,
+    refreshConfig,
+    testPrint
+  }), [
+    config,
+    loading,
+    isSaving,
+    updateConfig,
+    updateProfile,
+    updateLetterhead,
+    updateFormat,
+    updateFooter,
+    updateNumbering,
+    updateDocType,
+    saveSignature,
+    deleteSignature,
+    saveConfig,
+    resetToDefault,
+    generateDocNumber,
+    getDocTypeConfig,
+    refreshConfig,
+    testPrint
+  ]);
+
   return (
-    <DocumentTemplateContext.Provider
-      value={{
-        config,
-        loading,
-        isSaving,
-        updateConfig,
-        updateProfile,
-        updateLetterhead,
-        updateFormat,
-        updateFooter,
-        updateNumbering,
-        updateDocType,
-        saveSignature,
-        deleteSignature,
-        saveConfig,
-        resetToDefault,
-        generateDocNumber,
-        getDocTypeConfig,
-        refreshConfig,
-        testPrint
-      }}
-    >
+    <DocumentTemplateContext.Provider value={contextValue}>
       {children}
     </DocumentTemplateContext.Provider>
   );

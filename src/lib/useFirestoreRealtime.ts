@@ -12,10 +12,20 @@ interface CollectionStoreEntry<T> {
   unsubscribe: (() => void) | null;
   detachTimer: ReturnType<typeof setTimeout> | null;
   quotaHit: boolean;
+  fallbackInFlight: boolean;
+  lastFingerprint: string;
 }
 
 const collectionRegistry = new Map<string, CollectionStoreEntry<any>>();
 const DETACH_GRACE_MS = 20_000;
+
+function computeItemsFingerprint<T>(items: T[]): string {
+  try {
+    return JSON.stringify(items);
+  } catch {
+    return String(items.length);
+  }
+}
 
 function isQuotaExceededError(err: any): boolean {
   const msg = String(err?.message || err || '').toLowerCase();
@@ -50,6 +60,22 @@ function notifySubscribers<T>(entry: CollectionStoreEntry<T>): void {
   });
 }
 
+function updateEntryData<T>(entry: CollectionStoreEntry<T>, items: T[], clearError = false): boolean {
+  const nextFp = computeItemsFingerprint(items);
+  const errorChanged = clearError && entry.error !== null;
+  if (entry.hasData && nextFp === entry.lastFingerprint && !errorChanged) {
+    return false;
+  }
+  entry.data = items;
+  entry.hasData = true;
+  entry.lastFingerprint = nextFp;
+  if (clearError) {
+    entry.error = null;
+  }
+  notifySubscribers(entry);
+  return true;
+}
+
 function getOrCreateEntry<T>(collectionName: string): CollectionStoreEntry<T> {
   let entry = collectionRegistry.get(collectionName) as CollectionStoreEntry<T> | undefined;
   if (!entry) {
@@ -60,7 +86,9 @@ function getOrCreateEntry<T>(collectionName: string): CollectionStoreEntry<T> {
       subscribers: new Set(),
       unsubscribe: null,
       detachTimer: null,
-      quotaHit: false
+      quotaHit: false,
+      fallbackInFlight: false,
+      lastFingerprint: ''
     };
     collectionRegistry.set(collectionName, entry);
   }
@@ -77,26 +105,27 @@ function ensureSharedListener<T extends { id: string }>(
     entry.detachTimer = null;
   }
 
-  if (!entry.hasData) {
+  if (!entry.hasData && !entry.fallbackInFlight) {
+    entry.fallbackInFlight = true;
     const runFallback = async () => {
-      const serverItems = await fetchServerCollectionFallback<T>(collectionName);
-      if (serverItems && serverItems.length > 0 && !entry.hasData) {
-        entry.data = serverItems;
-        entry.hasData = true;
-        notifySubscribers(entry);
-        return;
-      }
-      if (fallbackFetch) {
-        try {
-          const customItems = await fallbackFetch();
-          if (Array.isArray(customItems) && !entry.hasData) {
-            entry.data = customItems;
-            entry.hasData = true;
-            notifySubscribers(entry);
-          }
-        } catch (err) {
-          console.error(`Fallback fetch error for [${collectionName}]:`, err);
+      try {
+        const serverItems = await fetchServerCollectionFallback<T>(collectionName);
+        if (serverItems && serverItems.length > 0 && !entry.hasData) {
+          updateEntryData(entry, serverItems);
+          return;
         }
+        if (fallbackFetch) {
+          try {
+            const customItems = await fallbackFetch();
+            if (Array.isArray(customItems) && !entry.hasData) {
+              updateEntryData(entry, customItems);
+            }
+          } catch (err) {
+            console.error(`Fallback fetch error for [${collectionName}]:`, err);
+          }
+        }
+      } finally {
+        entry.fallbackInFlight = false;
       }
     };
     void runFallback();
@@ -121,11 +150,8 @@ function ensureSharedListener<T extends { id: string }>(
             ...docSnap.data()
           } as T);
         });
-        entry.data = items;
-        entry.hasData = true;
-        entry.error = null;
         entry.quotaHit = false;
-        notifySubscribers(entry);
+        updateEntryData(entry, items, true);
       },
       (err) => {
         const isTransientStreamDrop =
@@ -152,41 +178,49 @@ function ensureSharedListener<T extends { id: string }>(
             ? `Koneksi real-time ke [${collectionName}] terganggu`
             : `Gagal sinkronisasi data [${collectionName}] dari Firebase`
         );
-        entry.error = errMsg;
-        notifySubscribers(entry);
+        if (entry.error !== errMsg) {
+          entry.error = errMsg;
+          notifySubscribers(entry);
+        }
 
-        const recoverFromServer = async () => {
-          const serverItems = await fetchServerCollectionFallback<T>(collectionName);
-          if (serverItems && serverItems.length > 0) {
-            entry.data = serverItems;
-            entry.hasData = true;
-            notifySubscribers(entry);
-            return;
-          }
-          if (fallbackFetch) {
+        if (!entry.fallbackInFlight) {
+          entry.fallbackInFlight = true;
+          const recoverFromServer = async () => {
             try {
-              const res = await fallbackFetch();
-              if (res) {
-                entry.data = res;
-                entry.hasData = true;
-                notifySubscribers(entry);
+              const serverItems = await fetchServerCollectionFallback<T>(collectionName);
+              if (serverItems && serverItems.length > 0) {
+                updateEntryData(entry, serverItems);
+                return;
               }
-            } catch (fallbackErr) {
-              console.error(`Recovery fallback error for [${collectionName}]:`, fallbackErr);
+              if (fallbackFetch) {
+                try {
+                  const res = await fallbackFetch();
+                  if (Array.isArray(res)) {
+                    updateEntryData(entry, res);
+                  }
+                } catch (fallbackErr) {
+                  console.error(`Recovery fallback error for [${collectionName}]:`, fallbackErr);
+                }
+              }
+            } finally {
+              entry.fallbackInFlight = false;
             }
-          }
-        };
-        void recoverFromServer();
+          };
+          void recoverFromServer();
+        }
       }
     );
   } catch (err: any) {
-    entry.error = notifyFirestoreFailure(
+    const errMsg = notifyFirestoreFailure(
       err,
       OperationType.LIST,
       collectionName,
       `Gagal menginisialisasi koneksi Firestore [${collectionName}]`
     );
-    notifySubscribers(entry);
+    if (entry.error !== errMsg) {
+      entry.error = errMsg;
+      notifySubscribers(entry);
+    }
   }
 }
 
@@ -201,29 +235,32 @@ export function useFirestoreRealtime<T extends { id: string }>(
   const entry = getOrCreateEntry<T>(collectionName);
   const [data, setData] = useState<T[]>(() => entry.data);
   const [loading, setLoading] = useState<boolean>(() => !entry.hasData);
-  const [error, setError] = useState<string | null>(entry.error);
+  const [error, setError] = useState<string | null>(() => entry.error);
 
   useEffect(() => {
     let isMounted = true;
     const currentEntry = getOrCreateEntry<T>(collectionName);
 
     if (currentEntry.hasData) {
-      setData(currentEntry.data);
-      setLoading(false);
+      setData((prev) => (prev === currentEntry.data ? prev : currentEntry.data));
+      setLoading((prev) => (prev ? false : prev));
+    }
+    if (currentEntry.error !== null) {
+      setError((prev) => (prev === currentEntry.error ? prev : currentEntry.error));
     }
 
     const subscriber = (items: T[], err: string | null) => {
       if (!isMounted) return;
-      setData(items);
-      setError(err);
-      setLoading(false);
+      setData((prev) => (prev === items ? prev : items));
+      setError((prev) => (prev === err ? prev : err));
+      setLoading((prev) => (prev ? false : prev));
     };
 
     currentEntry.subscribers.add(subscriber);
     ensureSharedListener(collectionName, currentEntry, fallbackFetch);
 
     const loadingSafetyTimer = setTimeout(() => {
-      if (isMounted) setLoading(false);
+      if (isMounted) setLoading((prev) => (prev ? false : prev));
     }, 1500);
 
     return () => {
@@ -251,9 +288,7 @@ export function useFirestoreRealtime<T extends { id: string }>(
       const nextValue =
         typeof updater === 'function' ? (updater as (prev: T[]) => T[])(currentEntry.data) : updater;
       if (nextValue === currentEntry.data) return;
-      currentEntry.data = nextValue;
-      currentEntry.hasData = true;
-      notifySubscribers(currentEntry);
+      updateEntryData(currentEntry, nextValue);
     },
     [collectionName]
   );
