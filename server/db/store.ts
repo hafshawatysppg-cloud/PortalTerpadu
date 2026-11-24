@@ -4361,6 +4361,158 @@ class EnterpriseDataStore {
     };
   }
 
+  public getSlipGajiPeriodeSummary(startDate: string, endDate: string): {
+    startDate: string;
+    endDate: string;
+    recordedDates: string[];
+    totalPetugas: number;
+    totalHadirKeseluruhan: number;
+    totalGajiKeseluruhan: number;
+    items: Array<{
+      petugasId: string;
+      nomor: string;
+      nama: string;
+      jabatan: string;
+      status: string;
+      gajiHarian: number;
+      totalKehadiran: number;
+      totalGaji: number;
+      tanggalHadir: string[];
+      detailHarian: Array<{
+        tanggal: string;
+        statusAbsensi: string;
+        kehadiranHari: number;
+        nominalHarian: number;
+        sumber: 'absensi' | 'slip';
+      }>;
+    }>;
+  } {
+    const cleanStart = startDate <= endDate ? startDate : endDate;
+    const cleanEnd = startDate <= endDate ? endDate : startDate;
+
+    const absensiByDate = new Map<string, RekapAbsensiHarian>();
+    for (const abs of this.rekapAbsensiList) {
+      if (abs.tanggal >= cleanStart && abs.tanggal <= cleanEnd) {
+        absensiByDate.set(abs.tanggal, abs);
+      }
+    }
+
+    const slipsByDate = new Map<string, Map<string, SlipGajiHarian>>();
+    for (const slip of this.slipGajiList) {
+      if (slip.tanggal >= cleanStart && slip.tanggal <= cleanEnd) {
+        let map = slipsByDate.get(slip.tanggal);
+        if (!map) {
+          map = new Map<string, SlipGajiHarian>();
+          slipsByDate.set(slip.tanggal, map);
+        }
+        map.set(slip.petugasId, slip);
+      }
+    }
+
+    const recordedDateSet = new Set<string>([
+      ...absensiByDate.keys(),
+      ...slipsByDate.keys()
+    ]);
+    const recordedDates = Array.from(recordedDateSet).sort();
+
+    const sortedPetugas = this.sortPetugasList(this.petugasList);
+    let totalHadirKeseluruhan = 0;
+    let totalGajiKeseluruhan = 0;
+
+    const items = sortedPetugas.map((p) => {
+      const gajiHarian = Math.max(0, Number(p.besaranGaji || 0));
+      let rawKehadiran = 0;
+      const tanggalHadir: string[] = [];
+      const detailHarian: Array<{
+        tanggal: string;
+        statusAbsensi: string;
+        kehadiranHari: number;
+        nominalHarian: number;
+        sumber: 'absensi' | 'slip';
+      }> = [];
+
+      for (const tgl of recordedDates) {
+        const abs = absensiByDate.get(tgl);
+        if (abs) {
+          const item = abs.items.find(
+            (it) =>
+              it.petugasId === p.id ||
+              (it.namaPetugas && it.namaPetugas.trim().toLowerCase() === p.nama.trim().toLowerCase())
+          );
+          if (item) {
+            const kh =
+              item.statusAbsensi === 'Hadir'
+                ? 1
+                : item.statusAbsensi === 'Setengah Hari'
+                ? 0.5
+                : 0;
+            if (kh > 0) {
+              rawKehadiran += kh;
+              tanggalHadir.push(tgl);
+            }
+            detailHarian.push({
+              tanggal: tgl,
+              statusAbsensi: item.statusAbsensi,
+              kehadiranHari: kh,
+              nominalHarian: Math.round(kh * gajiHarian),
+              sumber: 'absensi'
+            });
+          }
+          continue;
+        }
+
+        const slipMap = slipsByDate.get(tgl);
+        const slip =
+          slipMap?.get(p.id) ||
+          Array.from(slipMap?.values() || []).find(
+            (s) => s.namaPetugas && s.namaPetugas.trim().toLowerCase() === p.nama.trim().toLowerCase()
+          );
+        if (slip) {
+          const kh = Math.max(0, Number(slip.kehadiranHari ?? 1));
+          if (kh > 0) {
+            rawKehadiran += kh;
+            tanggalHadir.push(tgl);
+            detailHarian.push({
+              tanggal: tgl,
+              statusAbsensi: kh === 0.5 ? 'Setengah Hari' : 'Hadir',
+              kehadiranHari: kh,
+              nominalHarian: Math.round(kh * gajiHarian),
+              sumber: 'slip'
+            });
+          }
+        }
+      }
+
+      const totalKehadiran = Number(rawKehadiran.toFixed(2));
+      const totalGaji = Math.round(totalKehadiran * gajiHarian);
+      totalHadirKeseluruhan = Number((totalHadirKeseluruhan + totalKehadiran).toFixed(2));
+      totalGajiKeseluruhan += totalGaji;
+
+      return {
+        petugasId: p.id,
+        nomor: p.nomor,
+        nama: p.nama,
+        jabatan: p.jabatan,
+        status: p.status,
+        gajiHarian,
+        totalKehadiran,
+        totalGaji,
+        tanggalHadir,
+        detailHarian
+      };
+    });
+
+    return {
+      startDate: cleanStart,
+      endDate: cleanEnd,
+      recordedDates,
+      totalPetugas: items.length,
+      totalHadirKeseluruhan,
+      totalGajiKeseluruhan,
+      items
+    };
+  }
+
   // ==========================================
   // REKAP ABSENSI PETUGAS HARIAN
   // ==========================================

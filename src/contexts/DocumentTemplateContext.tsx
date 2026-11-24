@@ -9,7 +9,14 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { safeParseJson } from '../lib/safeJson';
 import { db } from '../lib/firebase';
-import { OperationType, notifyFirestoreFailure, sanitizeForFirestore } from '../lib/firestoreHelper';
+import {
+  OperationType,
+  isFirestoreQuotaError,
+  isFirestoreQuotaExhausted,
+  markFirestoreQuotaExhausted,
+  notifyFirestoreFailure,
+  sanitizeForFirestore
+} from '../lib/firestoreHelper';
 
 interface DocumentTemplateContextType {
   config: MasterDocumentTemplateConfig;
@@ -67,10 +74,6 @@ function mergeWithDefaultTemplate(
         ...(incoming.numbering?.currentCounters || {}),
       },
     },
-    pdfSettings: {
-      ...DEFAULT_MASTER_TEMPLATE_CONFIG.pdfSettings,
-      ...(incoming.pdfSettings || {}),
-    },
     signatures: Array.isArray(incoming.signatures)
       ? incoming.signatures
       : DEFAULT_MASTER_TEMPLATE_CONFIG.signatures,
@@ -106,20 +109,41 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      doc(db, 'documentTemplate', 'main'),
-      (snap) => {
-        if (snap.exists()) {
-          setConfig(mergeWithDefaultTemplate(snap.data() as MasterDocumentTemplateConfig));
-          setLoading(false);
-        }
-      },
-      (err) => {
-        notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
-      }
-    );
     refreshConfig();
-    return () => unsub();
+    if (isFirestoreQuotaExhausted()) {
+      return;
+    }
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = onSnapshot(
+        doc(db, 'documentTemplate', 'main'),
+        (snap) => {
+          if (snap.exists()) {
+            setConfig(mergeWithDefaultTemplate(snap.data() as MasterDocumentTemplateConfig));
+            setLoading(false);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            markFirestoreQuotaExhausted();
+            try {
+              unsub?.();
+            } catch (_) {}
+          }
+          notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
+        }
+      );
+    } catch (err) {
+      if (isFirestoreQuotaError(err)) {
+        markFirestoreQuotaExhausted();
+      }
+      notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
+    }
+    return () => {
+      try {
+        unsub?.();
+      } catch (_) {}
+    };
   }, [refreshConfig]);
 
   // Partial update methods
@@ -197,8 +221,19 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     setIsSaving(true);
     const targetConfig = mergeWithDefaultTemplate(customConfig || configRef.current);
     try {
-      await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(targetConfig), { merge: true });
       setConfig(targetConfig);
+      if (!isFirestoreQuotaExhausted()) {
+        try {
+          await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(targetConfig), { merge: true });
+        } catch (fsErr) {
+          if (isFirestoreQuotaError(fsErr)) {
+            markFirestoreQuotaExhausted();
+            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'documentTemplate/main', 'Kuota Firebase tercapai; menyimpan ke server lokal');
+          } else {
+            throw fsErr;
+          }
+        }
+      }
 
       const res = await fetch('/api/v1/document-template', {
         method: 'PUT',
@@ -212,7 +247,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       if (res.ok && data?.success && data?.data) {
         setConfig(mergeWithDefaultTemplate(data.data));
       }
-      return { success: true, message: data?.message || 'Konfigurasi template berhasil disimpan ke Firebase' };
+      return { success: true, message: data?.message || 'Konfigurasi template berhasil disimpan' };
     } catch (err: any) {
       const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal menyimpan template dokumen ke Firebase');
       return { success: false, message: msg };
@@ -226,8 +261,19 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     setIsSaving(true);
     try {
       const defaultPayload = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
-      await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(defaultPayload), { merge: true });
       setConfig(defaultPayload);
+      if (!isFirestoreQuotaExhausted()) {
+        try {
+          await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(defaultPayload), { merge: true });
+        } catch (fsErr) {
+          if (isFirestoreQuotaError(fsErr)) {
+            markFirestoreQuotaExhausted();
+            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'documentTemplate/main', 'Kuota Firebase tercapai; reset dilakukan di server lokal');
+          } else {
+            throw fsErr;
+          }
+        }
+      }
 
       const res = await fetch('/api/v1/document-template/reset', {
         method: 'POST',
@@ -240,7 +286,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       if (res.ok && data?.success && data?.data) {
         setConfig(mergeWithDefaultTemplate(data.data));
       }
-      return { success: true, message: data?.message || 'Template berhasil di-reset ke standar default di Firebase.' };
+      return { success: true, message: data?.message || 'Template berhasil di-reset ke standar default.' };
     } catch (err: any) {
       const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal reset template dokumen di Firebase');
       return { success: false, message: msg };

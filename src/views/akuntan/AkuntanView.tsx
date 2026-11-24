@@ -56,7 +56,8 @@ import {
   OperasionalLainnyaItem,
   InsentifFasilitasRecord,
   RealisasiBahanBakuItem,
-  RealisasiOperasionalItem
+  RealisasiOperasionalItem,
+  RekapGajiHarianSavedRecord
 } from '../../types/akuntan';
 import {
   initialRabBahanBaku,
@@ -85,6 +86,7 @@ import {
 } from '../../utils/akuntanDocGenerator';
 import { DashboardAkuntan } from '../../components/akuntan/DashboardAkuntan';
 import { CetakLaporanAkuntanView } from '../../components/akuntan/CetakLaporanAkuntanView';
+import { SlipGajiRelawanView } from '../../components/akuntan/SlipGajiRelawanView';
 import { calculateDailyRecordsPortion } from '../../utils/portionHelper';
 import { INITIAL_PDF_INGREDIENTS } from '../../components/nutrition/nutritionData';
 import {
@@ -340,6 +342,136 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     return cfg.gajiKaryawanConfigured ? getGajiKaryawanSnapshot() : [];
   });
   const [isSyncingPetugas, setIsSyncingPetugas] = useState<boolean>(false);
+
+  // Per-date Lock State Map & Saved Rekap Gaji Harian Map
+  const [gajiKaryawanLockedMap, setGajiKaryawanLockedMap] = useState<Record<string, boolean>>(
+    () => getAkuntanConfigsSnapshot().gajiKaryawanLockedMap || {}
+  );
+  const [rekapGajiHarianMap, setRekapGajiHarianMap] = useState<Record<string, RekapGajiHarianSavedRecord>>(
+    () => getAkuntanConfigsSnapshot().rekapGajiHarianMap || {}
+  );
+  const isGajiKaryawanLocked = Boolean(gajiKaryawanLockedMap[selectedDate]);
+  const isSelectedDateSavedInRekap = Boolean(rekapGajiHarianMap[selectedDate]);
+
+  const savedRekapGajiHarianList = useMemo<RekapGajiHarianSavedRecord[]>(() => {
+    const values = Object.values(rekapGajiHarianMap || {}) as RekapGajiHarianSavedRecord[];
+    return values.sort((a, b) =>
+      String(b.tanggal || '').localeCompare(String(a.tanggal || ''))
+    );
+  }, [rekapGajiHarianMap]);
+
+  const handleSimpanRincianPetugas = async () => {
+    if (gajiKaryawan.length === 0) {
+      triggerToast('Data Rincian Petugas masih kosong. Klik "Sinkronkan Slip Petugas" terlebih dahulu.', 'error');
+      return;
+    }
+    const datedRecords = gajiKaryawan.map((rec) => ({
+      ...rec,
+      tanggalBayar: selectedDate,
+      kehadiranHari: rec.kehadiranHari ?? rec.hariKerja ?? 1,
+      hariKerja: rec.hariKerja ?? rec.kehadiranHari ?? 1
+    }));
+    const totalPokok = datedRecords.reduce((sum, item) => sum + (item.gajiPokok || 0), 0);
+    const totalBersih = datedRecords.reduce((sum, item) => sum + (item.gajiBersih || 0), 0);
+    const allPaid = datedRecords.every(
+      (r) => r.statusBayar === 'Lunas' || r.statusBayar === 'Dibayar' || r.statusBayar === 'Sudah Dibayar'
+    );
+    const savedEntry: RekapGajiHarianSavedRecord = {
+      tanggal: selectedDate,
+      totalKaryawanMasuk: datedRecords.length,
+      totalGajiPokok: totalPokok,
+      totalGajiBersih: totalBersih,
+      statusPembayaran: allPaid ? 'Lunas / Siap Dicairkan' : 'Menunggu Verifikasi',
+      savedAt: new Date().toISOString(),
+      records: datedRecords
+    };
+    const updatedLockedMap = { ...gajiKaryawanLockedMap, [selectedDate]: true };
+    const updatedRekapMap = { ...rekapGajiHarianMap, [selectedDate]: savedEntry };
+    try {
+      await replaceAkuntanDocsForPredicate(
+        'akuntan_gaji_karyawan',
+        datedRecords,
+        getGajiKaryawanSnapshot()
+      );
+      await updateAkuntanConfigDoc({
+        gajiKaryawanConfigured: true,
+        gajiKaryawanLockedMap: updatedLockedMap,
+        rekapGajiHarianMap: updatedRekapMap
+      });
+      setGajiKaryawan(datedRecords);
+      setGajiKaryawanLockedMap(updatedLockedMap);
+      setRekapGajiHarianMap(updatedRekapMap);
+      triggerToast(
+        `Rincian ${datedRecords.length} petugas tanggal ${selectedDate} berhasil disimpan ke Rekap Gaji Harian dan dikunci!`
+      );
+    } catch (err: any) {
+      console.error('Gagal menyimpan Rincian Petugas ke Rekap Gaji Harian:', err);
+      triggerToast(err?.message || 'Gagal menyimpan Rincian Petugas ke Firebase', 'error');
+    }
+  };
+
+  const handleEditRincianPetugas = async (targetTanggal?: string) => {
+    const tgl = targetTanggal || selectedDate;
+    const updatedLockedMap = { ...gajiKaryawanLockedMap, [tgl]: false };
+    try {
+      await updateAkuntanConfigDoc({ gajiKaryawanLockedMap: updatedLockedMap });
+      setGajiKaryawanLockedMap(updatedLockedMap);
+      if (targetTanggal && targetTanggal !== selectedDate) {
+        setSelectedDate(targetTanggal);
+      }
+      const savedForDate = rekapGajiHarianMap[tgl];
+      if (savedForDate?.records && savedForDate.records.length > 0) {
+        setGajiKaryawan(savedForDate.records);
+      }
+      triggerToast(
+        `Mode edit Rincian Petugas tanggal ${tgl} aktif. Anda dapat merevisi atau menyinkronkan ulang lalu klik "Simpan Data".`
+      );
+    } catch (err: any) {
+      console.error('Gagal membuka kunci Rincian Petugas:', err);
+      triggerToast(err?.message || 'Gagal membuka kunci Rincian Petugas di Firebase', 'error');
+    }
+  };
+
+  const handleUpdateGajiKaryawanRecord = (
+    recId: string,
+    patch: { hariKerja?: number; gajiPokok?: number; gajiBersih?: number; statusBayar?: string }
+  ) => {
+    if (isGajiKaryawanLocked) {
+      triggerToast('Data Rincian Petugas tanggal ini sudah dikunci. Klik "Edit Data" untuk merevisi.');
+      return;
+    }
+    setGajiKaryawan((prev) =>
+      prev.map((rec) => {
+        if (rec.id !== recId) return rec;
+        const oldDays = Number(rec.kehadiranHari ?? rec.hariKerja ?? 1) || 1;
+        const nextDays =
+          patch.hariKerja !== undefined
+            ? Math.max(0, Number(patch.hariKerja) || 0)
+            : oldDays;
+        const unitRate = oldDays > 0 ? Math.round((rec.gajiPokok || 0) / oldDays) : rec.gajiPokok || 0;
+        const nextPokok =
+          patch.gajiPokok !== undefined
+            ? Math.max(0, Math.round(Number(patch.gajiPokok) || 0))
+            : patch.hariKerja !== undefined
+            ? Math.round(nextDays * unitRate)
+            : rec.gajiPokok;
+        const deltaPokok = nextPokok - (rec.gajiPokok || 0);
+        const nextBersih =
+          patch.gajiBersih !== undefined
+            ? Math.max(0, Math.round(Number(patch.gajiBersih) || 0))
+            : Math.max(0, (rec.gajiBersih || 0) + deltaPokok);
+        return {
+          ...rec,
+          hariKerja: nextDays,
+          kehadiranHari: nextDays,
+          gajiPokok: nextPokok,
+          totalPenerimaan: nextPokok + (rec.tunjanganHadir || 0) + (rec.uangLembur || 0) + (rec.bonusKinerja || 0),
+          gajiBersih: nextBersih,
+          statusBayar: patch.statusBayar !== undefined ? patch.statusBayar : rec.statusBayar
+        };
+      })
+    );
+  };
 
   // Insentif PIC Sekolah
   const normalizePicSchools = React.useCallback((data: InsentifPicRecord[]) => {
@@ -613,8 +745,14 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       setIsOperasionalLainnyaLocked(Boolean(cfg.opLainnyaLocked));
       setRealisasiBbLockedMap(cfg.realisasiBbLockedMap || {});
       setRealisasiOpLockedMap(cfg.realisasiOpLockedMap || {});
+      setGajiKaryawanLockedMap(cfg.gajiKaryawanLockedMap || {});
+      setRekapGajiHarianMap(cfg.rekapGajiHarianMap || {});
       if (cfg.rabOpBarangConfigured) setRabOperasionalBarang(getRabOpBarangSnapshot());
-      if (cfg.gajiKaryawanConfigured) setGajiKaryawan(getGajiKaryawanSnapshot());
+      if (cfg.rekapGajiHarianMap?.[selectedDate]?.records?.length) {
+        setGajiKaryawan(cfg.rekapGajiHarianMap[selectedDate].records);
+      } else if (cfg.gajiKaryawanConfigured) {
+        setGajiKaryawan(getGajiKaryawanSnapshot());
+      }
       if (cfg.picLembagaConfigured) setInsentifPicLembaga(normalizePicSchools(getPicLembagaSnapshot()));
       if (cfg.picPosyanduConfigured) setInsentifPicPosyandu(normalizePicPosyandu(getPicPosyanduSnapshot()));
       if (cfg.opLainnyaConfigured) setOperasionalLainnya(normalizeOpLainnya(getOpLainnyaSnapshot()));
@@ -632,7 +770,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         }
       }),
       subscribeOperationalSlice('gajiKaryawan', () => {
-        if (getAkuntanConfigsSnapshot().gajiKaryawanConfigured) {
+        const cfg = getAkuntanConfigsSnapshot();
+        if (cfg.rekapGajiHarianMap?.[selectedDate]?.records?.length) {
+          setGajiKaryawan(cfg.rekapGajiHarianMap[selectedDate].records);
+        } else if (cfg.gajiKaryawanConfigured) {
           setGajiKaryawan(getGajiKaryawanSnapshot());
         }
       }),
@@ -1463,8 +1604,23 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
   // Sinkronisasi data Gaji Karyawan dengan Slip Gaji Harian dari Menu Daftar Petugas
   const syncGajiKaryawanFromPetugas = React.useCallback(async (targetDate: string, isAuto: boolean = false) => {
+    const cfg = getAkuntanConfigsSnapshot();
+    const lockedForDate = Boolean(cfg.gajiKaryawanLockedMap?.[targetDate]);
+    const savedForDate = cfg.rekapGajiHarianMap?.[targetDate];
+
+    if (lockedForDate) {
+      if (isAuto) {
+        if (savedForDate?.records && savedForDate.records.length > 0) {
+          setGajiKaryawan(savedForDate.records);
+        }
+        return;
+      }
+      triggerToast('Data Rincian Petugas tanggal ini sudah dikunci. Klik "Edit Data" terlebih dahulu untuk menyinkronkan ulang.');
+      return;
+    }
+
     if (isAuto) {
-      const isConfigured = Boolean(getAkuntanConfigsSnapshot().gajiKaryawanConfigured);
+      const isConfigured = Boolean(cfg.gajiKaryawanConfigured);
       if (!isConfigured) {
         setGajiKaryawan([]);
         return;
@@ -1543,8 +1699,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             nik: s.nomorPetugas || s.petugasId || `PTG-${String(idx + 1).padStart(2, '0')}`,
             nama: s.namaPetugas || s.nama || `Petugas ${idx + 1}`,
             jabatan: s.jabatan || 'Petugas Operasional Dapur',
+            divisi: s.divisi || s.jabatan || 'Dapur & Distribusi',
             tipeGaji: 'Harian',
             hariKerja: kehadiran,
+            kehadiranHari: kehadiran,
             gajiPokok: gajiPokok,
             tunjanganHadir: tunjanganHadir,
             uangLembur: uangLembur,
@@ -1565,7 +1723,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         await updateAkuntanConfigDoc({ gajiKaryawanConfigured: true });
         setGajiKaryawan(mappedKaryawan);
         if (!isAuto) {
-          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas & disimpan ke Firebase!`);
+          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas. Klik "Simpan Data" untuk menyimpan ke Rekap Gaji Harian!`);
         }
       } else {
         if (!isAuto) {
@@ -1639,14 +1797,25 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       };
     }
 
+    if (path.includes('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-harian')) {
+      return {
+        key: 'rekap-harian-gaji',
+        title: 'Rekap Gaji Harian per Tanggal',
+        badge: 'REKAP HARIAN PER TANGGAL',
+        icon: Calendar,
+        breadcrumbs: ['AKUNTAN', 'RAB OPERASIONAL', 'JASA', 'GAJI KARYAWAN', 'REKAP HARIAN'],
+        description: 'Rekapitulasi total karyawan masuk dalam satu baris sesuai tanggal operasional dengan total gaji pokok dan total gaji bersih.'
+      };
+    }
+
     if (path.includes('/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji')) {
       return {
         key: 'slip-gaji-karyawan',
-        title: 'Rekap Gaji Harian per Tanggal',
-        badge: 'REKAP HARIAN PER TANGGAL',
+        title: 'Slip Gaji Karyawan (Tanda Terima Upah Relawan)',
+        badge: 'SLIP GAJI',
         icon: Receipt,
-        breadcrumbs: ['AKUNTAN', 'RAB OPERASIONAL', 'JASA', 'GAJI KARYAWAN', 'REKAP HARIAN'],
-        description: 'Rekapitulasi total karyawan masuk dalam satu baris sesuai tanggal operasional dengan total gaji pokok dan total gaji bersih.'
+        breadcrumbs: ['AKUNTAN', 'RAB OPERASIONAL', 'JASA', 'GAJI KARYAWAN', 'SLIP GAJI'],
+        description: 'Preview cetak laporan Slip Gaji resmi (Tanda Terima Upah Relawan) sesuai rentang periode tanggal, akumulasi kehadiran, dan penandatangan Master Divisi.'
       };
     }
 
@@ -2138,13 +2307,21 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             )}
 
             {/* Sinkronisasi Slip Petugas Button */}
-            {(routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'slip-gaji-karyawan') && (
+            {(routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'rekap-harian-gaji' || routeMeta.key === 'slip-gaji-karyawan') && (
               <button
                 type="button"
                 onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
-                disabled={isSyncingPetugas}
-                className="px-3.5 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-500/20 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                title="Sinkronkan data dengan slip gaji harian dan absensi petugas di menu Daftar Petugas"
+                disabled={isSyncingPetugas || isGajiKaryawanLocked}
+                className={`px-3.5 py-2 font-bold rounded-2xl text-xs shadow-md flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50 ${
+                  isGajiKaryawanLocked
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-teal-500/20'
+                }`}
+                title={
+                  isGajiKaryawanLocked
+                    ? 'Klik "Edit Data" terlebih dahulu untuk menyinkronkan ulang'
+                    : 'Sinkronkan data dengan slip gaji harian dan absensi petugas di menu Daftar Petugas'
+                }
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPetugas ? 'animate-spin' : ''}`} />
                 <span>{isSyncingPetugas ? 'Menyinkronkan Slip...' : '⚡ Sinkronkan Slip Petugas'}</span>
@@ -2198,7 +2375,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             <button
               type="button"
               onClick={() => {
-                if (routeMeta.key === 'slip-gaji-karyawan' || routeMeta.key === 'rekap-gaji-karyawan') {
+                if (routeMeta.key === 'slip-gaji-karyawan' || routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'rekap-harian-gaji') {
                   generateSlipGajiExcel(gajiKaryawan, 'Gaji Karyawan');
                 } else if (routeMeta.key.includes('pic-lembaga')) {
                   generateKwitansiExcel(insentifPicLembaga, 'PIC Lembaga Sekolah');
@@ -3074,7 +3251,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
       )}
 
       {/* VIEW 3: GAJI KARYAWAN (REKAP & SLIP GAJI) */}
-      {(routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'slip-gaji-karyawan') && (
+      {(routeMeta.key === 'rekap-gaji-karyawan' || routeMeta.key === 'rekap-harian-gaji' || routeMeta.key === 'slip-gaji-karyawan') && (
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
           {/* Header Pagu Harian Operasional & Sinkronisasi 5 Komponen */}
           {renderPaguOperasionalSection('Gaji Karyawan Dapur')}
@@ -3104,9 +3281,17 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               <button
                 type="button"
                 onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
-                disabled={isSyncingPetugas}
-                className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 disabled:opacity-50"
-                title="Tarik & sinkronkan ulang slip gaji dari menu Daftar Petugas"
+                disabled={isSyncingPetugas || isGajiKaryawanLocked}
+                className={`px-3.5 py-2 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 disabled:opacity-50 ${
+                  isGajiKaryawanLocked
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-teal-600 hover:bg-teal-700 text-white'
+                }`}
+                title={
+                  isGajiKaryawanLocked
+                    ? 'Buka kunci dengan tombol "Edit Data" terlebih dahulu untuk menyinkronkan ulang'
+                    : 'Tarik & sinkronkan ulang slip gaji dari menu Daftar Petugas'
+                }
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPetugas ? 'animate-spin' : ''}`} />
                 <span>{isSyncingPetugas ? 'Menyinkronkan...' : '⚡ Sinkronkan Slip Petugas'}</span>
@@ -3115,13 +3300,26 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Users className="w-5 h-5 text-teal-600" />
               <h2 className="text-sm font-black uppercase tracking-wide text-slate-800 dark:text-slate-200">
                 Penggajian Karyawan & Petugas Harian (Sinkron Slip Gaji)
               </h2>
+              {routeMeta.key === 'rekap-gaji-karyawan' && (
+                isGajiKaryawanLocked ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <Lock className="w-3 h-3" />
+                    Tersimpan & Terkunci
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+                    <Unlock className="w-3 h-3" />
+                    Mode Edit
+                  </span>
+                )
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
@@ -3135,6 +3333,17 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               </button>
               <button
                 type="button"
+                onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-harian')}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${
+                  routeMeta.key === 'rekap-harian-gaji'
+                    ? 'bg-teal-600 text-white shadow-2xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                Rekap Gaji Harian (per Tanggal)
+              </button>
+              <button
+                type="button"
                 onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji')}
                 className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${
                   routeMeta.key === 'slip-gaji-karyawan'
@@ -3142,8 +3351,32 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                 }`}
               >
-                Rekap Gaji Harian (per Tanggal)
+                SLIP GAJI
               </button>
+              {routeMeta.key === 'rekap-gaji-karyawan' && (
+                isGajiKaryawanLocked ? (
+                  <button
+                    type="button"
+                    onClick={() => handleEditRincianPetugas(selectedDate)}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                    title="Buka kunci dan edit data rincian petugas tanggal ini"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit Data</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSimpanRincianPetugas}
+                    disabled={gajiKaryawan.length === 0}
+                    className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all disabled:opacity-50"
+                    title="Simpan rincian petugas tanggal ini ke Rekap Gaji Harian dan kunci"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan Data</span>
+                  </button>
+                )
+              )}
               <button
                 type="button"
                 onClick={() => generateSlipGajiExcel(gajiKaryawan, `Gaji Karyawan ${selectedDate}`)}
@@ -3155,8 +3388,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
             </div>
           </div>
 
-          {/* Mode 1: REKAP GAJI HARIAN (SATU BARIS SESUAI TANGGAL) */}
+          {/* Mode 0: SLIP GAJI (TANDA TERIMA UPAH RELAWAN SESUAI PERIODE) */}
           {routeMeta.key === 'slip-gaji-karyawan' ? (
+            <SlipGajiRelawanView defaultDate={selectedDate} onToast={triggerToast} />
+          ) : routeMeta.key === 'rekap-harian-gaji' ? (
             <div className="space-y-4">
               {/* Highlight Card Ringkasan Total Karyawan Masuk */}
               <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-transparent border border-teal-500/30 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
@@ -3166,21 +3401,31 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </div>
                   <div>
                     <div className="text-xs font-black uppercase tracking-wider text-teal-900 dark:text-teal-200">
-                      Rekapitulasi Total Karyawan Masuk per Tanggal
+                      Rekapitulasi Total Karyawan Masuk per Tanggal (Tersimpan dari Rincian Petugas)
                     </div>
                     <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                      Menampilkan total karyawan yang masuk dalam satu baris terpadu sesuai tanggal operasional SPPG.
+                      Menampilkan ringkasan satu baris per tanggal yang telah disimpan melalui tombol <strong>"Simpan Data"</strong> pada tab Rincian Petugas.
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                    Total Masuk: <strong>{gajiKaryawan.length} Petugas</strong>
+                    Total Tersimpan: <strong>{savedRekapGajiHarianList.length} Tanggal</strong>
                   </span>
+                  {!isSelectedDateSavedInRekap && (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Simpan Tgl {selectedDate} di Rincian Petugas</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Tabel Rekap Gaji Harian: Hanya Menampilkan Total Karyawan Masuk dalam Satu Baris Sesuai Tanggalnya */}
+              {/* Tabel Rekap Gaji Harian: 1 Baris per Tanggal yang Disimpan */}
               <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -3195,7 +3440,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {gajiKaryawan.length === 0 ? (
+                    {savedRekapGajiHarianList.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="py-12 px-4 text-center">
                           <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
@@ -3204,10 +3449,220 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                             </div>
                             <div className="space-y-1">
                               <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-                                Data Gaji Karyawan Belum Diatur untuk Tanggal Ini ({selectedDate})
+                                Belum Ada Rekap Gaji Harian yang Disimpan ({selectedDate})
                               </div>
                               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                Rekap gaji karyawan masih kosong karena belum diatur atau disinkronkan dari menu Daftar Petugas. Klik tombol di bawah untuk menarik slip gaji harian petugas.
+                                Buka tab <strong>Rincian Petugas</strong>, klik <strong>⚡ Sinkronkan Slip Petugas</strong>, lalu klik tombol <strong>Simpan Data</strong> agar data tanggal tersebut tersimpan ke Rekap Gaji Harian.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
+                              className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-500/20 active:scale-95 transition-all"
+                            >
+                              <Users className="w-3.5 h-3.5" />
+                              <span>Buka Rincian Petugas</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      savedRekapGajiHarianList.map((row, idx) => (
+                        <tr
+                          key={row.tanggal}
+                          className={`transition-colors ${
+                            row.tanggal === selectedDate
+                              ? 'bg-teal-50/60 dark:bg-teal-950/30 hover:bg-teal-50 dark:hover:bg-teal-950/50'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <td className="py-3.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                          <td className="py-3.5 px-4 font-black text-slate-900 dark:text-slate-100">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-teal-600" />
+                              <span>
+                                {new Date(row.tanggal + 'T00:00:00').toLocaleDateString('id-ID', {
+                                  weekday: 'long',
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </span>
+                              {row.tanggal === selectedDate && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-teal-600 text-white">
+                                  Tanggal Aktif
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-normal">
+                              ISO: {row.tanggal}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              {row.totalKaryawanMasuk} Karyawan Masuk
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 text-sm">
+                            {formatRupiah(row.totalGajiPokok)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-black text-teal-800 dark:text-teal-300 text-base">
+                            {formatRupiah(row.totalGajiBersih)}
+                          </td>
+                          <td className="py-3.5 px-3 text-center">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
+                              <Check className="w-3 h-3" />
+                              {row.statusPembayaran || 'Lunas / Siap Dicairkan'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => generateSlipGajiExcel(row.records || [], `Rekap Harian ${row.tanggal}`)}
+                                className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                title="Export Excel Rekap Gaji Harian"
+                              >
+                                <FileSpreadsheet className="w-3.5 h-3.5" />
+                                <span>Excel</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await handleEditRincianPetugas(row.tanggal);
+                                  onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji');
+                                }}
+                                className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                title="Edit rincian petugas untuk tanggal ini"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDate(row.tanggal);
+                                  if (row.records?.length) setGajiKaryawan(row.records);
+                                  onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji');
+                                }}
+                                className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
+                                title="Lihat rincian per karyawan"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Rincian</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  <tfoot className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500 text-xs">
+                    <tr>
+                      <td colSpan={2} className="py-3 px-4 uppercase tracking-wider">
+                        TOTAL REKAP HARIAN GAJI TERSIMPAN:
+                      </td>
+                      <td className="py-3 px-4 text-center text-xs font-black text-emerald-800 dark:text-emerald-300">
+                        {savedRekapGajiHarianList.reduce((s, r) => s + (r.totalKaryawanMasuk || 0), 0)} Total Kehadiran
+                      </td>
+                      <td className="py-3 px-4 text-right text-xs font-bold text-slate-800 dark:text-slate-200">
+                        {formatRupiah(savedRekapGajiHarianList.reduce((sum, r) => sum + (r.totalGajiPokok || 0), 0))}
+                      </td>
+                      <td className="py-3 px-4 text-right text-base font-black text-teal-800 dark:text-teal-300">
+                        {formatRupiah(savedRekapGajiHarianList.reduce((sum, r) => sum + (r.totalGajiBersih || 0), 0))}
+                      </td>
+                      <td colSpan={2} className="py-3 px-4 text-center text-[11px] text-teal-700 dark:text-teal-300 font-bold">
+                        {savedRekapGajiHarianList.length} Tanggal Tersimpan
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          ) : (
+            /* Mode 2: TABEL REKAP GAJI KARYAWAN (RINCIAN PER PETUGAS DENGAN TOMBOL SIMPAN & EDIT) */
+            <div className="space-y-4">
+              {/* Status Alert Banner: Terkunci (Tersimpan di Rekap Harian) vs Mode Edit */}
+              {isGajiKaryawanLocked ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-amber-900 dark:text-amber-200">
+                        Status Data ({selectedDate}): Tersimpan di Rekap Gaji Harian & Terkunci
+                      </div>
+                      <div className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                        Rincian gaji tanggal <strong>{selectedDate}</strong> telah tersimpan ke <strong>Rekap Gaji Harian</strong>. Klik tombol <strong>"Edit Data"</strong> untuk merevisi atau menyinkronkan ulang.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleEditRincianPetugas(selectedDate)}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit / Revisi Data</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-teal-50 to-emerald-50/50 dark:from-teal-950/40 dark:to-emerald-950/20 border border-teal-200/80 dark:border-teal-800/60 rounded-2xl text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-teal-100 dark:bg-teal-900/60 border border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                      <Unlock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-teal-900 dark:text-teal-200">
+                        Status Data ({selectedDate}): Mode Edit Aktif
+                      </div>
+                      <div className="text-[11px] text-teal-700/90 dark:text-teal-300/80">
+                        Setelah klik <strong>⚡ Sinkronkan Slip Petugas</strong> atau mengedit kehadiran & nominal di bawah, klik tombol <strong>"Simpan Data"</strong> agar tersimpan permanen di <strong>Rekap Gaji Harian</strong>.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSimpanRincianPetugas}
+                    disabled={gajiKaryawan.length === 0}
+                    className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all shrink-0 self-start sm:self-center disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan ke Rekap Gaji Harian</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-3 w-10 text-center">No</th>
+                      <th className="py-3 px-3">Nama Petugas</th>
+                      <th className="py-3 px-3">Jabatan & Divisi</th>
+                      <th className="py-3 px-2 text-center">Hadir</th>
+                      <th className="py-3 px-3 text-right">Gaji Pokok (Hari)</th>
+                      <th className="py-3 px-3 text-right">Gaji Bersih (THP)</th>
+                      <th className="py-3 px-2 text-center">Status</th>
+                      <th className="py-3 px-3 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {gajiKaryawan.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 px-4 text-center">
+                          <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                            <div className="w-12 h-12 rounded-2xl bg-teal-100 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 text-teal-600 dark:text-teal-300 flex items-center justify-center shadow-xs">
+                              <Users className="w-6 h-6" />
+                            </div>
+                            <div className="space-y-1">
+                              <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                                Rincian Petugas Belum Diatur
+                              </div>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                Data rincian petugas masih kosong. Klik tombol di bawah untuk menyinkronkan slip gaji harian petugas dari menu Daftar Petugas.
                               </p>
                             </div>
                             <button
@@ -3223,200 +3678,134 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                         </td>
                       </tr>
                     ) : (
-                      <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="py-3.5 px-3 text-center font-bold text-slate-500">1</td>
-                        <td className="py-3.5 px-4 font-black text-slate-900 dark:text-slate-100">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-teal-600" />
-                            <span>
-                              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', {
-                                weekday: 'long',
-                                day: 'numeric',
-                                month: 'long',
-                                year: 'numeric'
-                              })}
+                      gajiKaryawan.map((rec, idx) => (
+                      <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{rec.nama}</div>
+                          <div className="text-[10px] text-slate-400">NIK: {rec.nik} • {rec.nomorSlip}</div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-slate-700 dark:text-slate-300">{rec.jabatan}</div>
+                          <div className="text-[10px] text-slate-400">{rec.divisi || 'Dapur & Distribusi'}</div>
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold text-slate-700 dark:text-slate-300">
+                          {isGajiKaryawanLocked ? (
+                            <span>{rec.kehadiranHari ?? rec.hariKerja ?? 1} hr</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              value={rec.kehadiranHari ?? rec.hariKerja ?? 1}
+                              onChange={(e) =>
+                                handleUpdateGajiKaryawanRecord(rec.id, {
+                                  hariKerja: parseFloat(e.target.value) || 0
+                                })
+                              }
+                              className="w-16 px-2 py-1 text-center font-bold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium">
+                          {isGajiKaryawanLocked ? (
+                            <span>{formatRupiah(rec.gajiPokok)}</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              value={rec.gajiPokok}
+                              onChange={(e) =>
+                                handleUpdateGajiKaryawanRecord(rec.id, {
+                                  gajiPokok: parseInt(e.target.value, 10) || 0
+                                })
+                              }
+                              className="w-28 px-2 py-1 text-right font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
+                          {isGajiKaryawanLocked ? (
+                            <span>{formatRupiah(rec.gajiBersih)}</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              value={rec.gajiBersih}
+                              onChange={(e) =>
+                                handleUpdateGajiKaryawanRecord(rec.id, {
+                                  gajiBersih: parseInt(e.target.value, 10) || 0
+                                })
+                              }
+                              className="w-28 px-2 py-1 text-right font-black bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          {isGajiKaryawanLocked ? (
+                            <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                              rec.statusBayar === 'Sudah Dibayar' || rec.statusBayar === 'Dibayar' || rec.statusBayar === 'Lunas'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}>
+                              {rec.statusBayar}
                             </span>
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-normal">
-                            ISO: {selectedDate}
-                          </div>
+                          ) : (
+                            <select
+                              value={rec.statusBayar}
+                              onChange={(e) =>
+                                handleUpdateGajiKaryawanRecord(rec.id, { statusBayar: e.target.value })
+                              }
+                              className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[10px] font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            >
+                              <option value="Lunas">Lunas</option>
+                              <option value="Menunggu Verifikasi">Menunggu Verifikasi</option>
+                              <option value="Draft">Draft</option>
+                            </select>
+                          )}
                         </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                            {gajiKaryawan.length} Karyawan Masuk
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 text-sm">
-                          {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-black text-teal-800 dark:text-teal-300 text-base">
-                          {formatRupiah(totalGajiKaryawan)}
-                        </td>
-                        <td className="py-3.5 px-3 text-center">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
-                            <Check className="w-3 h-3" />
-                            Lunas / Siap Dicairkan
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <div className="inline-flex items-center gap-2">
+                        <td className="py-2.5 px-3 text-center">
+                          <div className="inline-flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => generateSlipGajiExcel(gajiKaryawan, `Rekap Harian ${selectedDate}`)}
-                              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                              title="Export Excel Rekap Gaji Harian"
+                              onClick={() => generateSlipGajiPdf(rec, 'KARYAWAN')}
+                              className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                              title="Cetak Slip Gaji PDF"
                             >
-                              <FileSpreadsheet className="w-3.5 h-3.5" />
-                              <span>Excel</span>
+                              <Download className="w-3 h-3" />
+                              <span>PDF</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() => onNavigate('/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji')}
-                              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
-                              title="Lihat rincian per karyawan"
+                              onClick={() => setSelectedSlipKaryawan(rec)}
+                              className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                              title="Preview Slip Gaji"
                             >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Rincian</span>
+                              <Eye className="w-3 h-3" />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </tbody>
-                  <tfoot className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500 text-xs">
-                    <tr>
-                      <td colSpan={2} className="py-3 px-4 uppercase tracking-wider">
-                        TOTAL REKAP HARIAN GAJI:
+                    )))}
+                    <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
+                      <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
+                        TOTAL PENGGAJIAN HARIAN PETUGAS (SINKRON SLIP PETUGAS):
                       </td>
-                      <td className="py-3 px-4 text-center text-xs font-black text-emerald-800 dark:text-emerald-300">
-                        {gajiKaryawan.length} Petugas Hadir
-                      </td>
-                      <td className="py-3 px-4 text-right text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <td className="py-3 px-3 text-right text-xs font-bold text-slate-800 dark:text-slate-200">
                         {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
                       </td>
-                      <td className="py-3 px-4 text-right text-base font-black text-teal-800 dark:text-teal-300">
+                      <td className="py-3 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300">
                         {formatRupiah(totalGajiKaryawan)}
                       </td>
-                      <td colSpan={2} className="py-3 px-4 text-center text-[11px] text-teal-700 dark:text-teal-300 font-bold">
-                        1 Baris per Tanggal ({selectedDate})
+                      <td colSpan={2} className="py-3 px-3 text-center text-[11px] text-teal-700 dark:text-teal-300 font-bold">
+                        {gajiKaryawan.length} Petugas Terdata
                       </td>
                     </tr>
-                  </tfoot>
+                  </tbody>
                 </table>
               </div>
-            </div>
-          ) : (
-            /* Mode 2: TABEL REKAP GAJI KARYAWAN (RINCIAN PER PETUGAS TANPA KOLOM MAKAN, LEMBUR, POTONGAN) */
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-3 w-10 text-center">No</th>
-                    <th className="py-3 px-3">Nama Petugas</th>
-                    <th className="py-3 px-3">Jabatan & Divisi</th>
-                    <th className="py-3 px-2 text-center">Hadir</th>
-                    <th className="py-3 px-3 text-right">Gaji Pokok (Hari)</th>
-                    <th className="py-3 px-3 text-right">Gaji Bersih (THP)</th>
-                    <th className="py-3 px-2 text-center">Status</th>
-                    <th className="py-3 px-3 text-center">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {gajiKaryawan.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-12 px-4 text-center">
-                        <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
-                          <div className="w-12 h-12 rounded-2xl bg-teal-100 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 text-teal-600 dark:text-teal-300 flex items-center justify-center shadow-xs">
-                            <Users className="w-6 h-6" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-                              Rincian Petugas Belum Diatur
-                            </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                              Data rincian petugas masih kosong. Klik tombol di bawah untuk menyinkronkan slip gaji harian petugas dari menu Daftar Petugas.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
-                            disabled={isSyncingPetugas}
-                            className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-500/20 active:scale-95 transition-all disabled:opacity-50"
-                          >
-                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPetugas ? 'animate-spin' : ''}`} />
-                            <span>{isSyncingPetugas ? 'Menyinkronkan...' : '⚡ Sinkronkan Slip Petugas'}</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    gajiKaryawan.map((rec, idx) => (
-                    <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900 dark:text-slate-100">{rec.nama}</div>
-                        <div className="text-[10px] text-slate-400">NIK: {rec.nik} • {rec.nomorSlip}</div>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-semibold text-slate-700 dark:text-slate-300">{rec.jabatan}</div>
-                        <div className="text-[10px] text-slate-400">{rec.divisi || 'Dapur & Distribusi'}</div>
-                      </td>
-                      <td className="py-2.5 px-2 text-center font-bold text-slate-700 dark:text-slate-300">
-                        {rec.kehadiranHari} hr
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-medium">{formatRupiah(rec.gajiPokok)}</td>
-                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-slate-100">
-                        {formatRupiah(rec.gajiBersih)}
-                      </td>
-                      <td className="py-2.5 px-2 text-center">
-                        <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                          rec.statusBayar === 'Sudah Dibayar' || rec.statusBayar === 'Dibayar' || rec.statusBayar === 'Lunas'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                        }`}>
-                          {rec.statusBayar}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => generateSlipGajiPdf(rec, 'KARYAWAN')}
-                            className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
-                            title="Cetak Slip Gaji PDF"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>PDF</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedSlipKaryawan(rec)}
-                            className="px-2 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
-                            title="Preview Slip Gaji"
-                          >
-                            <Eye className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )))}
-                  <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
-                    <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
-                      TOTAL PENGGAJIAN HARIAN PETUGAS (SINKRON SLIP PETUGAS):
-                    </td>
-                    <td className="py-3 px-3 text-right text-xs font-bold text-slate-800 dark:text-slate-200">
-                      {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
-                    </td>
-                    <td className="py-3 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300">
-                      {formatRupiah(totalGajiKaryawan)}
-                    </td>
-                    <td colSpan={2} className="py-3 px-3 text-center text-[11px] text-teal-700 dark:text-teal-300 font-bold">
-                      {gajiKaryawan.length} Petugas Terdata
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
           )}
         </div>

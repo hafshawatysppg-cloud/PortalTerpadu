@@ -60,6 +60,9 @@ import {
   getAppStateEntries,
   saveAppStateEntries,
   getCollectionSnapshot,
+  saveCollectionSnapshot,
+  getOperationalSnapshot,
+  saveOperationalSnapshotSlices,
   flushWriteQueue,
   saveSnapshotToDiskNow
 } from './server/db/firestore';
@@ -160,6 +163,34 @@ async function startServer() {
       collection: rawName,
       data: Array.isArray(data) ? data : []
     });
+  });
+
+  app.post('/api/v1/cloud/collection/:name', (req: Request, res: Response) => {
+    const rawName = req.params.name;
+    const aliasMap: Record<string, string> = {
+      distribution_reports: 'distributionReports',
+      divisiTaskRecords: 'tugasDivisi'
+    };
+    const resolvedName = aliasMap[rawName] || rawName;
+    const items = Array.isArray(req.body?.data) ? req.body.data : [];
+    saveCollectionSnapshot(resolvedName, items);
+    res.json({ success: true, collection: rawName, count: items.length });
+  });
+
+  // Operational Snapshot Cache (Akuntan, Master Menu, Siklus Menu, dll.)
+  app.get('/api/v1/cloud/operational-snapshot', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: getOperationalSnapshot()
+    });
+  });
+
+  app.post('/api/v1/cloud/operational-snapshot', (req: Request, res: Response) => {
+    const slices = req.body?.slices;
+    if (slices && typeof slices === 'object') {
+      saveOperationalSnapshotSlices(slices);
+    }
+    res.json({ success: true });
   });
 
   // Flush queued writes, persist disk snapshot, and optionally force-pull from Firestore

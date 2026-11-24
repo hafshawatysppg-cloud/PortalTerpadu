@@ -207,7 +207,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, isOpe
                 icon: Icons.Users,
                 children: [
                   { title: 'Rekap Gaji', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji', icon: Icons.TableProperties },
-                  { title: 'Slip Gaji', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji', icon: Icons.Receipt }
+                  { title: 'Rekap Harian', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-harian', icon: Icons.CalendarCheck },
+                  { title: 'SLIP GAJI', path: '/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji', icon: Icons.Receipt }
                 ]
               },
               {

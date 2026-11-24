@@ -6,6 +6,7 @@ export type AkuntanSubPath =
   | '/akuntan/rab-operasional/jasa'
   | '/akuntan/rab-operasional/jasa/gaji-karyawan'
   | '/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-gaji'
+  | '/akuntan/rab-operasional/jasa/gaji-karyawan/rekap-harian'
   | '/akuntan/rab-operasional/jasa/gaji-karyawan/slip-gaji'
   | '/akuntan/rab-operasional/jasa/insentif-pic-lembaga'
   | '/akuntan/rab-operasional/jasa/insentif-pic-lembaga/rekap'
@@ -57,8 +58,10 @@ export interface GajiKaryawanRecord {
   nik: string;
   nama: string;
   jabatan: 'Kepala Koki (Head Chef)' | 'Cook Helper (Asisten Masak)' | 'Petugas Preparasi Bahan' | 'Tim Pemorsian (Packing)' | 'Petugas Cuci & Higiene Dapur' | string;
+  divisi?: string;
   tipeGaji: 'Bulanan' | 'Harian';
   hariKerja: number;
+  kehadiranHari?: number;
   gajiPokok: number;
   tunjanganHadir: number;
   uangLembur: number;
@@ -72,6 +75,25 @@ export interface GajiKaryawanRecord {
   tanggalBayar: string;
   statusBayar: 'Lunas' | 'Menunggu Verifikasi' | 'Draft' | string;
   rekeningBank: string;
+}
+
+export interface RekapGajiHarianSavedRecord {
+  tanggal: string;
+  totalKaryawanMasuk: number;
+  totalGajiPokok: number;
+  totalGajiBersih: number;
+  statusPembayaran: string;
+  savedAt: string;
+  records: GajiKaryawanRecord[];
+}
+
+export interface SlipGajiNumberingConfig {
+  nextNomorUrut: number;
+  digitLength: number;
+  kodeJenis: string;
+  kodeInstansi: string;
+  autoIncrementAfterPrint: boolean;
+  updatedAt?: string;
 }
 
 export interface InsentifPicRecord {

@@ -26,7 +26,14 @@ import {
 } from '../../utils/laporanMakananPdfHelper';
 import { db } from '../../lib/firebase';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { OperationType, notifyFirestoreFailure } from '../../lib/firestoreHelper';
+import {
+  OperationType,
+  isFirestoreQuotaError,
+  isFirestoreQuotaExhausted,
+  markFirestoreQuotaExhausted,
+  notifyFirestoreFailure
+} from '../../lib/firestoreHelper';
+import { safeParseJson } from '../../lib/safeJson';
 
 interface LaporanMakananViewProps {
   currentPath: string;
@@ -85,39 +92,104 @@ export const LaporanMakananView: React.FC<LaporanMakananViewProps> = ({ onNaviga
     setTimeout(() => setToastMsg(null), 3200);
   };
 
-  // Real-time Firestore subscriptions for Laporan Makanan (Single Source of Truth)
+  // Real-time Firestore subscriptions for Laporan Makanan with server fallback
   useEffect(() => {
-    const q1 = query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc'));
-    const unsub1 = onSnapshot(
-      q1,
-      (snap) => {
-        const list: DailySuhuPengolahanRecord[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
-        setPengolahanRecords(list);
-      },
-      (err) => {
-        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2', 'Gagal memuat laporan suhu pengolahan');
-        showToast(msg);
-      }
-    );
+    let active = true;
+    const loadServerFallback = async () => {
+      try {
+        const [r1, r2] = await Promise.all([
+          fetch('/api/v1/cloud/collection/suhu_pengolahan_v2'),
+          fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2')
+        ]);
+        if (r1.ok && active) {
+          const j1 = await safeParseJson<{ success?: boolean; data?: DailySuhuPengolahanRecord[] }>(r1);
+          if (j1?.success && Array.isArray(j1.data)) {
+            setPengolahanRecords(j1.data);
+          }
+        }
+        if (r2.ok && active) {
+          const j2 = await safeParseJson<{ success?: boolean; data?: DailySuhuOmprengRecord[] }>(r2);
+          if (j2?.success && Array.isArray(j2.data)) {
+            setOmprengRecords(j2.data);
+          }
+        }
+      } catch (_) {}
+    };
 
-    const q2 = query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc'));
-    const unsub2 = onSnapshot(
-      q2,
-      (snap) => {
-        const list: DailySuhuOmprengRecord[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
-        setOmprengRecords(list);
-      },
-      (err) => {
-        const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2', 'Gagal memuat laporan suhu ompreng');
-        showToast(msg);
+    void loadServerFallback();
+    if (isFirestoreQuotaExhausted()) {
+      return () => {
+        active = false;
+      };
+    }
+
+    let unsub1: (() => void) | null = null;
+    let unsub2: (() => void) | null = null;
+    try {
+      const q1 = query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc'));
+      unsub1 = onSnapshot(
+        q1,
+        (snap) => {
+          const list: DailySuhuPengolahanRecord[] = [];
+          snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
+          setPengolahanRecords(list);
+          void fetch('/api/v1/cloud/collection/suhu_pengolahan_v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: list })
+          }).catch(() => {});
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            markFirestoreQuotaExhausted();
+            try { unsub1?.(); } catch (_) {}
+            try { unsub2?.(); } catch (_) {}
+            notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2');
+            void loadServerFallback();
+            return;
+          }
+          const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2', 'Gagal memuat laporan suhu pengolahan');
+          showToast(msg);
+        }
+      );
+
+      const q2 = query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc'));
+      unsub2 = onSnapshot(
+        q2,
+        (snap) => {
+          const list: DailySuhuOmprengRecord[] = [];
+          snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
+          setOmprengRecords(list);
+          void fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: list })
+          }).catch(() => {});
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            markFirestoreQuotaExhausted();
+            try { unsub1?.(); } catch (_) {}
+            try { unsub2?.(); } catch (_) {}
+            notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2');
+            void loadServerFallback();
+            return;
+          }
+          const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2', 'Gagal memuat laporan suhu ompreng');
+          showToast(msg);
+        }
+      );
+    } catch (err) {
+      if (isFirestoreQuotaError(err)) {
+        markFirestoreQuotaExhausted();
       }
-    );
+      notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2');
+    }
 
     return () => {
-      unsub1();
-      unsub2();
+      active = false;
+      try { unsub1?.(); } catch (_) {}
+      try { unsub2?.(); } catch (_) {}
     };
   }, []);
 

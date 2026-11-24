@@ -29,8 +29,27 @@ let isConnected = false;
 let configData: any = null;
 let quotaExceeded = false;
 let lastQuotaErrorAt: string | null = null;
+let lastQuotaErrorMs = 0;
+const QUOTA_COOLDOWN_MS = 10 * 60 * 1000;
 let lastFullSyncAt = 0;
 const SYNC_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown to prevent redundant full-DB read bursts
+
+const operationalSnapshot: Record<string, any> = {};
+
+function isServerQuotaCooldown(): boolean {
+  if (!quotaExceeded) return false;
+  if (Date.now() - lastQuotaErrorMs > QUOTA_COOLDOWN_MS) {
+    quotaExceeded = false;
+    return false;
+  }
+  return true;
+}
+
+function markServerQuotaHit(): void {
+  quotaExceeded = true;
+  lastQuotaErrorAt = new Date().toISOString();
+  lastQuotaErrorMs = Date.now();
+}
 
 const SNAPSHOT_DIR = path.resolve(process.cwd(), '.cloud-sync-cache');
 const SNAPSHOT_FILE = path.join(SNAPSHOT_DIR, 'db-snapshot.json');
@@ -69,10 +88,13 @@ export function hydrateFromLocalSnapshot(): boolean {
     if (parsed.appStateSync && typeof parsed.appStateSync === 'object') {
       dbStore.appStateSync = { ...dbStore.appStateSync, ...parsed.appStateSync };
     }
+    if (parsed.operationalSnapshot && typeof parsed.operationalSnapshot === 'object') {
+      Object.assign(operationalSnapshot, parsed.operationalSnapshot);
+    }
     if (typeof parsed.lastFullSyncAt === 'number') {
       lastFullSyncAt = parsed.lastFullSyncAt;
     }
-    console.log(`💾 Hydrated local persistent cloud cache (${Object.keys(dbStore.appStateSync).length} app-state keys).`);
+    console.log(`💾 Hydrated local persistent cloud cache (${Object.keys(dbStore.appStateSync).length} app-state keys, ${Object.keys(operationalSnapshot).length} operational slices).`);
     return true;
   } catch (err: any) {
     console.warn('⚠️ Failed to hydrate local snapshot cache:', err?.message || err);
@@ -94,6 +116,7 @@ export function saveSnapshotToDiskNow(): void {
       lastFullSyncAt,
       collections,
       appStateSync: dbStore.appStateSync,
+      operationalSnapshot,
     };
     const tmpFile = `${SNAPSHOT_FILE}.tmp`;
     fs.writeFileSync(tmpFile, JSON.stringify(payload), 'utf8');
@@ -152,12 +175,40 @@ export async function saveAppStateEntries(
   return updatedCount;
 }
 
+export function getOperationalSnapshot(): Record<string, any> {
+  return operationalSnapshot;
+}
+
+export function saveOperationalSnapshotSlices(slices: Record<string, any>): void {
+  if (!slices || typeof slices !== 'object') return;
+  for (const [k, v] of Object.entries(slices)) {
+    if (k && v !== undefined) {
+      operationalSnapshot[k] = v;
+    }
+  }
+  scheduleSnapshotSave(150);
+}
+
 export function getCollectionSnapshot(collectionName: string): any[] | null {
   const entry = SYNCED_COLLECTIONS.find((c) => c.coll === collectionName || c.key === collectionName);
-  if (!entry) return null;
-  const val = (dbStore as any)[entry.key];
-  if (Array.isArray(val)) return val;
+  if (entry) {
+    const val = (dbStore as any)[entry.key];
+    if (Array.isArray(val)) return val;
+  }
+  const opVal = operationalSnapshot[collectionName];
+  if (Array.isArray(opVal)) return opVal;
   return null;
+}
+
+export function saveCollectionSnapshot(collectionName: string, data: any[]): void {
+  if (!collectionName || !Array.isArray(data)) return;
+  const entry = SYNCED_COLLECTIONS.find((c) => c.coll === collectionName || c.key === collectionName);
+  if (entry) {
+    (dbStore as any)[entry.key] = data;
+  } else {
+    operationalSnapshot[collectionName] = data;
+  }
+  scheduleSnapshotSave(200);
 }
 
 export function getFirestoreDb(): Firestore | null {
@@ -297,6 +348,11 @@ function scheduleFlush(delayMs = 25) {
 // Background Batch Committer
 export async function flushWriteQueue(): Promise<void> {
   if (isFlushing || pendingWriteQueue.size === 0) return;
+  if (isServerQuotaCooldown()) {
+    pendingWriteQueue.clear();
+    scheduleSnapshotSave(150);
+    return;
+  }
   const db = getFirestoreDb();
   if (!db) return;
 
@@ -343,8 +399,7 @@ export async function flushWriteQueue(): Promise<void> {
   } catch (err: any) {
     writeErrors++;
     if (isQuotaError(err)) {
-      quotaExceeded = true;
-      lastQuotaErrorAt = new Date().toISOString();
+      markServerQuotaHit();
       console.warn('⚠️ Firestore quota exceeded during batch commit — data safely preserved in local server snapshot.');
       pendingWriteQueue.clear();
       scheduleSnapshotSave(50);
@@ -367,8 +422,7 @@ export async function flushWriteQueue(): Promise<void> {
         totalWritesCommitted++;
       } catch (indivErr: any) {
         if (isQuotaError(indivErr)) {
-          quotaExceeded = true;
-          lastQuotaErrorAt = new Date().toISOString();
+          markServerQuotaHit();
           break;
         }
         console.error(`⚠️ Individual write failed for ${item.collectionName}/${item.docId}:`, indivErr);
@@ -745,6 +799,11 @@ export async function initFirestoreSync(force = false) {
   // Always hydrate from local disk snapshot first (0 Firestore reads)
   const hadLocalSnapshot = hydrateFromLocalSnapshot();
 
+  if (!force && isServerQuotaCooldown()) {
+    console.log('⚡ Firestore in quota cooldown — running seamlessly on persistent server snapshot cache.');
+    return;
+  }
+
   if (!force && hadLocalSnapshot && lastFullSyncAt > 0 && Date.now() - lastFullSyncAt < SYNC_COOLDOWN_MS) {
     console.log('⚡ Using warm persistent cloud snapshot (skipping redundant Firestore full-sync to preserve read quota).');
     return;
@@ -821,8 +880,7 @@ export async function initFirestoreSync(force = false) {
       } catch (err: any) {
         if (isQuotaError(err)) {
           hitQuotaDuringSync = true;
-          quotaExceeded = true;
-          lastQuotaErrorAt = new Date().toISOString();
+          markServerQuotaHit();
           return;
         }
         console.warn(`⚠️ Warning syncing collection ${item.coll}:`, err?.message || err);
@@ -852,8 +910,7 @@ export async function initFirestoreSync(force = false) {
       } catch (err: any) {
         if (isQuotaError(err)) {
           hitQuotaDuringSync = true;
-          quotaExceeded = true;
-          lastQuotaErrorAt = new Date().toISOString();
+          markServerQuotaHit();
         }
       }
     }

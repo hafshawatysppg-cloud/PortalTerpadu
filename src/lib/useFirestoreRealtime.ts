@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } 
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { getDb } from './firebase';
 import { safeParseJson } from './safeJson';
-import { OperationType, notifyFirestoreFailure } from './firestoreHelper';
+import {
+  OperationType,
+  isFirestoreQuotaError,
+  isFirestoreQuotaExhausted,
+  markFirestoreQuotaExhausted,
+  notifyFirestoreFailure
+} from './firestoreHelper';
 
 interface CollectionStoreEntry<T> {
   data: T[];
@@ -27,14 +33,16 @@ function computeItemsFingerprint<T>(items: T[]): string {
   }
 }
 
-function isQuotaExceededError(err: any): boolean {
-  const msg = String(err?.message || err || '').toLowerCase();
-  const code = String(err?.code || '').toLowerCase();
-  return (
-    code.includes('resource-exhausted') ||
-    msg.includes('quota') ||
-    msg.includes('resource_exhausted')
-  );
+function teardownAllRegistryListeners(): void {
+  collectionRegistry.forEach((entry) => {
+    entry.quotaHit = true;
+    if (entry.unsubscribe) {
+      try {
+        entry.unsubscribe();
+      } catch {}
+      entry.unsubscribe = null;
+    }
+  });
 }
 
 async function fetchServerCollectionFallback<T>(collectionName: string): Promise<T[] | null> {
@@ -47,7 +55,7 @@ async function fetchServerCollectionFallback<T>(collectionName: string): Promise
     }
     return null;
   } catch (err) {
-    console.error(`Server fallback read error for [${collectionName}]:`, err);
+    console.warn(`Server fallback read warning for [${collectionName}]:`, err);
     return null;
   }
 }
@@ -121,8 +129,10 @@ function ensureSharedListener<T extends { id: string }>(
               updateEntryData(entry, customItems);
             }
           } catch (err) {
-            console.error(`Fallback fetch error for [${collectionName}]:`, err);
+            console.warn(`Fallback fetch warning for [${collectionName}]:`, err);
           }
+        } else if (serverItems && !entry.hasData) {
+          updateEntryData(entry, serverItems);
         }
       } finally {
         entry.fallbackInFlight = false;
@@ -131,7 +141,12 @@ function ensureSharedListener<T extends { id: string }>(
     void runFallback();
   }
 
-  if (entry.unsubscribe || entry.quotaHit) return;
+  if (entry.unsubscribe || entry.quotaHit || isFirestoreQuotaExhausted()) {
+    if (isFirestoreQuotaExhausted()) {
+      entry.quotaHit = true;
+    }
+    return;
+  }
 
   try {
     const firestore = getDb();
@@ -160,27 +175,32 @@ function ensureSharedListener<T extends { id: string }>(
           err?.message?.includes('client is offline') ||
           err?.message?.includes('Internal server error');
 
-        if (isQuotaExceededError(err)) {
-          entry.quotaHit = true;
-          if (entry.unsubscribe) {
-            try {
-              entry.unsubscribe();
-            } catch {}
-            entry.unsubscribe = null;
+        if (isFirestoreQuotaError(err)) {
+          markFirestoreQuotaExhausted();
+          teardownAllRegistryListeners();
+          notifyFirestoreFailure(
+            err,
+            OperationType.LIST,
+            collectionName,
+            `Gagal sinkronisasi data [${collectionName}] dari Firebase`
+          );
+          if (entry.error !== null) {
+            entry.error = null;
+            notifySubscribers(entry);
           }
-        }
-
-        const errMsg = notifyFirestoreFailure(
-          err,
-          OperationType.LIST,
-          collectionName,
-          isTransientStreamDrop
-            ? `Koneksi real-time ke [${collectionName}] terganggu`
-            : `Gagal sinkronisasi data [${collectionName}] dari Firebase`
-        );
-        if (entry.error !== errMsg) {
-          entry.error = errMsg;
-          notifySubscribers(entry);
+        } else {
+          const errMsg = notifyFirestoreFailure(
+            err,
+            OperationType.LIST,
+            collectionName,
+            isTransientStreamDrop
+              ? `Koneksi real-time ke [${collectionName}] terganggu`
+              : `Gagal sinkronisasi data [${collectionName}] dari Firebase`
+          );
+          if (entry.error !== errMsg) {
+            entry.error = errMsg;
+            notifySubscribers(entry);
+          }
         }
 
         if (!entry.fallbackInFlight) {
@@ -189,18 +209,20 @@ function ensureSharedListener<T extends { id: string }>(
             try {
               const serverItems = await fetchServerCollectionFallback<T>(collectionName);
               if (serverItems && serverItems.length > 0) {
-                updateEntryData(entry, serverItems);
+                updateEntryData(entry, serverItems, true);
                 return;
               }
               if (fallbackFetch) {
                 try {
                   const res = await fallbackFetch();
                   if (Array.isArray(res)) {
-                    updateEntryData(entry, res);
+                    updateEntryData(entry, res, true);
                   }
                 } catch (fallbackErr) {
-                  console.error(`Recovery fallback error for [${collectionName}]:`, fallbackErr);
+                  console.warn(`Recovery fallback warning for [${collectionName}]:`, fallbackErr);
                 }
+              } else if (serverItems) {
+                updateEntryData(entry, serverItems, true);
               }
             } finally {
               entry.fallbackInFlight = false;
@@ -211,13 +233,17 @@ function ensureSharedListener<T extends { id: string }>(
       }
     );
   } catch (err: any) {
+    if (isFirestoreQuotaError(err)) {
+      markFirestoreQuotaExhausted();
+      teardownAllRegistryListeners();
+    }
     const errMsg = notifyFirestoreFailure(
       err,
       OperationType.LIST,
       collectionName,
       `Gagal menginisialisasi koneksi Firestore [${collectionName}]`
     );
-    if (entry.error !== errMsg) {
+    if (!isFirestoreQuotaError(err) && entry.error !== errMsg) {
       entry.error = errMsg;
       notifySubscribers(entry);
     }

@@ -198,6 +198,26 @@ router.post('/slip-gaji/batch-generate', async (req: Request, res: Response) => 
 });
 
 /**
+ * GET /api/petugas/slip-gaji/periode
+ * Mengagregasi jumlah kehadiran & total gaji karyawan dalam rentang tanggal (startDate s/d endDate).
+ */
+router.get('/slip-gaji/periode', (req: Request, res: Response) => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const startDate = (typeof req.query.startDate === 'string' && req.query.startDate) || todayStr;
+    const endDate = (typeof req.query.endDate === 'string' && req.query.endDate) || startDate;
+    const summary = dbStore.getSlipGajiPeriodeSummary(startDate, endDate);
+    return res.json({
+      success: true,
+      data: summary
+    });
+  } catch (error: any) {
+    console.error('Error fetching periode slip gaji:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menghitung slip gaji periode', error: error.message });
+  }
+});
+
+/**
  * GET /api/petugas/slip-gaji/:slipId
  * Detail slip gaji harian berdasarkan ID.
  */
