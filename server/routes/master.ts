@@ -164,6 +164,10 @@ router.post('/divisi', async (req: Request, res: Response): Promise<void> => {
   if (updatedBastsOnAdd.length > 0) {
     await syncSaveBatch('bastDocuments', updatedBastsOnAdd);
   }
+  const syncOnAdd = dbStore.syncJabatanFromMasterDivisi();
+  if (syncOnAdd.updatedPetugas.length > 0) await syncSaveBatch('petugasList', syncOnAdd.updatedPetugas);
+  if (syncOnAdd.updatedSlips.length > 0) await syncSaveBatch('slipGajiList', syncOnAdd.updatedSlips);
+  if (syncOnAdd.updatedAbsensi.length > 0) await syncSaveBatch('rekapAbsensiList', syncOnAdd.updatedAbsensi);
   saveSnapshotToDiskNow();
   res.status(201).json({ success: true, message: 'Divisi berhasil ditambahkan', data: newDiv });
 });
@@ -208,6 +212,10 @@ router.put('/divisi/:id', async (req: Request, res: Response): Promise<void> => 
   if (updatedBastsOnEdit.length > 0) {
     await syncSaveBatch('bastDocuments', updatedBastsOnEdit);
   }
+  const syncOnEdit = dbStore.syncJabatanFromMasterDivisi();
+  if (syncOnEdit.updatedPetugas.length > 0) await syncSaveBatch('petugasList', syncOnEdit.updatedPetugas);
+  if (syncOnEdit.updatedSlips.length > 0) await syncSaveBatch('slipGajiList', syncOnEdit.updatedSlips);
+  if (syncOnEdit.updatedAbsensi.length > 0) await syncSaveBatch('rekapAbsensiList', syncOnEdit.updatedAbsensi);
   saveSnapshotToDiskNow();
   res.json({ success: true, message: 'Divisi berhasil diperbarui', data: dbStore.divisi[idx] });
 });
@@ -223,6 +231,10 @@ router.delete('/divisi/:id', async (req: Request, res: Response): Promise<void> 
     if (updatedBastsOnDel.length > 0) {
       await syncSaveBatch('bastDocuments', updatedBastsOnDel);
     }
+    const syncOnDel = dbStore.syncJabatanFromMasterDivisi();
+    if (syncOnDel.updatedPetugas.length > 0) await syncSaveBatch('petugasList', syncOnDel.updatedPetugas);
+    if (syncOnDel.updatedSlips.length > 0) await syncSaveBatch('slipGajiList', syncOnDel.updatedSlips);
+    if (syncOnDel.updatedAbsensi.length > 0) await syncSaveBatch('rekapAbsensiList', syncOnDel.updatedAbsensi);
     saveSnapshotToDiskNow();
     res.json({ success: true, message: 'Divisi berhasil dihapus', data: deleted });
   } else {
@@ -336,8 +348,29 @@ router.put('/jabatan/:id', async (req: Request, res: Response): Promise<void> =>
   };
 
   dbStore.jabatan[idx] = updatedJabatan as any;
+  // Re-link MasterDivisi yang memakai jabatanId / kode ini
+  dbStore.divisi = dbStore.divisi.map(d => {
+    const matchesJab =
+      d.jabatanId === id ||
+      (d.kode || '').trim().toUpperCase() === cleanKode ||
+      (current.kode && (d.kode || '').trim().toUpperCase() === (current.kode || '').trim().toUpperCase());
+    if (matchesJab) {
+      return {
+        ...d,
+        kode: cleanKode,
+        jabatanId: id,
+        jabatanNama: cleanNama,
+        updatedAt: nowIso
+      };
+    }
+    return d;
+  });
   dbStore.addLog('ADMIN', 'System Administrator', 'Master Data', 'Edit Jenis Jabatan', `Memperbarui jenis jabatan '${cleanNama}' (${cleanKode})`, req.ip);
   await syncSaveDoc('jabatan', id, updatedJabatan);
+  const syncOnJabEdit = dbStore.syncJabatanFromMasterDivisi();
+  if (syncOnJabEdit.updatedPetugas.length > 0) await syncSaveBatch('petugasList', syncOnJabEdit.updatedPetugas);
+  if (syncOnJabEdit.updatedSlips.length > 0) await syncSaveBatch('slipGajiList', syncOnJabEdit.updatedSlips);
+  if (syncOnJabEdit.updatedAbsensi.length > 0) await syncSaveBatch('rekapAbsensiList', syncOnJabEdit.updatedAbsensi);
   saveSnapshotToDiskNow();
   res.json({ success: true, message: 'Jenis jabatan berhasil diperbarui.', data: updatedJabatan });
 });

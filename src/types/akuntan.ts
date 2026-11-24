@@ -59,6 +59,7 @@ export interface GajiKaryawanRecord {
   nama: string;
   jabatan: 'Kepala Koki (Head Chef)' | 'Cook Helper (Asisten Masak)' | 'Petugas Preparasi Bahan' | 'Tim Pemorsian (Packing)' | 'Petugas Cuci & Higiene Dapur' | string;
   divisi?: string;
+  kodeDivisi?: string;
   tipeGaji: 'Bulanan' | 'Harian';
   hariKerja: number;
   kehadiranHari?: number;

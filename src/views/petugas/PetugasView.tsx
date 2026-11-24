@@ -45,7 +45,8 @@ import {
   RekapAbsensiHarian,
   AbsensiPetugasItem,
   StatusAbsensi,
-  MasterJabatan
+  MasterJabatan,
+  MasterDivisi
 } from '../../types';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
@@ -55,6 +56,14 @@ import {
   getDefaultJamKerjaByJabatan,
   isLegacyDefaultJamKerja
 } from '../../utils/jamKerjaHelper';
+import {
+  resolvePengawasKeuanganName,
+  resolveKepalaSppgName
+} from '../../utils/divisiDistribusiHelper';
+import {
+  buildMasterDivisiJabatanOptions,
+  resolveJabatanAndDivisiFromMaster
+} from '../../utils/masterDivisiJabatanHelper';
 
 interface PetugasViewProps {
   currentPath?: string;
@@ -142,16 +151,36 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const [petugasList, setPetugasList] = useState<Petugas[]>([]);
   const [slipList, setSlipList] = useState<SlipGajiHarian[]>([]);
   const [masterJabatanList, setMasterJabatanList] = useState<MasterJabatan[]>([]);
+  const [masterDivisiList, setMasterDivisiList] = useState<MasterDivisi[]>([]);
   const [customJabatanInput, setCustomJabatanInput] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isSyncingMasterDivisi, setIsSyncingMasterDivisi] = useState<boolean>(false);
+
+  const fetchDivisiFallback = React.useCallback(async (): Promise<MasterDivisi[]> => {
+    try {
+      const res = await fetch('/api/v1/master/divisi');
+      if (!res.ok) return [];
+      const json = await safeParseJson<{ success?: boolean; data?: MasterDivisi[] }>(res);
+      return Array.isArray(json?.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
 
   const { data: realtimeJabatan } = useFirestoreRealtime<MasterJabatan>('jabatan');
+  const { data: realtimeDivisi } = useFirestoreRealtime<MasterDivisi>('divisi', fetchDivisiFallback);
 
   useEffect(() => {
     if (realtimeJabatan && realtimeJabatan.length > 0) {
       setMasterJabatanList(realtimeJabatan);
     }
   }, [realtimeJabatan]);
+
+  useEffect(() => {
+    if (realtimeDivisi && realtimeDivisi.length > 0) {
+      setMasterDivisiList(realtimeDivisi);
+    }
+  }, [realtimeDivisi]);
 
   // Filters for Daftar Petugas
   const [searchPetugas, setSearchPetugas] = useState<string>('');
@@ -162,6 +191,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedTanggal, setSelectedTanggal] = useState<string>(todayStr);
   const [filterStatusBayar, setFilterStatusBayar] = useState<string>('Semua');
+  const [filterSlipJabatan, setFilterSlipJabatan] = useState<string>('Semua');
   const [searchSlip, setSearchSlip] = useState<string>('');
 
   // State Rekap Absensi
@@ -238,18 +268,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       setLoading(true);
     }
     try {
-      const [resPetugasRaw, resSlipRaw, resAbsensiRaw, resJabatanRaw] = await Promise.all([
+      const [resPetugasRaw, resSlipRaw, resAbsensiRaw, resJabatanRaw, resDivisiRaw] = await Promise.all([
         fetch('/api/petugas'),
         fetch('/api/petugas/slip-gaji'),
         fetch(`/api/petugas/absensi?tanggal=${selectedTanggal}`),
-        fetch('/api/v1/master/jabatan').catch(() => null)
+        fetch('/api/v1/master/jabatan').catch(() => null),
+        fetch('/api/v1/master/divisi').catch(() => null)
       ]);
 
-      const [resPetugas, resSlip, resAbsensi, resJabatan] = await Promise.all([
+      const [resPetugas, resSlip, resAbsensi, resJabatan, resDivisi] = await Promise.all([
         safeParseJson(resPetugasRaw),
         safeParseJson(resSlipRaw),
         safeParseJson(resAbsensiRaw),
-        resJabatanRaw ? safeParseJson(resJabatanRaw) : Promise.resolve(null)
+        resJabatanRaw ? safeParseJson(resJabatanRaw) : Promise.resolve(null),
+        resDivisiRaw ? safeParseJson(resDivisiRaw) : Promise.resolve(null)
       ]);
 
       if (resPetugas?.success) {
@@ -263,6 +295,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       }
       if (resJabatan?.success && Array.isArray(resJabatan.data)) {
         setMasterJabatanList(resJabatan.data);
+      }
+      if (resDivisi?.success && Array.isArray(resDivisi.data)) {
+        setMasterDivisiList(resDivisi.data);
       }
     } catch (err) {
       console.error('Failed to load petugas/slip data:', err);
@@ -287,20 +322,33 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     setTimeout(() => setActionMessage(null), 4000);
   };
 
+  const masterBendaharaName = useMemo(
+    () => resolvePengawasKeuanganName(masterDivisiList, 'Muhammad Fadil, S. Akun'),
+    [masterDivisiList]
+  );
+
+  const masterKepalaSppgName = useMemo(
+    () => resolveKepalaSppgName(masterDivisiList, 'Sri Rohayu, S. Pd'),
+    [masterDivisiList]
+  );
+
+  const masterDivisiOptions = useMemo(
+    () => buildMasterDivisiJabatanOptions(masterDivisiList, masterJabatanList),
+    [masterDivisiList, masterJabatanList]
+  );
+
   // Preset Daftar Jabatan fallback jika master database kosong
   const presetJabatan = [
-    'Kepala Juru Masak (Head Chef)',
-    'Asisten Juru Masak',
-    'Petugas Pemorsian & Packing',
-    'Driver Distribusi & Armada',
-    'Petugas Cuci Ompreng & Sanitasi',
-    'Petugas Logistik & Gudang',
-    'Ahli Gizi & Pengawas Mutu',
-    'Petugas Kebersihan & Lingkungan',
-    'Tenaga Administrasi SPPG'
+    'Head Chef',
+    'Divisi Persiapan',
+    'Divisi Pengolahan',
+    'Divisi Pemorsian',
+    'Divisi Distribusi',
+    'Divisi Cuci Ompreng',
+    'Asisten Lapangan'
   ];
 
-  // Gabungkan Master Jenis Jabatan dari database dengan jabatan aktif petugas (bebas duplikat)
+  // Gabungkan opsi Jenis Jabatan dari Master Divisi + Master Jabatan + jabatan aktif petugas (bebas duplikat)
   const availableJabatanList = useMemo(() => {
     const map = new Map<string, string>();
     const addName = (raw?: string) => {
@@ -309,14 +357,78 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       const key = trimmed.toLowerCase();
       if (!map.has(key)) map.set(key, trimmed);
     };
-    if (masterJabatanList.length > 0) {
+    if (masterDivisiOptions.length > 0) {
+      masterDivisiOptions.forEach(opt => addName(opt.jabatan));
+    } else if (masterJabatanList.length > 0) {
       masterJabatanList.forEach(j => addName(j.nama));
     } else {
       presetJabatan.forEach(addName);
     }
-    petugasList.forEach(p => addName(p.jabatan));
+    petugasList.forEach(p => {
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: p.jabatan,
+        rawDivisi: p.divisi,
+        rawKodeDivisi: p.kodeDivisi,
+        divisiList: masterDivisiList,
+        jabatanList: masterJabatanList
+      });
+      addName(resolved.jabatan);
+    });
     return Array.from(map.values());
-  }, [masterJabatanList, petugasList]);
+  }, [masterDivisiOptions, masterDivisiList, masterJabatanList, petugasList]);
+
+  const syncedPetugasList = useMemo(() => {
+    return petugasList.map(p => {
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: p.jabatan,
+        rawDivisi: p.divisi,
+        rawKodeDivisi: p.kodeDivisi,
+        divisiList: masterDivisiList,
+        jabatanList: masterJabatanList
+      });
+      return {
+        ...p,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi
+      };
+    });
+  }, [petugasList, masterDivisiList, masterJabatanList]);
+
+  const syncedSlipList = useMemo(() => {
+    const petById = new Map<string, Petugas>(syncedPetugasList.map(p => [p.id, p]));
+    const petByNama = new Map<string, Petugas>(
+      syncedPetugasList
+        .filter(p => Boolean(p.nama))
+        .map(p => [p.nama.trim().toLowerCase(), p])
+    );
+    return slipList.map(s => {
+      const linkedPet =
+        (s.petugasId ? petById.get(s.petugasId) : undefined) ||
+        (s.namaPetugas ? petByNama.get(s.namaPetugas.trim().toLowerCase()) : undefined);
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: s.jabatan,
+        rawDivisi: s.divisi,
+        rawKodeDivisi: s.kodeDivisi,
+        petugasJabatan: linkedPet?.jabatan,
+        petugasDivisi: linkedPet?.divisi,
+        petugasKodeDivisi: linkedPet?.kodeDivisi,
+        divisiList: masterDivisiList,
+        jabatanList: masterJabatanList
+      });
+      return {
+        ...s,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi,
+        namaBendahara:
+          s.namaBendahara && s.namaBendahara !== 'Hj. Siti Aminah, S.E.'
+            ? s.namaBendahara
+            : masterBendaharaName,
+        namaKepalaSppg: s.namaKepalaSppg || masterKepalaSppgName
+      };
+    });
+  }, [slipList, syncedPetugasList, masterDivisiList, masterJabatanList, masterBendaharaName, masterKepalaSppgName]);
 
   const compareNomorPetugas = (aNomor?: string, bNomor?: string): number => {
     const aStr = String(aNomor || '').trim();
@@ -342,18 +454,21 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   // ==========================================
   const filteredPetugas = useMemo(() => {
     return sortPetugasByNomor(
-      petugasList.filter(p => {
+      syncedPetugasList.filter(p => {
         const matchSearch =
           p.nama.toLowerCase().includes(searchPetugas.toLowerCase()) ||
           p.nomor.toLowerCase().includes(searchPetugas.toLowerCase()) ||
           p.jabatan.toLowerCase().includes(searchPetugas.toLowerCase()) ||
+          (p.divisi || '').toLowerCase().includes(searchPetugas.toLowerCase()) ||
+          (p.kodeDivisi || '').toLowerCase().includes(searchPetugas.toLowerCase()) ||
           p.alamat.toLowerCase().includes(searchPetugas.toLowerCase());
-        const matchJabatan = filterJabatan === 'Semua' || p.jabatan === filterJabatan;
+        const matchJabatan =
+          filterJabatan === 'Semua' || p.jabatan.toLowerCase() === filterJabatan.toLowerCase();
         const matchStatus = filterStatus === 'Semua' || p.status === filterStatus;
         return matchSearch && matchJabatan && matchStatus;
       })
     );
-  }, [petugasList, searchPetugas, filterJabatan, filterStatus]);
+  }, [syncedPetugasList, searchPetugas, filterJabatan, filterStatus]);
 
   const handleResequenceNomorPetugas = async () => {
     if (isResequencing || petugasList.length === 0) return;
@@ -859,23 +974,66 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   // SLIP GAJI HARIAN LOGIC
   // ==========================================
 
+  const availableSlipJabatanFilterList = useMemo(() => {
+    const map = new Map<string, string>();
+    const add = (val?: string) => {
+      const clean = String(val || '').trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!map.has(key)) map.set(key, clean);
+    };
+    availableJabatanList.forEach(add);
+    syncedSlipList.forEach(s => add(s.jabatan));
+    return Array.from(map.values());
+  }, [availableJabatanList, syncedSlipList]);
+
+  const handleSyncMasterDivisiJabatan = async () => {
+    if (isSyncingMasterDivisi) return;
+    setIsSyncingMasterDivisi(true);
+    try {
+      const res = await fetch('/api/petugas/sync-master-divisi', { method: 'POST' });
+      const data = await safeParseJson(res);
+      if (res.ok && data?.success) {
+        if (Array.isArray(data.petugas)) {
+          setPetugasList(sortPetugasByNomor(data.petugas));
+        }
+        if (Array.isArray(data.slips)) {
+          setSlipList(data.slips);
+        }
+        showNotif('success', data.message || 'Jenis jabatan berhasil disinkronkan dengan Master Divisi');
+        void fetchData({ silent: true });
+      } else {
+        showNotif('error', data?.message || 'Gagal menyinkronkan jenis jabatan dengan Master Divisi');
+      }
+    } catch (err: any) {
+      showNotif('error', err?.message || 'Gagal menyinkronkan jenis jabatan dengan Master Divisi');
+    } finally {
+      setIsSyncingMasterDivisi(false);
+    }
+  };
+
   // Filter Slip Gaji for Selected Date
   const dailySlips = useMemo(() => {
-    return slipList.filter(s => {
+    return syncedSlipList.filter(s => {
       const matchTanggal = selectedTanggal ? s.tanggal === selectedTanggal : true;
       const matchStatus = filterStatusBayar === 'Semua' || s.statusPembayaran === filterStatusBayar;
+      const matchJabatan =
+        filterSlipJabatan === 'Semua' ||
+        s.jabatan.toLowerCase() === filterSlipJabatan.toLowerCase();
       const matchSearch =
         s.namaPetugas.toLowerCase().includes(searchSlip.toLowerCase()) ||
         s.nomorPetugas.toLowerCase().includes(searchSlip.toLowerCase()) ||
         s.nomorSlip.toLowerCase().includes(searchSlip.toLowerCase()) ||
-        s.jabatan.toLowerCase().includes(searchSlip.toLowerCase());
-      return matchTanggal && matchStatus && matchSearch;
+        s.jabatan.toLowerCase().includes(searchSlip.toLowerCase()) ||
+        (s.divisi || '').toLowerCase().includes(searchSlip.toLowerCase()) ||
+        (s.kodeDivisi || '').toLowerCase().includes(searchSlip.toLowerCase());
+      return matchTanggal && matchStatus && matchJabatan && matchSearch;
     });
-  }, [slipList, selectedTanggal, filterStatusBayar, searchSlip]);
+  }, [syncedSlipList, selectedTanggal, filterStatusBayar, filterSlipJabatan, searchSlip]);
 
   // Daily Summary Metrics
   const dailySummary: RekapGajiHarianSummary = useMemo(() => {
-    const slipsForDate = slipList.filter(s => s.tanggal === selectedTanggal);
+    const slipsForDate = syncedSlipList.filter(s => s.tanggal === selectedTanggal);
     const totalPetugasHadir = slipsForDate.length;
     const totalGajiDibayarkan = slipsForDate.reduce((sum, s) => sum + s.totalGajiBersih, 0);
     const lunasSlips = slipsForDate.filter(s => s.statusPembayaran === 'Lunas');
@@ -897,7 +1055,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       totalGajiBelumLunas,
       rataRataGajiHarian
     };
-  }, [slipList, selectedTanggal]);
+  }, [syncedSlipList, selectedTanggal]);
 
   // Date Navigation (Prev Day / Next Day)
   const handleDateShift = (deltaDays: number) => {
@@ -996,12 +1154,36 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
   // Open Modal Slip for Add/Edit
   const handleOpenSlipModal = (slip?: SlipGajiHarian, prefillPetugas?: Petugas) => {
     if (slip) {
-      setEditingSlip({ ...slip });
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: slip.jabatan,
+        rawDivisi: slip.divisi,
+        rawKodeDivisi: slip.kodeDivisi,
+        divisiList: masterDivisiList,
+        jabatanList: masterJabatanList
+      });
+      setEditingSlip({
+        ...slip,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi,
+        namaBendahara:
+          slip.namaBendahara && slip.namaBendahara !== 'Hj. Siti Aminah, S.E.'
+            ? slip.namaBendahara
+            : masterBendaharaName,
+        namaKepalaSppg: slip.namaKepalaSppg || masterKepalaSppgName
+      });
     } else {
-      const targetPetugas = prefillPetugas || petugasList.find(p => p.status === 'Aktif') || petugasList[0];
+      const targetPetugas = prefillPetugas || syncedPetugasList.find(p => p.status === 'Aktif') || syncedPetugasList[0];
       const tarif = targetPetugas ? targetPetugas.besaranGaji : 120000;
       const totalKotor = tarif;
       const totalBersih = totalKotor;
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: targetPetugas?.jabatan,
+        rawDivisi: targetPetugas?.divisi,
+        rawKodeDivisi: targetPetugas?.kodeDivisi,
+        divisiList: masterDivisiList,
+        jabatanList: masterJabatanList
+      });
 
       setEditingSlip({
         tanggal: selectedTanggal,
@@ -1009,7 +1191,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         petugasId: targetPetugas?.id || '',
         nomorPetugas: targetPetugas?.nomor || '01',
         namaPetugas: targetPetugas?.nama || '',
-        jabatan: targetPetugas?.jabatan || '',
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi,
         alamat: targetPetugas?.alamat || '',
         kehadiranHari: 1,
         tarifGajiPerHari: tarif,
@@ -1027,10 +1211,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
         statusPembayaran: 'Lunas',
         tanggalBayar: selectedTanggal,
         jamBayar: '15:00 WIB',
-        catatanTugas: `Operasional harian SPPG divisi ${targetPetugas?.jabatan || 'Dapur'}`,
+        catatanTugas: `Operasional harian SPPG divisi ${resolved.divisi || resolved.jabatan || 'Dapur'}`,
         namaPenerima: targetPetugas?.nama || '',
-        namaBendahara: 'Hj. Siti Aminah, S.E.',
-        namaKepalaSppg: 'Sri Rohayu, S. Pd'
+        namaBendahara: masterBendaharaName,
+        namaKepalaSppg: masterKepalaSppgName
       });
     }
     setIsModalSlipOpen(true);
@@ -1038,7 +1222,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
   // When changing petugas in slip modal, auto recalculate
   const handleSlipPetugasChange = (petugasId: string) => {
-    const selected = petugasList.find(p => p.id === petugasId);
+    const selected = syncedPetugasList.find(p => p.id === petugasId);
     if (!selected || !editingSlip) return;
 
     const kehadiran = Number(editingSlip.kehadiranHari !== undefined ? editingSlip.kehadiranHari : 1);
@@ -1046,13 +1230,22 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
     const gajiPokok = Math.round(kehadiran * tarif);
     const totalKotor = gajiPokok;
     const totalBersih = totalKotor;
+    const resolved = resolveJabatanAndDivisiFromMaster({
+      rawJabatan: selected.jabatan,
+      rawDivisi: selected.divisi,
+      rawKodeDivisi: selected.kodeDivisi,
+      divisiList: masterDivisiList,
+      jabatanList: masterJabatanList
+    });
 
     setEditingSlip({
       ...editingSlip,
       petugasId: selected.id,
       nomorPetugas: selected.nomor,
       namaPetugas: selected.nama,
-      jabatan: selected.jabatan,
+      jabatan: resolved.jabatan,
+      divisi: resolved.divisi,
+      kodeDivisi: resolved.kodeDivisi,
       alamat: selected.alamat,
       tarifGajiPerHari: tarif,
       gajiPokokHarian: gajiPokok,
@@ -1067,7 +1260,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
       terbilang: angkaKeTerbilangIndo(totalBersih),
       namaPenerima: selected.nama,
       metodePembayaran: selected.namaBank === 'Tunai' ? 'Tunai' : 'Transfer Bank',
-      catatanTugas: `Operasional harian SPPG divisi ${selected.jabatan}`
+      catatanTugas: `Operasional harian SPPG divisi ${resolved.divisi || resolved.jabatan}`
     });
   };
 
@@ -1452,6 +1645,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             {petugas.jabatan}
                           </span>
+                          {(petugas.kodeDivisi || (petugas.divisi && petugas.divisi !== petugas.jabatan)) && (
+                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
+                              {petugas.kodeDivisi ? `[${petugas.kodeDivisi}] ` : ''}
+                              {petugas.divisi && petugas.divisi !== petugas.jabatan ? petugas.divisi : ''}
+                            </div>
+                          )}
                         </td>
 
                         {/* Alamat */}
@@ -2126,6 +2325,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  type="button"
+                  onClick={handleSyncMasterDivisiJabatan}
+                  disabled={isSyncingMasterDivisi}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/50 text-teal-800 dark:text-teal-200 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Sinkronkan seluruh jenis jabatan pada Daftar Petugas & Slip Gaji Harian sesuai data Master Divisi"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingMasterDivisi ? 'animate-spin' : ''}`} />
+                  {isSyncingMasterDivisi ? 'Menyinkronkan...' : 'Sinkron Jabatan Master Divisi'}
+                </button>
+
+                <button
                   onClick={handleBatchGenerate}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-bold shadow-xs hover:from-amber-600 hover:to-orange-700 transition-all cursor-pointer"
                 >
@@ -2281,7 +2491,25 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 />
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <select
+                  value={filterSlipJabatan}
+                  onChange={e => setFilterSlipJabatan(e.target.value)}
+                  className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="Semua">Semua Jenis Jabatan (Master Divisi)</option>
+                  {availableSlipJabatanFilterList.map(j => {
+                    const matchedOpt = masterDivisiOptions.find(
+                      opt => opt.jabatan.toLowerCase() === j.toLowerCase()
+                    );
+                    return (
+                      <option key={j} value={j}>
+                        {matchedOpt?.kodeDivisi ? `${matchedOpt.kodeDivisi} — ${j}` : j}
+                      </option>
+                    );
+                  })}
+                </select>
+
                 <select
                   value={filterStatusBayar}
                   onChange={e => setFilterStatusBayar(e.target.value)}
@@ -2294,7 +2522,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 </select>
 
                 <button
-                  onClick={fetchData}
+                  onClick={() => fetchData()}
                   className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                   title="Refresh Data"
                 >
@@ -2311,7 +2539,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     <th className="py-3.5 px-4 text-center w-12">No</th>
                     <th className="py-3.5 px-4">No Slip Gaji</th>
                     <th className="py-3.5 px-4">Petugas</th>
-                    <th className="py-3.5 px-4">Jabatan</th>
+                    <th className="py-3.5 px-4">Jenis Jabatan & Divisi</th>
                     <th className="py-3.5 px-4 text-right">Tarif Harian</th>
                     <th className="py-3.5 px-4 text-right font-extrabold text-indigo-700 dark:text-indigo-400">Total Diterima</th>
                     <th className="py-3.5 px-4 text-center">Metode</th>
@@ -2373,9 +2601,15 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
                         {/* Jabatan */}
                         <td className="py-3 px-4">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
                             {slip.jabatan}
                           </span>
+                          {(slip.kodeDivisi || (slip.divisi && slip.divisi !== slip.jabatan)) && (
+                            <div className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold mt-0.5">
+                              {slip.kodeDivisi ? `[${slip.kodeDivisi}] ` : ''}
+                              {slip.divisi && slip.divisi !== slip.jabatan ? slip.divisi : ''}
+                            </div>
+                          )}
                         </td>
 
                         {/* Tarif Harian */}
@@ -2797,7 +3031,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     className="w-full px-3 py-2 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
                   >
                     <option value="">-- Pilih Petugas --</option>
-                    {petugasList.map(p => (
+                    {syncedPetugasList.map(p => (
                       <option key={p.id} value={p.id}>
                         #{p.nomor} - {p.nama} ({p.jabatan})
                       </option>
@@ -2807,22 +3041,65 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tanggal Kerja & Penggajian *
+                    Jenis Jabatan (Sesuai Master Divisi) *
                   </label>
-                  <input
-                    type="date"
-                    required
-                    value={editingSlip.tanggal || selectedTanggal}
+                  <select
+                    value={editingSlip.jabatan || ''}
                     onChange={e => {
-                      const t = e.target.value;
-                      handleRecalculateSlipAmounts({
-                        tanggal: t,
-                        hariTanggalFormatted: formatHariTanggalIndo(t)
+                      const val = e.target.value;
+                      const resolved = resolveJabatanAndDivisiFromMaster({
+                        rawJabatan: val,
+                        divisiList: masterDivisiList,
+                        jabatanList: masterJabatanList
+                      });
+                      setEditingSlip({
+                        ...editingSlip,
+                        jabatan: resolved.jabatan,
+                        divisi: resolved.divisi,
+                        kodeDivisi: resolved.kodeDivisi,
+                        catatanTugas: `Operasional harian SPPG divisi ${resolved.divisi || resolved.jabatan}`
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                  />
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                  >
+                    {availableJabatanList.map(j => {
+                      const matchedOpt = masterDivisiOptions.find(
+                        opt => opt.jabatan.toLowerCase() === j.toLowerCase()
+                      );
+                      return (
+                        <option key={j} value={j}>
+                          {matchedOpt?.kodeDivisi ? `[${matchedOpt.kodeDivisi}] ${j}` : j}
+                        </option>
+                      );
+                    })}
+                    {editingSlip.jabatan &&
+                      !availableJabatanList.some(
+                        j => j.toLowerCase() === String(editingSlip.jabatan).toLowerCase()
+                      ) && (
+                        <option value={editingSlip.jabatan}>{editingSlip.jabatan}</option>
+                      )}
+                  </select>
                 </div>
+              </div>
+
+              {/* Tanggal */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tanggal Kerja & Penggajian *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={editingSlip.tanggal || selectedTanggal}
+                  onChange={e => {
+                    const t = e.target.value;
+                    handleRecalculateSlipAmounts({
+                      tanggal: t,
+                      hariTanggalFormatted: formatHariTanggalIndo(t)
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                />
               </div>
 
               {/* Info Card Petugas Terpilih */}
@@ -2833,7 +3110,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                       #{editingSlip.nomorPetugas} {editingSlip.namaPetugas}
                     </span>
                     <span className="text-slate-500 mx-2">|</span>
-                    <span className="text-slate-600 dark:text-slate-300">{editingSlip.jabatan}</span>
+                    <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                      {editingSlip.jabatan}
+                      {editingSlip.kodeDivisi ? ` (${editingSlip.kodeDivisi})` : ''}
+                    </span>
                   </div>
                   <div className="text-right">
                     <span className="text-[11px] text-slate-400">Tarif Master: </span>
@@ -2978,7 +3258,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   </label>
                   <input
                     type="text"
-                    value={editingSlip.namaBendahara || 'Hj. Siti Aminah, S.E.'}
+                    value={editingSlip.namaBendahara || masterBendaharaName}
                     onChange={e => setEditingSlip({ ...editingSlip, namaBendahara: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   />
@@ -3087,8 +3367,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   <div className="font-bold text-slate-900">{selectedPrintSlip.namaPetugas}</div>
                 </div>
                 <div>
-                  <span className="text-slate-500">Jabatan / Divisi:</span>
+                  <span className="text-slate-500">Jenis Jabatan / Divisi:</span>
                   <div className="font-semibold text-slate-900">{selectedPrintSlip.jabatan}</div>
+                  {(selectedPrintSlip.kodeDivisi || selectedPrintSlip.divisi) && (
+                    <div className="text-[10px] text-slate-500">
+                      {selectedPrintSlip.kodeDivisi ? `[${selectedPrintSlip.kodeDivisi}] ` : ''}
+                      {selectedPrintSlip.divisi || ''}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <span className="text-slate-500">Alamat:</span>
@@ -3286,7 +3572,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">Mengetahui,<br />Kepala SPPG Probolinggo,</p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Sri Rohayu, S. Pd</p>
+                    <p className="font-bold text-slate-900 underline">{masterKepalaSppgName}</p>
                     <p className="text-[10px] text-slate-500">Penanggung Jawab Operasional</p>
                   </div>
                 </div>
@@ -3294,10 +3580,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">
                     Krejengan, {formatHariTanggalIndo(selectedTanggal)}<br />
-                    Bendahara Pengeluaran SPPG,
+                    Pengawas Keuangan / Bendahara SPPG,
                   </p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Hj. Siti Aminah, S.E.</p>
+                    <p className="font-bold text-slate-900 underline">{masterBendaharaName}</p>
                     <p className="text-[10px] text-slate-500">Pengelola Keuangan Harian</p>
                   </div>
                 </div>
@@ -3360,7 +3646,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {petugasList.map((p) => (
+                  {syncedPetugasList.map((p) => (
                     <tr key={p.id}>
                       <td className="py-2 px-2 text-center font-bold border-r border-slate-200">#{p.nomor}</td>
                       <td className="py-2 px-3 font-bold border-r border-slate-200 text-slate-900">{p.nama}</td>
@@ -3379,7 +3665,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">Mengetahui,<br />Kepala SPPG Probolinggo,</p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Sri Rohayu, S. Pd</p>
+                    <p className="font-bold text-slate-900 underline">{masterKepalaSppgName}</p>
                     <p className="text-[10px] text-slate-500">Penanggung Jawab SPPG</p>
                   </div>
                 </div>
@@ -3387,11 +3673,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">
                     Probolinggo, {formatHariTanggalIndo(todayStr)}<br />
-                    Pengelola Administrasi & Kepegawaian,
+                    Pengawas Keuangan & Kepegawaian,
                   </p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Hj. Siti Aminah, S.E.</p>
-                    <p className="text-[10px] text-slate-500">Koordinator HR & Keuangan</p>
+                    <p className="font-bold text-slate-900 underline">{masterBendaharaName}</p>
+                    <p className="text-[10px] text-slate-500">Pengawas Keuangan SPPG</p>
                   </div>
                 </div>
               </div>
@@ -3530,7 +3816,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">Mengetahui,<br />Kepala SPPG Krejengan Temenggungan</p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Sri Rohayu, S. Pd</p>
+                    <p className="font-bold text-slate-900 underline">{masterKepalaSppgName}</p>
                     <p className="text-[10px] text-slate-500">Penanggung Jawab Operasional</p>
                   </div>
                 </div>
@@ -3538,11 +3824,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                 <div className="space-y-12">
                   <p className="text-slate-600">
                     Krejengan, {formatHariTanggalIndo(selectedTanggal)}<br />
-                    Verifikator Absensi & Kepegawaian,
+                    Pengawas Keuangan / Verifikator Absensi,
                   </p>
                   <div>
-                    <p className="font-bold text-slate-900 underline">Hj. Siti Aminah, S.E.</p>
-                    <p className="text-[10px] text-slate-500">Koordinator Administrasi & Keuangan</p>
+                    <p className="font-bold text-slate-900 underline">{masterBendaharaName}</p>
+                    <p className="text-[10px] text-slate-500">Pengawas Keuangan &amp; Administrasi SPPG</p>
                   </div>
                 </div>
               </div>

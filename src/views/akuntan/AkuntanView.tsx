@@ -112,6 +112,13 @@ import {
   updateNutritionPlanPriceInFirestore
 } from '../../lib/firestoreOperationalStore';
 import { generateUniqueDocId } from '../../lib/firestoreHelper';
+import { MasterDivisi, MasterJabatan, Petugas } from '../../types';
+import { safeParseJson } from '../../lib/safeJson';
+import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import {
+  buildMasterDivisiJabatanOptions,
+  resolveJabatanAndDivisiFromMaster
+} from '../../utils/masterDivisiJabatanHelper';
 
 interface AkuntanViewProps {
   currentPath: string;
@@ -336,6 +343,105 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   };
 
+  // Master Divisi, Master Jabatan, & Petugas (untuk sinkronisasi Jenis Jabatan di Rincian Petugas)
+  const [masterDivisiFallback, setMasterDivisiFallback] = useState<MasterDivisi[]>([]);
+  const [masterJabatanFallback, setMasterJabatanFallback] = useState<MasterJabatan[]>([]);
+  const [petugasMasterFallback, setPetugasMasterFallback] = useState<Petugas[]>([]);
+  const [filterGajiKaryawanJabatan, setFilterGajiKaryawanJabatan] = useState<string>('Semua');
+  const [isSyncingMasterDivisi, setIsSyncingMasterDivisi] = useState<boolean>(false);
+
+  const fetchDivisiFallback = React.useCallback(async (): Promise<MasterDivisi[]> => {
+    try {
+      const res = await fetch('/api/v1/master/divisi');
+      if (!res.ok) return [];
+      const json = await safeParseJson<{ success?: boolean; data?: MasterDivisi[] }>(res);
+      return Array.isArray(json?.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const fetchJabatanFallback = React.useCallback(async (): Promise<MasterJabatan[]> => {
+    try {
+      const res = await fetch('/api/v1/master/jabatan');
+      if (!res.ok) return [];
+      const json = await safeParseJson<{ success?: boolean; data?: MasterJabatan[] }>(res);
+      return Array.isArray(json?.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const fetchPetugasFallback = React.useCallback(async (): Promise<Petugas[]> => {
+    try {
+      const res = await fetch('/api/petugas');
+      if (!res.ok) return [];
+      const json = await safeParseJson<{ success?: boolean; data?: Petugas[] }>(res);
+      return Array.isArray(json?.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const { data: realtimeDivisiList } = useFirestoreRealtime<MasterDivisi>(
+    'divisi',
+    fetchDivisiFallback
+  );
+  const { data: realtimeJabatanList } = useFirestoreRealtime<MasterJabatan>(
+    'jabatan',
+    fetchJabatanFallback
+  );
+  const { data: realtimePetugasList } = useFirestoreRealtime<Petugas>(
+    'petugas',
+    fetchPetugasFallback
+  );
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetchDivisiFallback(),
+      fetchJabatanFallback(),
+      fetchPetugasFallback()
+    ]).then(([divRows, jabRows, petRows]) => {
+      if (!active) return;
+      if (divRows.length > 0) setMasterDivisiFallback(divRows);
+      if (jabRows.length > 0) setMasterJabatanFallback(jabRows);
+      if (petRows.length > 0) setPetugasMasterFallback(petRows);
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchDivisiFallback, fetchJabatanFallback, fetchPetugasFallback]);
+
+  const effectiveDivisiList = useMemo(
+    () => (realtimeDivisiList.length > 0 ? realtimeDivisiList : masterDivisiFallback),
+    [realtimeDivisiList, masterDivisiFallback]
+  );
+  const effectiveJabatanList = useMemo(
+    () => (realtimeJabatanList.length > 0 ? realtimeJabatanList : masterJabatanFallback),
+    [realtimeJabatanList, masterJabatanFallback]
+  );
+  const effectivePetugasMasterList = useMemo(
+    () => (realtimePetugasList.length > 0 ? realtimePetugasList : petugasMasterFallback),
+    [realtimePetugasList, petugasMasterFallback]
+  );
+
+  const masterDivisiOptions = useMemo(
+    () => buildMasterDivisiJabatanOptions(effectiveDivisiList, effectiveJabatanList),
+    [effectiveDivisiList, effectiveJabatanList]
+  );
+
+  const masterSyncRef = React.useRef({
+    effectiveDivisiList,
+    effectiveJabatanList,
+    effectivePetugasMasterList
+  });
+  masterSyncRef.current = {
+    effectiveDivisiList,
+    effectiveJabatanList,
+    effectivePetugasMasterList
+  };
+
   // Gaji Karyawan Dapur
   const [gajiKaryawan, setGajiKaryawan] = useState<GajiKaryawanRecord[]>(() => {
     const cfg = getAkuntanConfigsSnapshot();
@@ -360,12 +466,111 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     );
   }, [rekapGajiHarianMap]);
 
+  const resolveKaryawanMasterJabatan = React.useCallback(
+    (
+      rec: GajiKaryawanRecord,
+      override?: {
+        divisiList?: MasterDivisi[];
+        jabatanList?: MasterJabatan[];
+        petugasList?: Petugas[];
+      }
+    ): GajiKaryawanRecord => {
+      const divList = override?.divisiList ?? masterSyncRef.current.effectiveDivisiList;
+      const jabList = override?.jabatanList ?? masterSyncRef.current.effectiveJabatanList;
+      const petList = override?.petugasList ?? masterSyncRef.current.effectivePetugasMasterList;
+      if (divList.length === 0 && jabList.length === 0) return rec;
+
+      const matchedPetugas = petList.find(
+        (p) =>
+          (rec.nik && (p.nomor === rec.nik || p.id === rec.nik)) ||
+          (rec.nama && p.nama.trim().toLowerCase() === rec.nama.trim().toLowerCase())
+      );
+
+      const resolved = resolveJabatanAndDivisiFromMaster({
+        rawJabatan: rec.jabatan,
+        rawDivisi: rec.divisi,
+        rawKodeDivisi: rec.kodeDivisi,
+        petugasJabatan: matchedPetugas?.jabatan,
+        petugasDivisi: matchedPetugas?.divisi,
+        petugasKodeDivisi: matchedPetugas?.kodeDivisi,
+        divisiList: divList,
+        jabatanList: jabList
+      });
+
+      if (
+        resolved.jabatan === rec.jabatan &&
+        resolved.divisi === rec.divisi &&
+        resolved.kodeDivisi === (rec.kodeDivisi || '')
+      ) {
+        return rec;
+      }
+
+      return {
+        ...rec,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi
+      };
+    },
+    []
+  );
+
+  const syncedGajiKaryawan = useMemo(() => {
+    if (effectiveDivisiList.length === 0 && effectiveJabatanList.length === 0) {
+      return gajiKaryawan;
+    }
+    return gajiKaryawan.map((rec) =>
+      resolveKaryawanMasterJabatan(rec, {
+        divisiList: effectiveDivisiList,
+        jabatanList: effectiveJabatanList,
+        petugasList: effectivePetugasMasterList
+      })
+    );
+  }, [
+    gajiKaryawan,
+    effectiveDivisiList,
+    effectiveJabatanList,
+    effectivePetugasMasterList,
+    resolveKaryawanMasterJabatan
+  ]);
+
+  const displayedGajiKaryawan = useMemo(() => {
+    if (filterGajiKaryawanJabatan === 'Semua') return syncedGajiKaryawan;
+    return syncedGajiKaryawan.filter(
+      (rec) => (rec.jabatan || '').toLowerCase() === filterGajiKaryawanJabatan.toLowerCase()
+    );
+  }, [syncedGajiKaryawan, filterGajiKaryawanJabatan]);
+
+  const availableGajiKaryawanJabatanOptions = useMemo(() => {
+    const map = new Map<string, { label: string; value: string }>();
+    masterDivisiOptions.forEach((opt) => {
+      const key = opt.jabatan.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          value: opt.jabatan,
+          label: opt.kodeDivisi ? `[${opt.kodeDivisi}] ${opt.jabatan}` : opt.jabatan
+        });
+      }
+    });
+    syncedGajiKaryawan.forEach((rec) => {
+      if (!rec.jabatan) return;
+      const key = rec.jabatan.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          value: rec.jabatan,
+          label: rec.kodeDivisi ? `[${rec.kodeDivisi}] ${rec.jabatan}` : rec.jabatan
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [masterDivisiOptions, syncedGajiKaryawan]);
+
   const handleSimpanRincianPetugas = async () => {
-    if (gajiKaryawan.length === 0) {
+    if (syncedGajiKaryawan.length === 0) {
       triggerToast('Data Rincian Petugas masih kosong. Klik "Sinkronkan Slip Petugas" terlebih dahulu.', 'error');
       return;
     }
-    const datedRecords = gajiKaryawan.map((rec) => ({
+    const datedRecords = syncedGajiKaryawan.map((rec) => ({
       ...rec,
       tanggalBayar: selectedDate,
       kehadiranHari: rec.kehadiranHari ?? rec.hariKerja ?? 1,
@@ -432,9 +637,65 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     }
   };
 
+  const handleSyncJabatanRincianPetugas = async () => {
+    if (isSyncingMasterDivisi) return;
+    setIsSyncingMasterDivisi(true);
+    try {
+      try {
+        await fetch('/api/petugas/sync-master-divisi', { method: 'POST' });
+      } catch (_) {}
+
+      const [divRows, jabRows, petRows] = await Promise.all([
+        fetchDivisiFallback(),
+        fetchJabatanFallback(),
+        fetchPetugasFallback()
+      ]);
+
+      const nextDiv = divRows.length > 0 ? divRows : masterSyncRef.current.effectiveDivisiList;
+      const nextJab = jabRows.length > 0 ? jabRows : masterSyncRef.current.effectiveJabatanList;
+      const nextPet = petRows.length > 0 ? petRows : masterSyncRef.current.effectivePetugasMasterList;
+
+      if (divRows.length > 0) setMasterDivisiFallback(divRows);
+      if (jabRows.length > 0) setMasterJabatanFallback(jabRows);
+      if (petRows.length > 0) setPetugasMasterFallback(petRows);
+
+      if (gajiKaryawan.length > 0 && !isGajiKaryawanLocked) {
+        const syncedRows = gajiKaryawan.map((rec) =>
+          resolveKaryawanMasterJabatan(rec, {
+            divisiList: nextDiv,
+            jabatanList: nextJab,
+            petugasList: nextPet
+          })
+        );
+        setGajiKaryawan(syncedRows);
+        await replaceAkuntanDocsForPredicate(
+          'akuntan_gaji_karyawan',
+          syncedRows,
+          getGajiKaryawanSnapshot()
+        );
+        triggerToast(`Jenis jabatan ${syncedRows.length} petugas di Rincian Petugas berhasil disinkronkan dengan Master Divisi!`);
+      } else {
+        triggerToast('Referensi Jenis Jabatan dari Master Divisi berhasil diperbarui.');
+      }
+    } catch (err: any) {
+      console.error('Gagal sinkronisasi Master Divisi di Rincian Petugas:', err);
+      triggerToast(err?.message || 'Gagal menyinkronkan jenis jabatan dengan Master Divisi', 'error');
+    } finally {
+      setIsSyncingMasterDivisi(false);
+    }
+  };
+
   const handleUpdateGajiKaryawanRecord = (
     recId: string,
-    patch: { hariKerja?: number; gajiPokok?: number; gajiBersih?: number; statusBayar?: string }
+    patch: {
+      jabatan?: string;
+      divisi?: string;
+      kodeDivisi?: string;
+      hariKerja?: number;
+      gajiPokok?: number;
+      gajiBersih?: number;
+      statusBayar?: string;
+    }
   ) => {
     if (isGajiKaryawanLocked) {
       triggerToast('Data Rincian Petugas tanggal ini sudah dikunci. Klik "Edit Data" untuk merevisi.');
@@ -460,8 +721,28 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           patch.gajiBersih !== undefined
             ? Math.max(0, Math.round(Number(patch.gajiBersih) || 0))
             : Math.max(0, (rec.gajiBersih || 0) + deltaPokok);
+
+        let nextJabatan = rec.jabatan;
+        let nextDivisi = rec.divisi;
+        let nextKodeDivisi = rec.kodeDivisi;
+        if (patch.jabatan !== undefined) {
+          const resolved = resolveJabatanAndDivisiFromMaster({
+            rawJabatan: patch.jabatan,
+            rawDivisi: patch.divisi,
+            rawKodeDivisi: patch.kodeDivisi,
+            divisiList: masterSyncRef.current.effectiveDivisiList,
+            jabatanList: masterSyncRef.current.effectiveJabatanList
+          });
+          nextJabatan = resolved.jabatan;
+          nextDivisi = patch.divisi ?? resolved.divisi;
+          nextKodeDivisi = patch.kodeDivisi ?? resolved.kodeDivisi;
+        }
+
         return {
           ...rec,
+          jabatan: nextJabatan,
+          divisi: nextDivisi,
+          kodeDivisi: nextKodeDivisi,
           hariKerja: nextDays,
           kehadiranHari: nextDays,
           gajiPokok: nextPokok,
@@ -1629,6 +1910,35 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
     setIsSyncingPetugas(true);
     try {
+      let currentDivList = masterSyncRef.current.effectiveDivisiList;
+      let currentJabList = masterSyncRef.current.effectiveJabatanList;
+      let currentPetList = masterSyncRef.current.effectivePetugasMasterList;
+
+      if (!isAuto || (currentDivList.length === 0 && currentJabList.length === 0)) {
+        try {
+          if (!isAuto) {
+            await fetch('/api/petugas/sync-master-divisi', { method: 'POST' });
+          }
+          const [divRows, jabRows, petRows] = await Promise.all([
+            fetchDivisiFallback(),
+            fetchJabatanFallback(),
+            fetchPetugasFallback()
+          ]);
+          if (divRows.length > 0) {
+            currentDivList = divRows;
+            setMasterDivisiFallback(divRows);
+          }
+          if (jabRows.length > 0) {
+            currentJabList = jabRows;
+            setMasterJabatanFallback(jabRows);
+          }
+          if (petRows.length > 0) {
+            currentPetList = petRows;
+            setPetugasMasterFallback(petRows);
+          }
+        } catch (_) {}
+      }
+
       const res = await fetch(`/api/petugas/slip-gaji?tanggal=${targetDate}`);
       const json = await res.json();
       let slips: any[] = json.success && Array.isArray(json.data) ? json.data : [];
@@ -1649,32 +1959,49 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
 
       if (slips.length === 0 && !isAuto) {
         try {
-          const petRes = await fetch('/api/petugas');
-          const petJson = await petRes.json();
-          if (petJson.success && Array.isArray(petJson.data) && petJson.data.length > 0) {
-            const activePetugas = petJson.data.filter((p: any) => p.status === 'Aktif');
-            slips = (activePetugas.length > 0 ? activePetugas : petJson.data).map((p: any, idx: number) => ({
-              id: generateUniqueDocId(`SLIP_${targetDate}`),
-              nomorSlip: `SLIP/SPPG/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
-              tanggal: targetDate,
-              petugasId: p.id,
-              nomorPetugas: p.nomor || `PTG-${String(idx + 1).padStart(2, '0')}`,
-              namaPetugas: p.nama,
-              jabatan: p.jabatan,
-              kehadiranHari: 1,
-              tarifGajiPerHari: p.besaranGaji || 120000,
-              gajiPokokHarian: p.besaranGaji || 120000,
-              uangMakanHarian: 0,
-              uangTransportHarian: 0,
-              uangLemburHarian: 0,
-              bonusHarian: 0,
-              potonganHarian: 0,
-              totalPenghasilanKotor: p.besaranGaji || 120000,
-              totalGajiBersih: p.besaranGaji || 120000,
-              metodePembayaran: p.namaBank === 'Tunai' ? 'Tunai' : (p.namaBank || 'Transfer Bank'),
-              statusPembayaran: 'Lunas',
-              tanggalBayar: targetDate
-            }));
+          let rawPetList: any[] = currentPetList;
+          if (rawPetList.length === 0) {
+            const petRes = await fetch('/api/petugas');
+            const petJson = await petRes.json();
+            if (petJson.success && Array.isArray(petJson.data)) {
+              rawPetList = petJson.data;
+            }
+          }
+          if (rawPetList.length > 0) {
+            const activePetugas = rawPetList.filter((p: any) => p.status === 'Aktif');
+            slips = (activePetugas.length > 0 ? activePetugas : rawPetList).map((p: any, idx: number) => {
+              const resolvedPet = resolveJabatanAndDivisiFromMaster({
+                rawJabatan: p.jabatan,
+                rawDivisi: p.divisi,
+                rawKodeDivisi: p.kodeDivisi,
+                divisiList: currentDivList,
+                jabatanList: currentJabList
+              });
+              return {
+                id: generateUniqueDocId(`SLIP_${targetDate}`),
+                nomorSlip: `SLIP/SPPG/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
+                tanggal: targetDate,
+                petugasId: p.id,
+                nomorPetugas: p.nomor || `PTG-${String(idx + 1).padStart(2, '0')}`,
+                namaPetugas: p.nama,
+                jabatan: resolvedPet.jabatan,
+                divisi: resolvedPet.divisi,
+                kodeDivisi: resolvedPet.kodeDivisi,
+                kehadiranHari: 1,
+                tarifGajiPerHari: p.besaranGaji || 120000,
+                gajiPokokHarian: p.besaranGaji || 120000,
+                uangMakanHarian: 0,
+                uangTransportHarian: 0,
+                uangLemburHarian: 0,
+                bonusHarian: 0,
+                potonganHarian: 0,
+                totalPenghasilanKotor: p.besaranGaji || 120000,
+                totalGajiBersih: p.besaranGaji || 120000,
+                metodePembayaran: p.namaBank === 'Tunai' ? 'Tunai' : (p.namaBank || 'Transfer Bank'),
+                statusPembayaran: 'Lunas',
+                tanggalBayar: targetDate
+              };
+            });
           }
         } catch (_) {}
       }
@@ -1693,13 +2020,32 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           const gajiBersih = Number(s.totalGajiBersih || Math.max(0, totalPenerimaan - totalPotongan));
           const existing = existingGaji.find((g) => g.nomorSlip === s.nomorSlip);
 
+          const matchedPet = currentPetList.find(
+            (p) =>
+              p.id === s.petugasId ||
+              (s.nomorPetugas && p.nomor === s.nomorPetugas) ||
+              (s.namaPetugas && p.nama.trim().toLowerCase() === String(s.namaPetugas).trim().toLowerCase())
+          );
+
+          const resolvedMaster = resolveJabatanAndDivisiFromMaster({
+            rawJabatan: s.jabatan,
+            rawDivisi: s.divisi,
+            rawKodeDivisi: s.kodeDivisi,
+            petugasJabatan: matchedPet?.jabatan,
+            petugasDivisi: matchedPet?.divisi,
+            petugasKodeDivisi: matchedPet?.kodeDivisi,
+            divisiList: currentDivList,
+            jabatanList: currentJabList
+          });
+
           return {
             id: existing?.id || s.id || generateUniqueDocId(`GK_${targetDate}`),
             nomorSlip: s.nomorSlip || `SLIP/SPPG/${targetDate.replace(/-/g, '')}/${String(idx + 1).padStart(3, '0')}`,
             nik: s.nomorPetugas || s.petugasId || `PTG-${String(idx + 1).padStart(2, '0')}`,
             nama: s.namaPetugas || s.nama || `Petugas ${idx + 1}`,
-            jabatan: s.jabatan || 'Petugas Operasional Dapur',
-            divisi: s.divisi || s.jabatan || 'Dapur & Distribusi',
+            jabatan: resolvedMaster.jabatan || s.jabatan || 'Staf Operasional',
+            divisi: resolvedMaster.divisi || s.divisi || resolvedMaster.jabatan || s.jabatan || 'Operasional SPPG',
+            kodeDivisi: resolvedMaster.kodeDivisi || s.kodeDivisi || '',
             tipeGaji: 'Harian',
             hariKerja: kehadiran,
             kehadiranHari: kehadiran,
@@ -1723,7 +2069,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
         await updateAkuntanConfigDoc({ gajiKaryawanConfigured: true });
         setGajiKaryawan(mappedKaryawan);
         if (!isAuto) {
-          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas. Klik "Simpan Data" untuk menyimpan ke Rekap Gaji Harian!`);
+          triggerToast(`Berhasil menyinkronkan ${mappedKaryawan.length} slip gaji harian petugas sesuai Master Divisi. Klik "Simpan Data" untuk menyimpan ke Rekap Gaji Harian!`);
         }
       } else {
         if (!isAuto) {
@@ -1738,7 +2084,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
     } finally {
       setIsSyncingPetugas(false);
     }
-  }, []);
+  }, [fetchDivisiFallback, fetchJabatanFallback, fetchPetugasFallback]);
 
   // Auto-sinkronisasi Food Cost & Realisasi saat tanggal aktif berubah
   useEffect(() => {
@@ -3269,15 +3615,25 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   </span>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-pulse"></span>
-                    Terhubung Database Petugas
+                    Terhubung Database Petugas &amp; Master Divisi
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                  Menampilkan data slip gaji riil untuk tanggal operasional <strong>{selectedDate}</strong> ({gajiKaryawan.length} petugas terdata). Total pengeluaran harian: <strong>{formatRupiah(totalGajiKaryawan)}</strong>.
+                  Menampilkan data slip gaji riil untuk tanggal operasional <strong>{selectedDate}</strong> ({syncedGajiKaryawan.length} petugas terdata). Total pengeluaran harian: <strong>{formatRupiah(totalGajiKaryawan)}</strong>.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleSyncJabatanRincianPetugas}
+                disabled={isSyncingMasterDivisi}
+                className="px-3.5 py-2 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50"
+                title="Sinkronkan jenis jabatan petugas & rincian gaji sesuai data Master Divisi"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isSyncingMasterDivisi ? 'animate-spin' : ''}`} />
+                <span>{isSyncingMasterDivisi ? 'Menyinkronkan...' : 'Sinkron Jabatan Master Divisi'}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => syncGajiKaryawanFromPetugas(selectedDate, false)}
@@ -3379,7 +3735,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
               )}
               <button
                 type="button"
-                onClick={() => generateSlipGajiExcel(gajiKaryawan, `Gaji Karyawan ${selectedDate}`)}
+                onClick={() => generateSlipGajiExcel(syncedGajiKaryawan, `Gaji Karyawan ${selectedDate}`)}
                 className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -3635,13 +3991,48 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                 </div>
               )}
 
+              {/* Filter Jenis Jabatan (Master Divisi) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    Jenis Jabatan (Master Divisi):
+                  </span>
+                  <select
+                    value={filterGajiKaryawanJabatan}
+                    onChange={(e) => setFilterGajiKaryawanJabatan(e.target.value)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="Semua">Semua Jenis Jabatan (Master Divisi)</option>
+                    {availableGajiKaryawanJabatanOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  {filterGajiKaryawanJabatan !== 'Semua' && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterGajiKaryawanJabatan('Semua')}
+                      className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer"
+                    >
+                      Reset Filter
+                    </button>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  Menampilkan <strong className="text-slate-800 dark:text-slate-200">{displayedGajiKaryawan.length}</strong> dari{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">{syncedGajiKaryawan.length}</strong> petugas ({masterDivisiOptions.length} divisi aktif)
+                </div>
+              </div>
+
               <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
                       <th className="py-3 px-3 w-10 text-center">No</th>
                       <th className="py-3 px-3">Nama Petugas</th>
-                      <th className="py-3 px-3">Jabatan & Divisi</th>
+                      <th className="py-3 px-3">Jenis Jabatan &amp; Divisi</th>
                       <th className="py-3 px-2 text-center">Hadir</th>
                       <th className="py-3 px-3 text-right">Gaji Pokok (Hari)</th>
                       <th className="py-3 px-3 text-right">Gaji Bersih (THP)</th>
@@ -3650,7 +4041,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {gajiKaryawan.length === 0 ? (
+                    {syncedGajiKaryawan.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-12 px-4 text-center">
                           <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
@@ -3677,8 +4068,14 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                           </div>
                         </td>
                       </tr>
+                    ) : displayedGajiKaryawan.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-10 px-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                          Tidak ada petugas dengan jenis jabatan <strong>{filterGajiKaryawanJabatan}</strong> pada tanggal {selectedDate}.
+                        </td>
+                      </tr>
                     ) : (
-                      gajiKaryawan.map((rec, idx) => (
+                      displayedGajiKaryawan.map((rec, idx) => (
                       <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td className="py-2.5 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
                         <td className="py-2.5 px-3">
@@ -3686,8 +4083,57 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                           <div className="text-[10px] text-slate-400">NIK: {rec.nik} • {rec.nomorSlip}</div>
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="font-semibold text-slate-700 dark:text-slate-300">{rec.jabatan}</div>
-                          <div className="text-[10px] text-slate-400">{rec.divisi || 'Dapur & Distribusi'}</div>
+                          {isGajiKaryawanLocked ? (
+                            <div>
+                              <div className="font-semibold text-slate-800 dark:text-slate-200">{rec.jabatan}</div>
+                              <div className="flex flex-wrap items-center gap-1 mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                {rec.kodeDivisi && (
+                                  <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/70 dark:border-indigo-800/60">
+                                    {rec.kodeDivisi}
+                                  </span>
+                                )}
+                                <span>{rec.divisi || rec.jabatan}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <select
+                                value={rec.jabatan}
+                                onChange={(e) => {
+                                  const selectedVal = e.target.value;
+                                  const matchedOpt = masterDivisiOptions.find(
+                                    (opt) => opt.jabatan.toLowerCase() === selectedVal.toLowerCase()
+                                  );
+                                  handleUpdateGajiKaryawanRecord(rec.id, {
+                                    jabatan: selectedVal,
+                                    divisi: matchedOpt?.namaDivisi,
+                                    kodeDivisi: matchedOpt?.kodeDivisi
+                                  });
+                                }}
+                                className="w-full min-w-[180px] px-2 py-1 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              >
+                                {availableGajiKaryawanJabatanOptions.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                                {rec.jabatan &&
+                                  !availableGajiKaryawanJabatanOptions.some(
+                                    (opt) => opt.value.toLowerCase() === rec.jabatan.toLowerCase()
+                                  ) && (
+                                    <option value={rec.jabatan}>{rec.jabatan}</option>
+                                  )}
+                              </select>
+                              <div className="flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                {rec.kodeDivisi && (
+                                  <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/70 dark:border-indigo-800/60">
+                                    {rec.kodeDivisi}
+                                  </span>
+                                )}
+                                <span>{rec.divisi || rec.jabatan}</span>
+                              </div>
+                            </div>
+                          )}
                         </td>
                         <td className="py-2.5 px-2 text-center font-bold text-slate-700 dark:text-slate-300">
                           {isGajiKaryawanLocked ? (
@@ -3791,16 +4237,18 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                     )))}
                     <tr className="bg-teal-50/70 dark:bg-teal-950/40 font-black text-teal-950 dark:text-teal-200 border-t-2 border-teal-500">
                       <td colSpan={4} className="py-3 px-4 text-right uppercase tracking-wider text-xs">
-                        TOTAL PENGGAJIAN HARIAN PETUGAS (SINKRON SLIP PETUGAS):
+                        {filterGajiKaryawanJabatan === 'Semua'
+                          ? 'TOTAL PENGGAJIAN HARIAN PETUGAS (SINKRON SLIP PETUGAS):'
+                          : `TOTAL JABATAN ${filterGajiKaryawanJabatan.toUpperCase()}:`}
                       </td>
                       <td className="py-3 px-3 text-right text-xs font-bold text-slate-800 dark:text-slate-200">
-                        {formatRupiah(gajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
+                        {formatRupiah(displayedGajiKaryawan.reduce((sum, item) => sum + (item.gajiPokok || 0), 0))}
                       </td>
                       <td className="py-3 px-3 text-right text-sm font-black text-teal-800 dark:text-teal-300">
-                        {formatRupiah(totalGajiKaryawan)}
+                        {formatRupiah(displayedGajiKaryawan.reduce((sum, item) => sum + (item.gajiBersih || 0), 0))}
                       </td>
                       <td colSpan={2} className="py-3 px-3 text-center text-[11px] text-teal-700 dark:text-teal-300 font-bold">
-                        {gajiKaryawan.length} Petugas Terdata
+                        {displayedGajiKaryawan.length} Petugas Terdata
                       </td>
                     </tr>
                   </tbody>
@@ -5610,7 +6058,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           beneficiaryInfo={beneficiaryInfo}
           rabBahanBaku={rabBahanBaku}
           rabOperasionalBarang={rabOperasionalBarang}
-          gajiKaryawan={gajiKaryawan}
+          gajiKaryawan={syncedGajiKaryawan}
           insentifPicLembaga={insentifPicLembaga}
           insentifPicPosyandu={insentifPicPosyandu}
           gajiStaf={gajiStaf}
@@ -5630,7 +6078,7 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
           <DashboardAkuntan
             rabBahanBaku={rabBahanBaku}
             rabOperasionalBarang={rabOperasionalBarang}
-            gajiKaryawan={gajiKaryawan}
+            gajiKaryawan={syncedGajiKaryawan}
             insentifPicLembaga={insentifPicLembaga}
             insentifPicPosyandu={insentifPicPosyandu}
             gajiStaf={gajiStaf}
@@ -5734,7 +6182,10 @@ export const AkuntanView: React.FC<AkuntanViewProps> = ({ currentPath, onNavigat
                   <div className="bg-teal-50 dark:bg-teal-950/50 p-3.5 rounded-2xl border border-teal-200 dark:border-teal-800 flex justify-between items-center">
                     <div>
                       <div className="font-black text-sm text-teal-950 dark:text-teal-200">{item.nama}</div>
-                      <div className="text-[11px] text-teal-700 dark:text-teal-400 font-bold">{item.jabatan}</div>
+                      <div className="text-[11px] text-teal-700 dark:text-teal-400 font-bold">
+                        {item.jabatan}
+                        {'divisi' in item && item.divisi ? ` • ${item.divisi}` : ''}
+                      </div>
                       <div className="text-[10px] text-slate-400">NIK: {item.nik}</div>
                     </div>
                     <div className="text-right">

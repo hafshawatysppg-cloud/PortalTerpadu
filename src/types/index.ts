@@ -1047,6 +1047,8 @@ export interface Petugas {
   nomor: string; // Nomer urut/ID petugas, e.g. '01', '02', 'PTG-001'
   nama: string; // Nama lengkap petugas
   jabatan: string; // Jabatan petugas
+  divisi?: string; // Nama divisi sesuai Master Divisi
+  kodeDivisi?: string; // Kode divisi sesuai Master Divisi (e.g. SIAP, OLAH, CHEF)
   alamat: string; // Alamat tempat tinggal
   besaranGaji: number; // Besaran gaji pokok harian (Rp/hari), e.g. 125000
   telepon?: string;
@@ -1068,6 +1070,8 @@ export interface SlipGajiHarian {
   nomorPetugas: string;
   namaPetugas: string;
   jabatan: string;
+  divisi?: string;
+  kodeDivisi?: string;
   alamat: string;
 
   // Komponen Harian

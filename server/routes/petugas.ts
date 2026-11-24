@@ -332,6 +332,41 @@ router.post('/resequence', async (_req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/petugas/sync-master-divisi
+ * Menyinkronkan jenis jabatan & divisi pada Daftar Petugas, Slip Gaji Harian, dan Rekap Absensi sesuai data Master Divisi.
+ */
+router.post('/sync-master-divisi', async (_req: Request, res: Response) => {
+  try {
+    const { updatedPetugas, updatedSlips, updatedAbsensi } = dbStore.syncJabatanFromMasterDivisi();
+    if (updatedPetugas.length > 0) {
+      await syncSaveBatch('petugasList', updatedPetugas);
+    }
+    if (updatedSlips.length > 0) {
+      await syncSaveBatch('slipGajiList', updatedSlips);
+    }
+    if (updatedAbsensi.length > 0) {
+      await syncSaveBatch('rekapAbsensiList', updatedAbsensi);
+    }
+    saveSnapshotToDiskNow();
+
+    const allPetugas = dbStore.getPetugasList();
+    const allSlips = dbStore.getSlipGajiList();
+    return res.json({
+      success: true,
+      message: `Sinkronisasi jenis jabatan sesuai Master Divisi selesai (${updatedPetugas.length} petugas & ${updatedSlips.length} slip gaji diperbarui).`,
+      updatedPetugasCount: updatedPetugas.length,
+      updatedSlipsCount: updatedSlips.length,
+      updatedAbsensiCount: updatedAbsensi.length,
+      petugas: allPetugas,
+      slips: allSlips
+    });
+  } catch (error: any) {
+    console.error('Error syncing master divisi:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menyinkronkan jenis jabatan dengan Master Divisi', error: error.message });
+  }
+});
+
+/**
  * POST /api/petugas/batch
  * Menambah banyak data petugas sekaligus (tanpa batasan jumlah, mendukung 50+ data sekaligus).
  */
@@ -425,6 +460,13 @@ router.post('/', async (req: Request, res: Response) => {
 
     const saved = dbStore.savePetugas(normalizedPayload, { forceCreate: isCreateMode });
     await syncSaveDocNow('petugasList', saved.id, saved);
+    const { updatedSlips, updatedAbsensi } = dbStore.syncJabatanFromMasterDivisi();
+    if (updatedSlips.length > 0) {
+      await syncSaveBatch('slipGajiList', updatedSlips);
+    }
+    if (updatedAbsensi.length > 0) {
+      await syncSaveBatch('rekapAbsensiList', updatedAbsensi);
+    }
     saveSnapshotToDiskNow();
 
     const allList = dbStore.getPetugasList();
@@ -466,6 +508,13 @@ router.put('/:id', async (req: Request, res: Response) => {
       { forceCreate: false }
     );
     await syncSaveDocNow('petugasList', saved.id, saved);
+    const { updatedSlips, updatedAbsensi } = dbStore.syncJabatanFromMasterDivisi();
+    if (updatedSlips.length > 0) {
+      await syncSaveBatch('slipGajiList', updatedSlips);
+    }
+    if (updatedAbsensi.length > 0) {
+      await syncSaveBatch('rekapAbsensiList', updatedAbsensi);
+    }
     saveSnapshotToDiskNow();
 
     const allList = dbStore.getPetugasList();

@@ -66,8 +66,13 @@ import {
   BastDocument,
   BastStatus
 } from '../../src/types';
-import { resolveDivisiDistribusiName } from '../../src/utils/divisiDistribusiHelper';
+import {
+  resolveDivisiDistribusiName,
+  resolvePengawasKeuanganName,
+  resolveKepalaSppgName
+} from '../../src/utils/divisiDistribusiHelper';
 import { getDefaultJamKerjaByJabatan, isLegacyDefaultJamKerja } from '../../src/utils/jamKerjaHelper';
+import { resolveJabatanAndDivisiFromMaster } from '../../src/utils/masterDivisiJabatanHelper';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'portal-administrasi-terpadu-super-secret-jwt-key-2026';
 
@@ -4043,8 +4048,151 @@ class EnterpriseDataStore {
     });
   }
 
+  private resolveMasterJabatanDivisi(params: {
+    rawJabatan?: string;
+    rawDivisi?: string;
+    rawKodeDivisi?: string;
+    petugas?: Petugas;
+  }) {
+    return resolveJabatanAndDivisiFromMaster({
+      rawJabatan: params.rawJabatan,
+      rawDivisi: params.rawDivisi,
+      rawKodeDivisi: params.rawKodeDivisi,
+      petugasJabatan: params.petugas?.jabatan,
+      petugasDivisi: params.petugas?.divisi,
+      petugasKodeDivisi: params.petugas?.kodeDivisi,
+      divisiList: this.divisi,
+      jabatanList: this.jabatan
+    });
+  }
+
+  public syncJabatanFromMasterDivisi(): {
+    updatedPetugas: Petugas[];
+    updatedSlips: SlipGajiHarian[];
+    updatedAbsensi: RekapAbsensiHarian[];
+  } {
+    const now = new Date().toISOString();
+    const updatedPetugas: Petugas[] = [];
+    const updatedSlips: SlipGajiHarian[] = [];
+    const updatedAbsensi: RekapAbsensiHarian[] = [];
+
+    this.petugasList = this.petugasList.map(p => {
+      const resolved = this.resolveMasterJabatanDivisi({
+        rawJabatan: p.jabatan,
+        rawDivisi: p.divisi,
+        rawKodeDivisi: p.kodeDivisi
+      });
+      if (
+        resolved.jabatan !== p.jabatan ||
+        resolved.divisi !== (p.divisi || '') ||
+        resolved.kodeDivisi !== (p.kodeDivisi || '')
+      ) {
+        const updated: Petugas = {
+          ...p,
+          jabatan: resolved.jabatan,
+          divisi: resolved.divisi,
+          kodeDivisi: resolved.kodeDivisi,
+          updatedAt: now
+        };
+        updatedPetugas.push(updated);
+        return updated;
+      }
+      return p;
+    });
+
+    const petugasById = new Map<string, Petugas>();
+    const petugasByNama = new Map<string, Petugas>();
+    for (const p of this.petugasList) {
+      petugasById.set(p.id, p);
+      if (p.nama) petugasByNama.set(p.nama.trim().toLowerCase(), p);
+    }
+
+    const masterBendahara = resolvePengawasKeuanganName(this.divisi);
+    const masterKepala = resolveKepalaSppgName(this.divisi);
+
+    this.slipGajiList = this.slipGajiList.map(s => {
+      const linkedPetugas =
+        (s.petugasId ? petugasById.get(s.petugasId) : undefined) ||
+        (s.namaPetugas ? petugasByNama.get(s.namaPetugas.trim().toLowerCase()) : undefined);
+      const resolved = this.resolveMasterJabatanDivisi({
+        rawJabatan: s.jabatan,
+        rawDivisi: s.divisi,
+        rawKodeDivisi: s.kodeDivisi,
+        petugas: linkedPetugas
+      });
+      if (
+        resolved.jabatan !== s.jabatan ||
+        resolved.divisi !== (s.divisi || '') ||
+        resolved.kodeDivisi !== (s.kodeDivisi || '') ||
+        (s.namaBendahara === 'Hj. Siti Aminah, S.E.' && masterBendahara !== s.namaBendahara)
+      ) {
+        const updated: SlipGajiHarian = {
+          ...s,
+          jabatan: resolved.jabatan,
+          divisi: resolved.divisi,
+          kodeDivisi: resolved.kodeDivisi,
+          namaBendahara: s.namaBendahara === 'Hj. Siti Aminah, S.E.' ? masterBendahara : s.namaBendahara,
+          namaKepalaSppg: s.namaKepalaSppg || masterKepala,
+          updatedAt: now
+        };
+        updatedSlips.push(updated);
+        return updated;
+      }
+      return s;
+    });
+
+    this.rekapAbsensiList = this.rekapAbsensiList.map(abs => {
+      let changed = false;
+      const newItems = (abs.items || []).map(it => {
+        const linkedPetugas =
+          (it.petugasId ? petugasById.get(it.petugasId) : undefined) ||
+          (it.namaPetugas ? petugasByNama.get(it.namaPetugas.trim().toLowerCase()) : undefined);
+        const resolved = this.resolveMasterJabatanDivisi({
+          rawJabatan: it.jabatan,
+          petugas: linkedPetugas
+        });
+        if (resolved.jabatan !== it.jabatan) {
+          changed = true;
+          return { ...it, jabatan: resolved.jabatan };
+        }
+        return it;
+      });
+      if (changed) {
+        const updatedAbs: RekapAbsensiHarian = {
+          ...abs,
+          items: newItems,
+          updatedAt: now
+        };
+        updatedAbsensi.push(updatedAbs);
+        return updatedAbs;
+      }
+      return abs;
+    });
+
+    return { updatedPetugas, updatedSlips, updatedAbsensi };
+  }
+
   public getPetugasList(): Petugas[] {
-    this.petugasList = this.sortPetugasList(this.petugasList);
+    this.petugasList = this.sortPetugasList(this.petugasList).map(p => {
+      const resolved = this.resolveMasterJabatanDivisi({
+        rawJabatan: p.jabatan,
+        rawDivisi: p.divisi,
+        rawKodeDivisi: p.kodeDivisi
+      });
+      if (
+        resolved.jabatan === p.jabatan &&
+        resolved.divisi === p.divisi &&
+        resolved.kodeDivisi === p.kodeDivisi
+      ) {
+        return p;
+      }
+      return {
+        ...p,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi
+      };
+    });
     return this.petugasList;
   }
 
@@ -4076,11 +4224,20 @@ class EnterpriseDataStore {
     const autoNomor = String(Math.max(maxNomor + 1, this.petugasList.length + 1)).padStart(2, '0');
     const nomor = (data.nomor && String(data.nomor).trim()) || existingItem?.nomor || autoNomor;
 
+    const rawJabatan = data.jabatan || existingItem?.jabatan || 'Staf Operasional';
+    const resolvedJabDiv = this.resolveMasterJabatanDivisi({
+      rawJabatan,
+      rawDivisi: data.divisi ?? existingItem?.divisi,
+      rawKodeDivisi: data.kodeDivisi ?? existingItem?.kodeDivisi
+    });
+
     const item: Petugas = {
       id,
       nomor,
       nama: data.nama || existingItem?.nama || 'Petugas Baru',
-      jabatan: data.jabatan || existingItem?.jabatan || 'Staf Operasional',
+      jabatan: resolvedJabDiv.jabatan,
+      divisi: resolvedJabDiv.divisi,
+      kodeDivisi: resolvedJabDiv.kodeDivisi,
       alamat: data.alamat ?? existingItem?.alamat ?? '',
       besaranGaji: Number(data.besaranGaji ?? existingItem?.besaranGaji ?? 100000),
       telepon: data.telepon ?? existingItem?.telepon ?? '',
@@ -4140,11 +4297,19 @@ class EnterpriseDataStore {
         }
       }
 
+      const resolvedBatchJab = this.resolveMasterJabatanDivisi({
+        rawJabatan: String(raw.jabatan || '').trim() || 'Staf Operasional',
+        rawDivisi: raw.divisi,
+        rawKodeDivisi: raw.kodeDivisi
+      });
+
       const item: Petugas = {
         id,
         nomor,
         nama,
-        jabatan: String(raw.jabatan || '').trim() || 'Staf Operasional',
+        jabatan: resolvedBatchJab.jabatan,
+        divisi: resolvedBatchJab.divisi,
+        kodeDivisi: resolvedBatchJab.kodeDivisi,
         alamat: String(raw.alamat ?? '').trim() || '-',
         besaranGaji: Math.max(0, Number(raw.besaranGaji ?? 120000) || 0),
         telepon: String(raw.telepon ?? '').trim(),
@@ -4183,7 +4348,35 @@ class EnterpriseDataStore {
   }
 
   public getSlipGajiList(filters?: { tanggal?: string; petugasId?: string; status?: string }): SlipGajiHarian[] {
-    let list = [...this.slipGajiList];
+    const petugasById = new Map(this.petugasList.map(p => [p.id, p]));
+    const petugasByNama = new Map(
+      this.petugasList
+        .filter(p => Boolean(p.nama))
+        .map(p => [p.nama.trim().toLowerCase(), p])
+    );
+    const masterBendahara = resolvePengawasKeuanganName(this.divisi);
+    const masterKepala = resolveKepalaSppgName(this.divisi);
+
+    let list = this.slipGajiList.map(s => {
+      const linkedPetugas =
+        (s.petugasId ? petugasById.get(s.petugasId) : undefined) ||
+        (s.namaPetugas ? petugasByNama.get(s.namaPetugas.trim().toLowerCase()) : undefined);
+      const resolved = this.resolveMasterJabatanDivisi({
+        rawJabatan: s.jabatan,
+        rawDivisi: s.divisi,
+        rawKodeDivisi: s.kodeDivisi,
+        petugas: linkedPetugas
+      });
+      return {
+        ...s,
+        jabatan: resolved.jabatan,
+        divisi: resolved.divisi,
+        kodeDivisi: resolved.kodeDivisi,
+        namaBendahara: s.namaBendahara === 'Hj. Siti Aminah, S.E.' ? masterBendahara : s.namaBendahara,
+        namaKepalaSppg: s.namaKepalaSppg || masterKepala
+      };
+    });
+
     if (filters?.tanggal) {
       list = list.filter(s => s.tanggal === filters.tanggal);
     }
@@ -4201,7 +4394,21 @@ class EnterpriseDataStore {
   }
 
   public getSlipGajiById(id: string): SlipGajiHarian | undefined {
-    return this.slipGajiList.find(s => s.id === id || s.nomorSlip === id);
+    const found = this.slipGajiList.find(s => s.id === id || s.nomorSlip === id);
+    if (!found) return undefined;
+    const linkedPetugas = found.petugasId ? this.getPetugasById(found.petugasId) : undefined;
+    const resolved = this.resolveMasterJabatanDivisi({
+      rawJabatan: found.jabatan,
+      rawDivisi: found.divisi,
+      rawKodeDivisi: found.kodeDivisi,
+      petugas: linkedPetugas
+    });
+    return {
+      ...found,
+      jabatan: resolved.jabatan,
+      divisi: resolved.divisi,
+      kodeDivisi: resolved.kodeDivisi
+    };
   }
 
   public saveSlipGaji(data: Partial<SlipGajiHarian>): SlipGajiHarian {
@@ -4220,7 +4427,16 @@ class EnterpriseDataStore {
     const petugas = data.petugasId ? this.getPetugasById(data.petugasId) : undefined;
     const nomorPetugas = data.nomorPetugas || petugas?.nomor || '';
     const namaPetugas = data.namaPetugas || petugas?.nama || 'Petugas SPPG';
-    const jabatan = data.jabatan || petugas?.jabatan || 'Staf Operasional';
+    const explicitJabProvided = Boolean(data.jabatan && String(data.jabatan).trim());
+    const resolvedJabDiv = this.resolveMasterJabatanDivisi({
+      rawJabatan: explicitJabProvided ? data.jabatan : petugas?.jabatan,
+      rawDivisi: data.divisi ?? (explicitJabProvided ? undefined : petugas?.divisi),
+      rawKodeDivisi: data.kodeDivisi ?? (explicitJabProvided ? undefined : petugas?.kodeDivisi),
+      petugas: explicitJabProvided ? undefined : petugas
+    });
+    const jabatan = resolvedJabDiv.jabatan;
+    const divisi = resolvedJabDiv.divisi;
+    const kodeDivisi = resolvedJabDiv.kodeDivisi;
     const alamat = data.alamat || petugas?.alamat || '';
 
     const kehadiranHari = Number(data.kehadiranHari !== undefined ? data.kehadiranHari : 1);
@@ -4244,6 +4460,9 @@ class EnterpriseDataStore {
     const nextSlipNum = Math.max(maxSlipNum + 1, this.slipGajiList.length + 1);
     const nomorSlip = data.nomorSlip || `SLIP/SPPG/${cleanDate.substring(0, 4)}/${cleanDate.substring(4, 6)}/${String(nextSlipNum).padStart(3, '0')}`;
 
+    const masterBendahara = resolvePengawasKeuanganName(this.divisi);
+    const masterKepala = resolveKepalaSppgName(this.divisi);
+
     const record: SlipGajiHarian = {
       id,
       nomorSlip,
@@ -4253,6 +4472,8 @@ class EnterpriseDataStore {
       nomorPetugas,
       namaPetugas,
       jabatan,
+      divisi,
+      kodeDivisi,
       alamat,
       kehadiranHari,
       tarifGajiPerHari,
@@ -4270,10 +4491,13 @@ class EnterpriseDataStore {
       statusPembayaran: data.statusPembayaran || 'Lunas',
       tanggalBayar: data.tanggalBayar || (data.statusPembayaran === 'Lunas' ? todayStr : undefined),
       jamBayar: data.jamBayar || (data.statusPembayaran === 'Lunas' ? '15:00 WIB' : undefined),
-      catatanTugas: data.catatanTugas || 'Tugas operasional harian SPPG',
+      catatanTugas: data.catatanTugas || `Operasional harian SPPG divisi ${divisi || jabatan}`,
       namaPenerima: data.namaPenerima || namaPetugas,
-      namaBendahara: data.namaBendahara || 'Hj. Siti Aminah, S.E.',
-      namaKepalaSppg: data.namaKepalaSppg || 'Sri Rohayu, S. Pd',
+      namaBendahara:
+        data.namaBendahara && data.namaBendahara !== 'Hj. Siti Aminah, S.E.'
+          ? data.namaBendahara
+          : masterBendahara,
+      namaKepalaSppg: data.namaKepalaSppg || masterKepala,
       createdAt: data.createdAt || now.toISOString(),
       updatedAt: now.toISOString(),
       createdBy: data.createdBy || 'Bendahara SPPG'
@@ -4488,11 +4712,18 @@ class EnterpriseDataStore {
       totalHadirKeseluruhan = Number((totalHadirKeseluruhan + totalKehadiran).toFixed(2));
       totalGajiKeseluruhan += totalGaji;
 
+      const resolvedJabDiv = this.resolveMasterJabatanDivisi({
+        rawJabatan: p.jabatan,
+        rawDivisi: p.divisi,
+        rawKodeDivisi: p.kodeDivisi
+      });
       return {
         petugasId: p.id,
         nomor: p.nomor,
         nama: p.nama,
-        jabatan: p.jabatan,
+        jabatan: resolvedJabDiv.jabatan,
+        divisi: resolvedJabDiv.divisi,
+        kodeDivisi: resolvedJabDiv.kodeDivisi,
         status: p.status,
         gajiHarian,
         totalKehadiran,
