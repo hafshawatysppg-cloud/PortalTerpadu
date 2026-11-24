@@ -4598,6 +4598,8 @@ class EnterpriseDataStore {
       nama: string;
       jabatan: string;
       status: string;
+      namaBank: string;
+      nomorRekening: string;
       gajiHarian: number;
       totalKehadiran: number;
       totalGaji: number;
@@ -4725,6 +4727,8 @@ class EnterpriseDataStore {
         divisi: resolvedJabDiv.divisi,
         kodeDivisi: resolvedJabDiv.kodeDivisi,
         status: p.status,
+        namaBank: (p.namaBank || '').trim() || '-',
+        nomorRekening: (p.nomorRekening || '').trim() || '-',
         gajiHarian,
         totalKehadiran,
         totalGaji,

@@ -14,7 +14,7 @@ import {
   UserCheck,
   Wallet
 } from 'lucide-react';
-import { MasterDivisi } from '../../types';
+import { MasterDivisi, Petugas } from '../../types';
 import { SlipGajiNumberingConfig } from '../../types/akuntan';
 import { safeParseJson } from '../../lib/safeJson';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
@@ -49,6 +49,8 @@ interface SlipGajiPeriodeItem {
   nama: string;
   jabatan: string;
   status: string;
+  namaBank?: string;
+  nomorRekening?: string;
   gajiHarian: number;
   totalKehadiran: number;
   totalGaji: number;
@@ -207,6 +209,49 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
     [realtimeDivisiList, masterDivisiFallback]
   );
 
+  // Tarik Daftar Petugas real-time + fallback REST agar Nama Bank & No Rekening selalu sinkron
+  const [petugasFallback, setPetugasFallback] = useState<Petugas[]>([]);
+  const fetchPetugasFallback = useCallback(async (): Promise<Petugas[]> => {
+    try {
+      const res = await fetch('/api/petugas');
+      if (!res.ok) return [];
+      const json = await safeParseJson<{ success?: boolean; data?: Petugas[] }>(res);
+      return Array.isArray(json?.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const { data: realtimePetugasList } = useFirestoreRealtime<Petugas>(
+    'petugas',
+    fetchPetugasFallback
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetchPetugasFallback().then((rows) => {
+      if (active && rows.length > 0) setPetugasFallback(rows);
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchPetugasFallback]);
+
+  const effectivePetugasList = useMemo(
+    () => (realtimePetugasList.length > 0 ? realtimePetugasList : petugasFallback),
+    [realtimePetugasList, petugasFallback]
+  );
+
+  const petugasLookup = useMemo(() => {
+    const byId = new Map<string, Petugas>();
+    const byNama = new Map<string, Petugas>();
+    effectivePetugasList.forEach((p) => {
+      if (p.id) byId.set(p.id, p);
+      if (p.nama) byNama.set(p.nama.trim().toLowerCase(), p);
+    });
+    return { byId, byNama };
+  }, [effectivePetugasList]);
+
   const pengawasKeuangan = useMemo(
     () => resolvePengawasKeuanganName(effectiveDivisiList, 'Muhammad Fadil, S.Akun'),
     [effectiveDivisiList]
@@ -293,6 +338,14 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
 
   const buildSlipDataWithSeq = useCallback(
     (item: SlipGajiPeriodeItem, seqNum: number): SlipGajiRelawanData => {
+      const matchedPetugas =
+        petugasLookup.byId.get(item.petugasId) ||
+        petugasLookup.byNama.get(item.nama.trim().toLowerCase());
+      const resolvedBank =
+        String(matchedPetugas?.namaBank ?? item.namaBank ?? '').trim() || '-';
+      const resolvedRekening =
+        String(matchedPetugas?.nomorRekening ?? item.nomorRekening ?? '').trim() || '-';
+
       return {
         nomorUrut: padNomorUrutSurat(seqNum, digitLength),
         digitLength,
@@ -306,6 +359,8 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
         totalKehadiran: item.totalKehadiran,
         gajiHarian: item.gajiHarian,
         totalGaji: item.totalGaji,
+        namaBank: resolvedBank,
+        nomorRekening: resolvedRekening,
         pengawasKeuangan,
         kepalaSppg
       };
@@ -318,7 +373,8 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
       startDate,
       endDate,
       pengawasKeuangan,
-      kepalaSppg
+      kepalaSppg,
+      petugasLookup
     ]
   );
 
@@ -1125,8 +1181,10 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
                   Bersama ini kami lampirkan slip gaji Periode{' '}
                   {formatTanggalIndoLong(selectedSlipData.startDate)} s/d{' '}
                   {formatTanggalIndoLong(selectedSlipData.endDate)} atas nama relawan yang
-                  bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Slip ini
-                  memuat informasi mengenai pendapatan total gaji yang diterima.
+                  bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Upah telah
+                  ditransfer/dikirimkan secara harian selama periode diatas, dan tanda terima ini
+                  ditandatangani sebagai bukti konfirmasi penerimaan total upah untuk periode
+                  tersebut. Slip ini memuat informasi mengenai pendapatan total gaji yang diterima.
                 </p>
 
                 {/* Tabel Informasi Karyawan & Nominal Gaji */}
@@ -1162,6 +1220,16 @@ export const SlipGajiRelawanView: React.FC<SlipGajiRelawanViewProps> = ({
                       <td className="py-1 align-top italic">
                         {formatTerbilangRupiah(selectedSlipData.totalGaji)}
                       </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 align-top">Nama Bank</td>
+                      <td className="py-1 text-center align-top">:</td>
+                      <td className="py-1 align-top">{selectedSlipData.namaBank || '-'}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 align-top">No Rekening</td>
+                      <td className="py-1 text-center align-top">:</td>
+                      <td className="py-1 align-top">{selectedSlipData.nomorRekening || '-'}</td>
                     </tr>
                   </tbody>
                 </table>

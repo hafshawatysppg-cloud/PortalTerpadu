@@ -14,6 +14,8 @@ export interface SlipGajiRelawanData {
   totalKehadiran: number;
   gajiHarian: number;
   totalGaji: number;
+  namaBank?: string;
+  nomorRekening?: string;
   pengawasKeuangan: string;
   kepalaSppg: string;
 }
@@ -312,6 +314,8 @@ export function renderSlipGajiSheet(data: SlipGajiRelawanData): string {
   const totalKehadiranFormatted = formatAngkaKehadiran(data.totalKehadiran);
   const totalGajiFormatted = Math.round(Math.max(0, Number(data.totalGaji || 0))).toLocaleString('id-ID');
   const terbilangText = formatTerbilangRupiah(data.totalGaji);
+  const namaBankText = String(data.namaBank ?? '').trim() || '-';
+  const nomorRekeningText = String(data.nomorRekening ?? '').trim() || '-';
 
   return `
     <div class="slip-sheet">
@@ -334,7 +338,7 @@ export function renderSlipGajiSheet(data: SlipGajiRelawanData): string {
       <div class="doc-nomor">NOMOR : ${escapeHtml(nomorLengkap)}</div>
 
       <p class="doc-intro">
-        Bersama ini kami lampirkan slip gaji Periode ${escapeHtml(startIndo)} s/d ${escapeHtml(endIndo)} atas nama relawan yang bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Slip ini memuat informasi mengenai pendapatan total gaji yang diterima.
+        Bersama ini kami lampirkan slip gaji Periode ${escapeHtml(startIndo)} s/d ${escapeHtml(endIndo)} atas nama relawan yang bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Upah telah ditransfer/dikirimkan secara harian selama periode diatas, dan tanda terima ini ditandatangani sebagai bukti konfirmasi penerimaan total upah untuk periode tersebut. Slip ini memuat informasi mengenai pendapatan total gaji yang diterima.
       </p>
 
       <table class="detail-table">
@@ -362,6 +366,16 @@ export function renderSlipGajiSheet(data: SlipGajiRelawanData): string {
           <td class="detail-label">Terbilang</td>
           <td class="detail-colon">:</td>
           <td class="detail-value"><span class="terbilang-text">${escapeHtml(terbilangText)}</span></td>
+        </tr>
+        <tr>
+          <td class="detail-label">Nama Bank</td>
+          <td class="detail-colon">:</td>
+          <td class="detail-value">${escapeHtml(namaBankText)}</td>
+        </tr>
+        <tr>
+          <td class="detail-label">No Rekening</td>
+          <td class="detail-colon">:</td>
+          <td class="detail-value">${escapeHtml(nomorRekeningText)}</td>
         </tr>
       </table>
 
@@ -584,7 +598,7 @@ function drawSlipGajiPdfPage(
   // Intro Paragraph
   const startIndo = formatTanggalIndoLong(data.startDate);
   const endIndo = formatTanggalIndoLong(data.endDate);
-  const introText = `Bersama ini kami lampirkan slip gaji Periode ${startIndo} s/d ${endIndo} atas nama relawan yang bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Slip ini memuat informasi mengenai pendapatan total gaji yang diterima.`;
+  const introText = `Bersama ini kami lampirkan slip gaji Periode ${startIndo} s/d ${endIndo} atas nama relawan yang bersangkutan sebagai bukti pembayaran gaji sesuai dengan periode diatas. Upah telah ditransfer/dikirimkan secara harian selama periode diatas, dan tanda terima ini ditandatangani sebagai bukti konfirmasi penerimaan total upah untuk periode tersebut. Slip ini memuat informasi mengenai pendapatan total gaji yang diterima.`;
 
   doc.setFont('times', 'normal');
   doc.setFontSize(10.5);
@@ -599,13 +613,17 @@ function drawSlipGajiPdfPage(
   const totalKehadiranFormatted = formatAngkaKehadiran(data.totalKehadiran);
   const totalGajiFormatted = Math.round(Math.max(0, Number(data.totalGaji || 0))).toLocaleString('id-ID');
   const terbilangText = formatTerbilangRupiah(data.totalGaji);
+  const namaBankText = String(data.namaBank ?? '').trim() || '-';
+  const nomorRekeningText = String(data.nomorRekening ?? '').trim() || '-';
 
   const detailRows: Array<{ label: string; value: string; italic?: boolean }> = [
     { label: 'Nama', value: data.nama },
     { label: 'Jabatan', value: data.jabatan },
     { label: 'Total Kehadiran', value: totalKehadiranFormatted },
     { label: 'Total gaji yang diterima', value: totalGajiFormatted },
-    { label: 'Terbilang', value: terbilangText, italic: true }
+    { label: 'Terbilang', value: terbilangText, italic: true },
+    { label: 'Nama Bank', value: namaBankText },
+    { label: 'No Rekening', value: nomorRekeningText }
   ];
 
   for (const row of detailRows) {
