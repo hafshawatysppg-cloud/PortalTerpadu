@@ -525,6 +525,14 @@ export async function batchSyncSupabaseDocs(
 }
 
 let channelCounter = 0;
+let realtimeWarningLogged = false;
+
+function logRealtimeFallbackOnce(detail: string): void {
+  if (!realtimeWarningLogged) {
+    realtimeWarningLogged = true;
+    console.warn(`[Supabase Realtime] ${detail} — beralih ke sinkronisasi HTTP berkala.`);
+  }
+}
 
 export function subscribeSupabaseCollection<T = any>(
   collectionName: string,
@@ -545,6 +553,8 @@ export function subscribeSupabaseCollection<T = any>(
   let active = true;
   let currentItems: T[] = [];
   let seededChecked = false;
+  let fallbackPollTimer: ReturnType<typeof setInterval> | null = null;
+  let channelRemoved = false;
 
   const refresh = async () => {
     if (!active) return;
@@ -581,6 +591,15 @@ export function subscribeSupabaseCollection<T = any>(
 
   void refresh();
 
+  const startFallbackPolling = () => {
+    if (!active || fallbackPollTimer || typeof setInterval === 'undefined') return;
+    fallbackPollTimer = setInterval(() => {
+      if (!active) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refresh();
+    }, 30_000);
+  };
+
   channelCounter += 1;
   const channelName = `realtime_${target.table}_${collectionName}_${channelCounter}`;
   const filterConfig: {
@@ -603,17 +622,33 @@ export function subscribeSupabaseCollection<T = any>(
       void refresh();
     })
     .subscribe((status) => {
-      if (status === 'CHANNEL_ERROR' && active) {
-        options?.onError?.(new Error(`Realtime channel error for ${collectionName}`));
+      if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && active) {
+        logRealtimeFallbackOnce(`WebSocket status ${status}`);
+        if (!channelRemoved) {
+          channelRemoved = true;
+          try {
+            void client.removeChannel(channel);
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
+        startFallbackPolling();
       }
     });
 
   return () => {
     active = false;
-    try {
-      void client.removeChannel(channel);
-    } catch {
-      // Ignore cleanup errors
+    if (fallbackPollTimer) {
+      clearInterval(fallbackPollTimer);
+      fallbackPollTimer = null;
+    }
+    if (!channelRemoved) {
+      channelRemoved = true;
+      try {
+        void client.removeChannel(channel);
+      } catch {
+        // Ignore cleanup errors
+      }
     }
   };
 }
@@ -631,6 +666,8 @@ export function subscribeSupabaseDoc<T = any>(
 
   const target = resolveSupabaseTarget(collectionName);
   let active = true;
+  let fallbackPollTimer: ReturnType<typeof setInterval> | null = null;
+  let channelRemoved = false;
 
   const refresh = async () => {
     if (!active) return;
@@ -643,6 +680,15 @@ export function subscribeSupabaseDoc<T = any>(
   };
 
   void refresh();
+
+  const startFallbackPolling = () => {
+    if (!active || fallbackPollTimer || typeof setInterval === 'undefined') return;
+    fallbackPollTimer = setInterval(() => {
+      if (!active) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refresh();
+    }, 30_000);
+  };
 
   channelCounter += 1;
   const channelName = `realtime_doc_${target.table}_${docId}_${channelCounter}`;
@@ -661,17 +707,33 @@ export function subscribeSupabaseDoc<T = any>(
       }
     )
     .subscribe((status) => {
-      if (status === 'CHANNEL_ERROR' && active) {
-        onError?.(new Error(`Realtime doc channel error for ${collectionName}/${docId}`));
+      if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && active) {
+        logRealtimeFallbackOnce(`WebSocket doc status ${status}`);
+        if (!channelRemoved) {
+          channelRemoved = true;
+          try {
+            void client.removeChannel(channel);
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
+        startFallbackPolling();
       }
     });
 
   return () => {
     active = false;
-    try {
-      void client.removeChannel(channel);
-    } catch {
-      // Ignore cleanup errors
+    if (fallbackPollTimer) {
+      clearInterval(fallbackPollTimer);
+      fallbackPollTimer = null;
+    }
+    if (!channelRemoved) {
+      channelRemoved = true;
+      try {
+        void client.removeChannel(channel);
+      } catch {
+        // Ignore cleanup errors
+      }
     }
   };
 }

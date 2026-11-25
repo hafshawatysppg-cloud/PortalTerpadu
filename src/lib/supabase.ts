@@ -1,20 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-function readEnvVar(key: string): string {
-  try {
-    const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> })?.env;
-    if (metaEnv && typeof metaEnv[key] === 'string' && metaEnv[key]) {
-      return String(metaEnv[key]).trim();
-    }
-  } catch {
-    // Ignore when import.meta.env is unavailable
-  }
-
-  return '';
+function normalizeSupabaseUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
 }
 
-const rawSupabaseUrl = readEnvVar('VITE_SUPABASE_URL');
-const rawSupabaseAnonKey = readEnvVar('VITE_SUPABASE_ANON_KEY');
+const rawSupabaseUrl = normalizeSupabaseUrl(String(import.meta.env.VITE_SUPABASE_URL ?? ''));
+const rawSupabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 
 const FALLBACK_SUPABASE_URL = 'https://placeholder-project.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'placeholder-anon-key';

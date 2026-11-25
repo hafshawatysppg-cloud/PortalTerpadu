@@ -117,7 +117,11 @@ export function handleFirestoreError(
   const errInfo = buildFirestoreErrorInfo(error, operationType, path);
   const friendlyMsg = formatFirestoreErrorMessage(error, options?.customContext);
 
-  console.error('Supabase Data Error:', JSON.stringify(errInfo), error);
+  if (options?.throwError !== false) {
+    console.error('Supabase Data Error:', JSON.stringify(errInfo), error);
+  } else {
+    console.warn('Supabase Data Notice:', JSON.stringify(errInfo));
+  }
 
   if (options?.notify !== false && isSupabaseConfigured) {
     emitFirebaseErrorToast(friendlyMsg);

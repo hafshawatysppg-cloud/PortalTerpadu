@@ -1,6 +1,15 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const rawSupabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+function normalizeSupabaseUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
+}
+
+const rawSupabaseUrl = normalizeSupabaseUrl(
+  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
+);
 const rawServiceOrAnonKey = (
   process.env.SUPABASE_API_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY ||

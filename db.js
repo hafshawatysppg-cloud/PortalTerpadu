@@ -1,11 +1,18 @@
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
-const rawSupabaseUrl = (
+function normalizeSupabaseUrl(url) {
+  return String(url || '')
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
+}
+
+const rawSupabaseUrl = normalizeSupabaseUrl(
   process.env.SUPABASE_URL ||
-  process.env.VITE_SUPABASE_URL ||
-  'https://eqncmbbcewrgbhzzfwiv.supabase.co'
-).trim();
+    process.env.VITE_SUPABASE_URL ||
+    'https://eqncmbbcewrgbhzzfwiv.supabase.co'
+);
 
 const supabaseUrl =
   rawSupabaseUrl && !rawSupabaseUrl.includes('placeholder')
