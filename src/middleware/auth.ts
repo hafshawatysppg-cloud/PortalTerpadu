@@ -1,9 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth } from '../lib/firebase-admin.ts';
-import { DecodedIdToken } from 'firebase-admin/auth';
+import jwt from 'jsonwebtoken';
+import { verifySupabaseAccessToken } from '../../server/db/supabase';
+import { JWT_SECRET } from '../../server/db/store';
+
+export interface AuthenticatedUser {
+  id: string;
+  uid?: string;
+  email?: string;
+  nama?: string;
+  username?: string;
+  role?: string;
+  [key: string]: any;
+}
 
 export interface AuthRequest extends Request {
-  user?: DecodedIdToken;
+  user?: AuthenticatedUser;
 }
 
 export const requireAuth = async (
@@ -16,17 +27,31 @@ export const requireAuth = async (
     return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
-  if (!adminAuth) {
-    return res.status(503).json({ error: 'Firebase Admin Auth unavailable' });
+  const token = authHeader.split('Bearer ')[1]?.trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Empty token' });
   }
 
-  const token = authHeader.split('Bearer ')[1];
+  // 1. Verify Supabase Auth JWT when Supabase is configured
+  const supaUser = await verifySupabaseAccessToken(token);
+  if (supaUser) {
+    req.user = {
+      id: supaUser.id,
+      uid: supaUser.id,
+      email: supaUser.email,
+      nama: (supaUser.user_metadata?.nama as string) || supaUser.email || 'Pengguna Supabase',
+      role: (supaUser.user_metadata?.role as string) || 'Staff',
+      ...supaUser.user_metadata,
+    };
+    return next();
+  }
+
+  // 2. Fallback: verify Portal SSO JWT
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
-    next();
-  } catch (error) {
-    console.error('Error verifying Firebase ID token:', error);
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+    req.user = decoded;
+    return next();
+  } catch {
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
 };

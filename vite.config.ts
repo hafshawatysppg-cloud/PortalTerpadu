@@ -17,7 +17,7 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('firebase')) return 'vendor-firebase';
+              if (id.includes('@supabase')) return 'vendor-supabase';
               if (id.includes('recharts')) return 'vendor-charts';
               if (id.includes('jspdf') || id.includes('xlsx')) return 'vendor-docs';
               if (id.includes('lucide-react')) return 'vendor-icons';

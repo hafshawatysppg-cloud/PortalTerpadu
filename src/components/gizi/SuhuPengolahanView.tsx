@@ -28,25 +28,17 @@ import {
   ZoomIn
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../lib/firebase';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
-  collection,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  writeBatch
-} from 'firebase/firestore';
+  subscribeSupabaseCollection,
+  upsertSupabaseDoc,
+  updateSupabaseDocFields,
+  deleteSupabaseDoc,
+  batchSyncSupabaseDocs
+} from '../../lib/supabaseService';
 import {
   OperationType,
   generateUniqueDocId,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
   notifyFirestoreFailure,
   sanitizeForFirestore
 } from '../../lib/firestoreHelper';
@@ -366,7 +358,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     } catch (_) {}
   };
 
-  // Real-time Firestore listener with quota circuit breaker & server cache fallback
+  // Real-time Supabase listener with server cache fallback
   useEffect(() => {
     let active = true;
     const loadServerFallback = async () => {
@@ -385,69 +377,47 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     };
 
     void loadServerFallback();
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       return () => {
         active = false;
       };
     }
 
-    const q = query(collection(db, 'suhu_pengolahan_v2'), orderBy('tanggal', 'desc'));
-    let unsubscribe: (() => void) | null = null;
-    try {
-      unsubscribe = onSnapshot(
-        q,
-        async (snap) => {
-          if (snap.empty && !isFirestoreQuotaExhausted()) {
-            try {
-              const flagSnap = await getDoc(doc(db, 'app_meta', 'seed_flags'));
-              const alreadySeeded = flagSnap.exists() && Boolean(flagSnap.data()?.suhuPengolahanSeeded);
-              if (!alreadySeeded) {
-                const batch = writeBatch(db);
-                for (const item of SEED_DAILY_RECORDS) {
-                  batch.set(doc(db, 'suhu_pengolahan_v2', item.id), sanitizeForFirestore(item), { merge: true });
-                }
-                await batch.commit();
-                await setDoc(doc(db, 'app_meta', 'seed_flags'), { suhuPengolahanSeeded: true }, { merge: true });
-                return;
-              }
-            } catch (seedErr) {
-              if (isFirestoreQuotaError(seedErr)) {
-                markFirestoreQuotaExhausted();
-                try { unsubscribe?.(); } catch (_) {}
-                notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_pengolahan_v2');
-                void loadServerFallback();
-                return;
-              }
-              const msg = notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_pengolahan_v2', 'Gagal menginisialisasi data awal Suhu Pengolahan');
-              showToast(msg, 'error');
-            }
-          }
-          const list: DailySuhuPengolahanRecord[] = [];
-          snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuPengolahanRecord));
-          setDailyRecords(list);
-          void persistSuhuPengolahanBackup(list);
+    const unsubscribe = subscribeSupabaseCollection<DailySuhuPengolahanRecord>(
+      'suhu_pengolahan_v2',
+      (list) => {
+        if (!active) return;
+        setDailyRecords(list);
+        void persistSuhuPengolahanBackup(list);
+      },
+      {
+        orderByColumn: 'tanggal',
+        ascending: false,
+        seedIfEmpty: async () => {
+          await batchSyncSupabaseDocs(
+            'suhu_pengolahan_v2',
+            SEED_DAILY_RECORDS.map((item) => ({
+              type: 'set' as const,
+              id: item.id,
+              data: sanitizeForFirestore(item)
+            }))
+          );
         },
-        (err) => {
-          if (isFirestoreQuotaError(err)) {
-            markFirestoreQuotaExhausted();
-            try { unsubscribe?.(); } catch (_) {}
-            notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2');
-            void loadServerFallback();
-            return;
-          }
-          const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2', 'Gagal membaca data Suhu Pengolahan dari Firebase');
+        onError: (err) => {
+          const msg = notifyFirestoreFailure(
+            err,
+            OperationType.LIST,
+            'suhu_pengolahan_v2',
+            'Gagal membaca data Suhu Pengolahan dari Supabase'
+          );
           showToast(msg, 'error');
         }
-      );
-    } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
       }
-      notifyFirestoreFailure(err, OperationType.LIST, 'suhu_pengolahan_v2');
-    }
+    );
+
     return () => {
       active = false;
-      try { unsubscribe?.(); } catch (_) {}
+      unsubscribe();
     };
   }, []);
 
@@ -594,28 +564,23 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
         (b.tanggal || '').localeCompare(a.tanggal || '')
       );
 
-      // Simpan langsung ke Firestore (atau fallback server lokal jika kuota habis)
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          if (existing) {
-            await updateDoc(doc(db, 'suhu_pengolahan_v2', existing.id), sanitizeForFirestore({
+      // Simpan langsung ke Supabase (tetap aman jika fallback server lokal aktif)
+      if (isSupabaseConfigured) {
+        if (existing) {
+          await updateSupabaseDocFields(
+            'suhu_pengolahan_v2',
+            existing.id,
+            sanitizeForFirestore({
               petugas: recordToSave.petugas,
               petugasRole: recordToSave.petugasRole,
               status: recordToSave.status,
               catatan: recordToSave.catatan,
               updatedAt: recordToSave.updatedAt,
               [targetSesiKey]: updatedSesiData
-            }));
-          } else {
-            await setDoc(doc(db, 'suhu_pengolahan_v2', newDocId), sanitizeForFirestore(recordToSave));
-          }
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'suhu_pengolahan_v2');
-          } else {
-            throw fsErr;
-          }
+            })
+          );
+        } else {
+          await upsertSupabaseDoc('suhu_pengolahan_v2', newDocId, sanitizeForFirestore(recordToSave));
         }
       }
 
@@ -642,7 +607,7 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
 
       onNavigate('/gizi/suhu/makanan/pengolahan/tabel');
     } catch (err) {
-      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_pengolahan_v2', 'Gagal menyimpan data suhu pengolahan ke Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_pengolahan_v2', 'Gagal menyimpan data suhu pengolahan ke Supabase');
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
@@ -681,29 +646,20 @@ export const SuhuPengolahanView: React.FC<SuhuPengolahanViewProps> = ({ currentP
     );
   }, [filteredDokumentasiRecords, selectedDokumentasiTanggal]);
 
-  // Delete record in Firestore
+  // Delete record in Supabase
   const handleDeleteDailyRecord = async (record: DailySuhuPengolahanRecord) => {
     if (!window.confirm(`Hapus data tanggal ${formatTanggalTable(record.tanggal)}?`)) return;
     const nextList = dailyRecords.filter((r) => r.id !== record.id);
 
     try {
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          await deleteDoc(doc(db, 'suhu_pengolahan_v2', record.id));
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.DELETE, `suhu_pengolahan_v2/${record.id}`);
-          } else {
-            throw fsErr;
-          }
-        }
+      if (isSupabaseConfigured) {
+        await deleteSupabaseDoc('suhu_pengolahan_v2', record.id);
       }
       setDailyRecords(nextList);
       void persistSuhuPengolahanBackup(nextList);
       showToast(`Data tanggal ${formatTanggalTable(record.tanggal)} berhasil dihapus`, 'success');
     } catch (err) {
-      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_pengolahan_v2/${record.id}`, 'Gagal menghapus data suhu pengolahan dari Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_pengolahan_v2/${record.id}`, 'Gagal menghapus data suhu pengolahan dari Supabase');
       showToast(msg, 'error');
     }
   };

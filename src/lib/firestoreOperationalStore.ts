@@ -1,22 +1,15 @@
+import { isSupabaseConfigured } from './supabase';
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  onSnapshot,
-  query,
-  setDoc,
-  updateDoc,
-  writeBatch,
-  type Unsubscribe
-} from 'firebase/firestore';
-import { db } from './firebase';
+  batchSyncSupabaseDocs,
+  deleteSupabaseDoc,
+  fetchSupabaseDoc,
+  subscribeSupabaseCollection,
+  subscribeSupabaseDoc,
+  upsertSupabaseDoc
+} from './supabaseService';
 import {
   OperationType,
   generateUniqueDocId,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
   notifyFirestoreFailure,
   sanitizeForFirestore
 } from './firestoreHelper';
@@ -195,7 +188,7 @@ export type StoreSliceKey =
   | 'barangDatang';
 
 const listeners = new Map<StoreSliceKey, Set<() => void>>();
-const unsubscribers: Unsubscribe[] = [];
+const unsubscribers: Array<() => void> = [];
 let storeInitialized = false;
 let seedFlagsCache: Record<string, boolean> | null = null;
 let seedFlagsPromise: Promise<Record<string, boolean>> | null = null;
@@ -234,15 +227,6 @@ function notifySlice(key: StoreSliceKey) {
     } else if (key === 'rabBahanBaku' || key === 'akuntanConfigs') {
       window.dispatchEvent(new CustomEvent('sppg-akuntan-rab-updated'));
     }
-  }
-}
-
-function teardownOperationalListeners(): void {
-  while (unsubscribers.length > 0) {
-    const unsub = unsubscribers.pop();
-    try {
-      unsub?.();
-    } catch (_) {}
   }
 }
 
@@ -289,8 +273,8 @@ async function hydrateOperationalStoreFromServer(): Promise<void> {
     try {
       const res = await fetch('/api/v1/cloud/operational-snapshot');
       if (!res.ok) return;
-      const json = await safeParseJson<{ success?: boolean; slices?: Record<string, any> }>(res);
-      const slices = json?.slices;
+      const json = await safeParseJson<{ success?: boolean; data?: Record<string, any>; slices?: Record<string, any> }>(res);
+      const slices = json?.slices || json?.data;
       if (!slices || typeof slices !== 'object') return;
 
       const updatedSlices: StoreSliceKey[] = [];
@@ -344,20 +328,6 @@ async function hydrateOperationalStoreFromServer(): Promise<void> {
   return serverHydrationPromise;
 }
 
-function handleOperationalQuotaError(
-  err: unknown,
-  operationType: OperationType,
-  path: string,
-  context: string
-): string {
-  if (isFirestoreQuotaError(err)) {
-    markFirestoreQuotaExhausted();
-    teardownOperationalListeners();
-    void hydrateOperationalStoreFromServer();
-  }
-  return notifyFirestoreFailure(err, operationType, path, context);
-}
-
 export function subscribeOperationalSlice(key: StoreSliceKey, listener: () => void): () => void {
   if (!storeInitialized) {
     initOperationalFirestoreStore();
@@ -375,21 +345,16 @@ export function subscribeOperationalSlice(key: StoreSliceKey, listener: () => vo
 
 async function getSeedFlags(): Promise<Record<string, boolean>> {
   if (seedFlagsCache) return seedFlagsCache;
-  if (isFirestoreQuotaExhausted()) return {};
+  if (!isSupabaseConfigured) return {};
   if (seedFlagsPromise) return seedFlagsPromise;
 
   seedFlagsPromise = (async () => {
     try {
-      const snap = await getDoc(doc(db, 'app_meta', 'seed_flags'));
-      seedFlagsCache = snap.exists() ? (snap.data() as Record<string, boolean>) : {};
+      const docData = await fetchSupabaseDoc<Record<string, boolean>>('app_meta', 'seed_flags');
+      seedFlagsCache = docData || {};
       return seedFlagsCache;
     } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
-        teardownOperationalListeners();
-      } else {
-        console.warn('Gagal memeriksa status seed Firestore:', err);
-      }
+      console.warn('Gagal memeriksa status seed Supabase:', err);
       return {};
     } finally {
       seedFlagsPromise = null;
@@ -400,16 +365,11 @@ async function getSeedFlags(): Promise<Record<string, boolean>> {
 
 async function markSeedFlag(flagKey: string): Promise<void> {
   seedFlagsCache = { ...(seedFlagsCache || {}), [flagKey]: true };
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await setDoc(doc(db, 'app_meta', 'seed_flags'), { [flagKey]: true }, { merge: true });
+    await upsertSupabaseDoc('app_meta', 'seed_flags', seedFlagsCache);
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      markFirestoreQuotaExhausted();
-      teardownOperationalListeners();
-    } else {
-      console.warn(`Gagal menandai seed flag ${flagKey}:`, err);
-    }
+    console.warn(`Gagal menandai seed flag ${flagKey}:`, err);
   }
 }
 
@@ -419,47 +379,46 @@ function attachCollectionListener<T extends { id: string }>(
   assign: (items: T[]) => void,
   options?: { seedItems?: T[]; seedFlag?: string }
 ): void {
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    const q = query(collection(db, collectionName));
-    const unsub = onSnapshot(
-      q,
-      async (snapshot) => {
-        if (snapshot.empty && options?.seedItems && options.seedItems.length > 0 && options.seedFlag) {
-          const flags = await getSeedFlags();
-          if (!flags[options.seedFlag] && !isFirestoreQuotaExhausted()) {
-            try {
-              const batch = writeBatch(db);
-              for (const item of options.seedItems) {
-                const docId = item.id || generateUniqueDocId(collectionName);
-                batch.set(doc(db, collectionName, docId), sanitizeForFirestore({ ...item, id: docId }), { merge: true });
-              }
-              await batch.commit();
-              await markSeedFlag(options.seedFlag);
-              return;
-            } catch (seedErr) {
-              handleOperationalQuotaError(seedErr, OperationType.WRITE, collectionName, `Gagal inisialisasi data awal ${collectionName}`);
-            }
-          }
-        }
-
-        const list: T[] = [];
-        snapshot.forEach((docSnap) => {
-          list.push({ ...(docSnap.data() as T), id: docSnap.id });
-        });
-        if (list.length > 0 || !isFirestoreQuotaExhausted()) {
+    const unsub = subscribeSupabaseCollection<T>(
+      collectionName,
+      (list) => {
+        if (list.length > 0) {
           assign(list);
           notifySlice(sliceKey);
           schedulePersistOperationalSnapshot();
         }
       },
-      (err) => {
-        handleOperationalQuotaError(err, OperationType.GET, collectionName, `Gagal sinkronisasi real-time ${collectionName}`);
+      {
+        seedIfEmpty:
+          options?.seedItems && options.seedItems.length > 0 && options.seedFlag
+            ? async () => {
+                const flags = await getSeedFlags();
+                if (!flags[options.seedFlag!]) {
+                  await batchSyncSupabaseDocs(
+                    collectionName,
+                    options.seedItems!.map((item) => {
+                      const docId = item.id || generateUniqueDocId(collectionName);
+                      return {
+                        type: 'set' as const,
+                        id: docId,
+                        data: sanitizeForFirestore({ ...item, id: docId })
+                      };
+                    })
+                  );
+                  await markSeedFlag(options.seedFlag!);
+                }
+              }
+            : undefined,
+        onError: (err) => {
+          notifyFirestoreFailure(err, OperationType.GET, collectionName, `Gagal sinkronisasi real-time ${collectionName}`);
+        }
       }
     );
     unsubscribers.push(unsub);
   } catch (err) {
-    handleOperationalQuotaError(err, OperationType.GET, collectionName, `Gagal membuka listener ${collectionName}`);
+    notifyFirestoreFailure(err, OperationType.GET, collectionName, `Gagal membuka listener ${collectionName}`);
   }
 }
 
@@ -469,7 +428,7 @@ export function initOperationalFirestoreStore(): void {
 
   void hydrateOperationalStoreFromServer();
 
-  if (isFirestoreQuotaExhausted()) {
+  if (!isSupabaseConfigured) {
     state.masterMenusLoaded = true;
     state.siklusCyclesLoaded = true;
     state.akuntanConfigsLoaded = true;
@@ -491,70 +450,60 @@ export function initOperationalFirestoreStore(): void {
 
   // 2. Siklus Menu
   try {
-    const qSiklus = query(collection(db, 'siklus_menu'));
-    const unsubSiklus = onSnapshot(
-      qSiklus,
-      async (snapshot) => {
-        if (snapshot.empty) {
-          const flags = await getSeedFlags();
-          if (!flags.siklusMenuSeeded && !isFirestoreQuotaExhausted()) {
-            try {
-              await setDoc(
-                doc(db, 'siklus_menu', SEED_SIKLUS_20261026.id),
-                sanitizeForFirestore(SEED_SIKLUS_20261026),
-                { merge: true }
-              );
-              await markSeedFlag('siklusMenuSeeded');
-              return;
-            } catch (seedErr) {
-              handleOperationalQuotaError(seedErr, OperationType.WRITE, 'siklus_menu', 'Gagal inisialisasi data awal Siklus Menu');
-            }
-          }
-        }
-
+    const unsubSiklus = subscribeSupabaseCollection<SiklusMenuData & { id?: string }>(
+      'siklus_menu',
+      (items) => {
         const map: Record<string, SiklusMenuData & { id?: string }> = {};
-        snapshot.forEach((docSnap) => {
-          const d = docSnap.data() as SiklusMenuData & { id?: string };
+        items.forEach((d) => {
           if (d?.tanggal) {
-            map[d.tanggal] = { ...d, id: docSnap.id };
+            map[d.tanggal] = d;
           }
         });
-        state.siklusCycles = map;
+        if (Object.keys(map).length > 0) {
+          state.siklusCycles = map;
+        }
         state.siklusCyclesLoaded = true;
         notifySlice('siklusCycles');
         schedulePersistOperationalSnapshot();
       },
-      (err) => {
-        handleOperationalQuotaError(err, OperationType.GET, 'siklus_menu', 'Gagal sinkronisasi real-time Siklus Menu');
+      {
+        seedIfEmpty: async () => {
+          const flags = await getSeedFlags();
+          if (!flags.siklusMenuSeeded) {
+            await upsertSupabaseDoc('siklus_menu', SEED_SIKLUS_20261026.id, sanitizeForFirestore(SEED_SIKLUS_20261026));
+            await markSeedFlag('siklusMenuSeeded');
+          }
+        },
+        onError: (err) => {
+          notifyFirestoreFailure(err, OperationType.GET, 'siklus_menu', 'Gagal sinkronisasi real-time Siklus Menu');
+        }
       }
     );
     unsubscribers.push(unsubSiklus);
   } catch (err) {
-    handleOperationalQuotaError(err, OperationType.GET, 'siklus_menu', 'Gagal membuka listener Siklus Menu');
+    notifyFirestoreFailure(err, OperationType.GET, 'siklus_menu', 'Gagal membuka listener Siklus Menu');
   }
 
   // 3. Akuntan Configs single doc
   try {
-    const unsubCfg = onSnapshot(
-      doc(db, 'akuntan_configs', 'main'),
-      (snap) => {
-        if (snap.exists()) {
-          state.akuntanConfigs = mergeAkuntanConfigState(
-            DEFAULT_AKUNTAN_CONFIG,
-            snap.data() as Partial<AkuntanConfigState>
-          );
+    const unsubCfg = subscribeSupabaseDoc<Partial<AkuntanConfigState>>(
+      'akuntan_configs',
+      'main',
+      (docData) => {
+        if (docData) {
+          state.akuntanConfigs = mergeAkuntanConfigState(DEFAULT_AKUNTAN_CONFIG, docData);
         }
         state.akuntanConfigsLoaded = true;
         notifySlice('akuntanConfigs');
         schedulePersistOperationalSnapshot();
       },
       (err) => {
-        handleOperationalQuotaError(err, OperationType.GET, 'akuntan_configs/main', 'Gagal memuat konfigurasi Akuntan dari Firebase');
+        notifyFirestoreFailure(err, OperationType.GET, 'akuntan_configs/main', 'Gagal memuat konfigurasi Akuntan dari Supabase');
       }
     );
     unsubscribers.push(unsubCfg);
   } catch (err) {
-    handleOperationalQuotaError(err, OperationType.GET, 'akuntan_configs/main', 'Gagal membuka listener konfigurasi Akuntan');
+    notifyFirestoreFailure(err, OperationType.GET, 'akuntan_configs/main', 'Gagal membuka listener konfigurasi Akuntan');
   }
 
   // 4. Akuntan Item Collections
@@ -613,7 +562,7 @@ export function initOperationalFirestoreStore(): void {
   });
 }
 
-// Synchronous Snapshot Getters (backed by live Firestore onSnapshot)
+// Synchronous Snapshot Getters (backed by live Supabase Realtime + server snapshot)
 export const getMasterMenusSnapshot = (): MasterMenuRecord[] => {
   if (!storeInitialized) initOperationalFirestoreStore();
   return state.masterMenus;
@@ -699,7 +648,7 @@ function removeLocalSliceItem(collectionName: string, id: string): void {
   schedulePersistOperationalSnapshot();
 }
 
-// ---------------- Master Menu Firestore CRUD ----------------
+// ---------------- Master Menu Supabase CRUD ----------------
 export async function createMasterMenuDoc(input: Omit<MasterMenuRecord, 'id'>): Promise<MasterMenuRecord> {
   const prefix = `MM_${(input.tanggalPelaksanaan || '').replace(/-/g, '') || 'MENU'}`;
   const docId = generateUniqueDocId(prefix);
@@ -710,16 +659,12 @@ export async function createMasterMenuDoc(input: Omit<MasterMenuRecord, 'id'>): 
   notifySlice('masterMenus');
   schedulePersistOperationalSnapshot();
 
-  if (isFirestoreQuotaExhausted()) return record;
+  if (!isSupabaseConfigured) return record;
   try {
-    await setDoc(doc(db, 'master_menus', docId), sanitizeForFirestore(record));
+    await upsertSupabaseDoc('master_menus', docId, sanitizeForFirestore(record));
     return record;
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.CREATE, `master_menus/${docId}`, 'Gagal menyimpan Master Menu baru');
-      return record;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.CREATE, `master_menus/${docId}`, 'Gagal menyimpan Master Menu baru');
+    const msg = notifyFirestoreFailure(err, OperationType.CREATE, `master_menus/${docId}`, 'Gagal menyimpan Master Menu baru ke Supabase');
     throw new Error(msg);
   }
 }
@@ -731,15 +676,12 @@ export async function updateMasterMenuDoc(id: string, patch: Partial<MasterMenuR
   notifySlice('masterMenus');
   schedulePersistOperationalSnapshot();
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await setDoc(doc(db, 'master_menus', id), sanitizeForFirestore(patch), { merge: true });
+    const updated = state.masterMenus.find((m) => m.id === id) || { ...patch, id };
+    await upsertSupabaseDoc('master_menus', id, sanitizeForFirestore(updated));
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.UPDATE, `master_menus/${id}`, 'Gagal memperbarui Master Menu');
-      return;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.UPDATE, `master_menus/${id}`, 'Gagal memperbarui Master Menu');
+    const msg = notifyFirestoreFailure(err, OperationType.UPDATE, `master_menus/${id}`, 'Gagal memperbarui Master Menu di Supabase');
     throw new Error(msg);
   }
 }
@@ -749,20 +691,16 @@ export async function deleteMasterMenuDoc(id: string): Promise<void> {
   notifySlice('masterMenus');
   schedulePersistOperationalSnapshot();
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await deleteDoc(doc(db, 'master_menus', id));
+    await deleteSupabaseDoc('master_menus', id);
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.DELETE, `master_menus/${id}`, 'Gagal menghapus Master Menu');
-      return;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.DELETE, `master_menus/${id}`, 'Gagal menghapus Master Menu');
+    const msg = notifyFirestoreFailure(err, OperationType.DELETE, `master_menus/${id}`, 'Gagal menghapus Master Menu dari Supabase');
     throw new Error(msg);
   }
 }
 
-// ---------------- Siklus Menu Firestore CRUD ----------------
+// ---------------- Siklus Menu Supabase CRUD ----------------
 export async function saveSiklusMenuCycleDoc(tanggal: string, payload: SiklusMenuData): Promise<SiklusMenuData & { id: string }> {
   const existing = state.siklusCycles[tanggal];
   const docId = existing?.id || generateUniqueDocId(`siklus_${tanggal}`);
@@ -771,16 +709,12 @@ export async function saveSiklusMenuCycleDoc(tanggal: string, payload: SiklusMen
   notifySlice('siklusCycles');
   schedulePersistOperationalSnapshot();
 
-  if (isFirestoreQuotaExhausted()) return fullPayload;
+  if (!isSupabaseConfigured) return fullPayload;
   try {
-    await setDoc(doc(db, 'siklus_menu', docId), fullPayload, { merge: true });
+    await upsertSupabaseDoc('siklus_menu', docId, fullPayload);
     return fullPayload;
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.WRITE, `siklus_menu/${docId}`, 'Gagal menyimpan Siklus Menu');
-      return fullPayload;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.WRITE, `siklus_menu/${docId}`, 'Gagal menyimpan Siklus Menu');
+    const msg = notifyFirestoreFailure(err, OperationType.WRITE, `siklus_menu/${docId}`, 'Gagal menyimpan Siklus Menu ke Supabase');
     throw new Error(msg);
   }
 }
@@ -791,15 +725,11 @@ export async function updateAkuntanConfigDoc(patch: Partial<AkuntanConfigState>)
   notifySlice('akuntanConfigs');
   schedulePersistOperationalSnapshot();
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await setDoc(doc(db, 'akuntan_configs', 'main'), sanitizeForFirestore(patch), { merge: true });
+    await upsertSupabaseDoc('akuntan_configs', 'main', sanitizeForFirestore({ id: 'main', ...state.akuntanConfigs }));
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.UPDATE, 'akuntan_configs/main', 'Gagal menyimpan pengaturan Akuntan');
-      return;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.UPDATE, 'akuntan_configs/main', 'Gagal menyimpan pengaturan Akuntan');
+    const msg = notifyFirestoreFailure(err, OperationType.UPDATE, 'akuntan_configs/main', 'Gagal menyimpan pengaturan Akuntan ke Supabase');
     throw new Error(msg);
   }
 }
@@ -812,16 +742,12 @@ export async function saveAkuntanItemDoc<T extends { id: string }>(
   const payload = sanitizeForFirestore({ ...item, id: docId });
   upsertLocalSliceItem(collectionName, payload);
 
-  if (isFirestoreQuotaExhausted()) return payload;
+  if (!isSupabaseConfigured) return payload;
   try {
-    await setDoc(doc(db, collectionName, docId), payload, { merge: true });
+    await upsertSupabaseDoc(collectionName, docId, payload);
     return payload;
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.WRITE, `${collectionName}/${docId}`, `Gagal menyimpan data ${collectionName}`);
-      return payload;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.WRITE, `${collectionName}/${docId}`, `Gagal menyimpan data ${collectionName}`);
+    const msg = notifyFirestoreFailure(err, OperationType.WRITE, `${collectionName}/${docId}`, `Gagal menyimpan data ${collectionName} ke Supabase`);
     throw new Error(msg);
   }
 }
@@ -834,40 +760,26 @@ export async function updateAkuntanItemFields(
   const sanitizedFields = sanitizeForFirestore(fields);
   upsertLocalSliceItem(collectionName, { id, ...sanitizedFields });
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await updateDoc(doc(db, collectionName, id), sanitizedFields);
+    const sliceKey = COLLECTION_SLICE_MAP[collectionName];
+    const currentList = sliceKey && Array.isArray((state as any)[sliceKey]) ? ((state as any)[sliceKey] as any[]) : [];
+    const mergedItem = currentList.find((x) => x.id === id) || { id, ...sanitizedFields };
+    await upsertSupabaseDoc(collectionName, id, sanitizeForFirestore(mergedItem));
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.UPDATE, `${collectionName}/${id}`, `Gagal memperbarui data ${collectionName}`);
-      return;
-    }
-    // Fallback to setDoc merge:true if document not yet persisted
-    try {
-      await setDoc(doc(db, collectionName, id), sanitizeForFirestore({ id, ...sanitizedFields }), { merge: true });
-    } catch (innerErr) {
-      if (isFirestoreQuotaError(innerErr)) {
-        handleOperationalQuotaError(innerErr, OperationType.UPDATE, `${collectionName}/${id}`, `Gagal memperbarui data ${collectionName}`);
-        return;
-      }
-      const msg = notifyFirestoreFailure(innerErr, OperationType.UPDATE, `${collectionName}/${id}`, `Gagal memperbarui data ${collectionName}`);
-      throw new Error(msg);
-    }
+    const msg = notifyFirestoreFailure(err, OperationType.UPDATE, `${collectionName}/${id}`, `Gagal memperbarui data ${collectionName} di Supabase`);
+    throw new Error(msg);
   }
 }
 
 export async function deleteAkuntanItemDoc(collectionName: string, id: string): Promise<void> {
   removeLocalSliceItem(collectionName, id);
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    await deleteDoc(doc(db, collectionName, id));
+    await deleteSupabaseDoc(collectionName, id);
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.DELETE, `${collectionName}/${id}`, `Gagal menghapus data ${collectionName}`);
-      return;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.DELETE, `${collectionName}/${id}`, `Gagal menghapus data ${collectionName}`);
+    const msg = notifyFirestoreFailure(err, OperationType.DELETE, `${collectionName}/${id}`, `Gagal menghapus data ${collectionName} dari Supabase`);
     throw new Error(msg);
   }
 }
@@ -878,52 +790,32 @@ export async function replaceAkuntanDocsForPredicate<T extends { id: string }>(
   existingItemsToPrune: T[] = []
 ): Promise<void> {
   const sliceKey = COLLECTION_SLICE_MAP[collectionName];
+  const normalizedNext = nextItems.map((item) => {
+    const docId = item.id || generateUniqueDocId(collectionName);
+    return sanitizeForFirestore({ ...item, id: docId });
+  });
+
   if (sliceKey) {
     const pruneIds = new Set(existingItemsToPrune.map((x) => x.id));
     const current = Array.isArray((state as any)[sliceKey]) ? ((state as any)[sliceKey] as T[]) : [];
     const kept = current.filter((x) => !pruneIds.has(x.id));
-    const normalizedNext = nextItems.map((item) => {
-      const docId = item.id || generateUniqueDocId(collectionName);
-      return sanitizeForFirestore({ ...item, id: docId });
-    });
     const nextIdSet = new Set(normalizedNext.map((x) => x.id));
     (state as any)[sliceKey] = [...kept.filter((x) => !nextIdSet.has(x.id)), ...normalizedNext];
     notifySlice(sliceKey);
     schedulePersistOperationalSnapshot();
   }
 
-  if (isFirestoreQuotaExhausted()) return;
+  if (!isSupabaseConfigured) return;
   try {
-    const nextIds = new Set(nextItems.map((i) => i.id));
+    const nextIds = new Set(normalizedNext.map((i) => i.id));
     const toDelete = existingItemsToPrune.filter((old) => old.id && !nextIds.has(old.id));
-
-    const ops: Array<{ type: 'set' | 'delete'; id: string; data?: any }> = [];
-    toDelete.forEach((d) => ops.push({ type: 'delete', id: d.id }));
-    nextItems.forEach((item) => {
-      const docId = item.id || generateUniqueDocId(collectionName);
-      ops.push({ type: 'set', id: docId, data: sanitizeForFirestore({ ...item, id: docId }) });
-    });
-
-    const chunkSize = 400;
-    for (let i = 0; i < ops.length; i += chunkSize) {
-      const batch = writeBatch(db);
-      const chunk = ops.slice(i, i + chunkSize);
-      for (const op of chunk) {
-        const ref = doc(db, collectionName, op.id);
-        if (op.type === 'delete') {
-          batch.delete(ref);
-        } else {
-          batch.set(ref, op.data, { merge: true });
-        }
-      }
-      await batch.commit();
-    }
+    const ops: Array<{ type: 'set' | 'delete'; id: string; data?: any }> = [
+      ...toDelete.map((d) => ({ type: 'delete' as const, id: d.id })),
+      ...normalizedNext.map((item) => ({ type: 'set' as const, id: item.id, data: item }))
+    ];
+    await batchSyncSupabaseDocs(collectionName, ops);
   } catch (err) {
-    if (isFirestoreQuotaError(err)) {
-      handleOperationalQuotaError(err, OperationType.WRITE, collectionName, `Gagal menyinkronkan data ${collectionName}`);
-      return;
-    }
-    const msg = notifyFirestoreFailure(err, OperationType.WRITE, collectionName, `Gagal menyinkronkan data ${collectionName}`);
+    const msg = notifyFirestoreFailure(err, OperationType.WRITE, collectionName, `Gagal menyinkronkan data ${collectionName} ke Supabase`);
     throw new Error(msg);
   }
 }
@@ -946,14 +838,15 @@ export async function updateNutritionPlanPriceInFirestore(
           return ing;
         });
         if (changed) {
-          upsertLocalSliceItem('nutritionPlans', { ...plan, ingredientsData: updatedIngs });
-          if (!isFirestoreQuotaExhausted()) {
-            await setDoc(doc(db, 'nutritionPlans', plan.id), { ingredientsData: sanitizeForFirestore(updatedIngs) }, { merge: true });
+          const updatedPlan = { ...plan, ingredientsData: updatedIngs };
+          upsertLocalSliceItem('nutritionPlans', updatedPlan);
+          if (isSupabaseConfigured) {
+            await upsertSupabaseDoc('nutritionPlans', plan.id, sanitizeForFirestore(updatedPlan));
           }
         }
       }
     }
   } catch (err) {
-    handleOperationalQuotaError(err, OperationType.UPDATE, 'nutritionPlans', 'Gagal menyinkronkan harga ke Nutrition Plan');
+    notifyFirestoreFailure(err, OperationType.UPDATE, 'nutritionPlans', 'Gagal menyinkronkan harga ke Nutrition Plan');
   }
 }

@@ -109,7 +109,7 @@ export const PortalSettingsView: React.FC = () => {
             <Settings className="w-5 h-5 text-blue-600" /> Konfigurasi Sistem & Database Portal Terpadu
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kelola inisialisasi Firebase database baru, branding, konfigurasi SMTP, maintenance mode, dan backup snapshot.
+            Kelola koneksi database Supabase, branding, konfigurasi SMTP, maintenance mode, dan backup snapshot.
           </p>
         </div>
 
@@ -120,13 +120,13 @@ export const PortalSettingsView: React.FC = () => {
             onClick={() => setActiveTab('firebase')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
               activeTab === 'firebase'
-                ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
             }`}
           >
-            <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span>Panduan Firebase</span>
-            <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] rounded-full font-bold">Baru</span>
+            <Database className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Database Supabase</span>
+            <span className="px-1.5 py-0.2 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] rounded-full font-bold">Aktif</span>
           </button>
 
           <button

@@ -1,9 +1,14 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { dbStore, JWT_SECRET } from '../db/store';
+import { verifySupabaseAccessToken } from '../db/supabase';
 
 const router = Router();
+
+function stripPassword<T extends Record<string, any>>(user: T): Omit<T, 'password'> {
+  const { password: _pwd, ...safeUser } = user;
+  return safeUser;
+}
 
 // Single Sign-On (SSO) Login Endpoint
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
@@ -15,7 +20,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = dbStore.users.find(u => u.username === username || u.email === username);
+    const normalized = String(username).trim().toLowerCase();
+    const user = dbStore.users.find(
+      u => u.username.toLowerCase() === normalized || u.email.toLowerCase() === normalized
+    );
 
     if (!user) {
       dbStore.addLog('ANONYMOUS', username, 'SSO & Auth', 'Gagal Login User', `Username '${username}' tidak ditemukan.`, req.ip, 'Gagal');
@@ -67,7 +75,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       message: 'Autentikasi SSO Berhasil',
       data: {
         token,
-        user,
+        user: stripPassword(user),
         ssoRedirects: {
           esuratUrl: `/esurat?sso_token=${token}`,
           stockUrl: `/stock?sso_token=${token}`
@@ -119,7 +127,6 @@ router.get(['/github/callback', '/github/callback/'], async (req: Request, res: 
   let loggedUser = dbStore.users[0]; // Default: Admin Penuh
   let githubLogin = '';
 
-  // Attempt real GitHub OAuth token exchange if credentials configured
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
   if (clientId && clientSecret && !clientId.includes('DEMO')) {
@@ -148,8 +155,8 @@ router.get(['/github/callback', '/github/callback/'], async (req: Request, res: 
         const ghUser = await userProfileResponse.json() as any;
         if (ghUser && ghUser.login) {
           githubLogin = ghUser.login;
-          const found = dbStore.users.find(u => 
-            u.username.toLowerCase() === ghUser.login.toLowerCase() || 
+          const found = dbStore.users.find(u =>
+            u.username.toLowerCase() === ghUser.login.toLowerCase() ||
             (ghUser.email && u.email.toLowerCase() === ghUser.email.toLowerCase())
           );
           if (found) {
@@ -162,7 +169,6 @@ router.get(['/github/callback', '/github/callback/'], async (req: Request, res: 
     }
   }
 
-  // Generate SSO login token for user
   const token = jwt.sign(
     {
       id: loggedUser.id,
@@ -195,8 +201,8 @@ router.get(['/github/callback', '/github/callback/'], async (req: Request, res: 
   `);
 });
 
-// SSO Token Verification Endpoint (Called by e-Surat & Stock Opname modules)
-router.get('/sso/verify', (req: Request, res: Response): void => {
+// SSO Token Verification Endpoint
+router.get('/sso/verify', async (req: Request, res: Response): Promise<void> => {
   const token = (req.query.token as string) || req.headers.authorization?.split(' ')[1];
 
   if (!token) {
@@ -217,17 +223,42 @@ router.get('/sso/verify', (req: Request, res: Response): void => {
       success: true,
       message: 'SSO Token Terverifikasi Valid',
       data: {
-        user,
+        user: stripPassword(user),
         tokenClaims: decoded
       }
     });
-  } catch (err) {
+    return;
+  } catch {
+    // Fallback to Supabase Auth token verification
+    const supaUser = await verifySupabaseAccessToken(token);
+    if (supaUser) {
+      const matched = dbStore.users.find(
+        u =>
+          u.authUid === supaUser.id ||
+          (supaUser.email && u.email.toLowerCase() === supaUser.email.toLowerCase())
+      );
+      res.json({
+        success: true,
+        message: 'Supabase Token Terverifikasi Valid',
+        data: {
+          user: matched ? stripPassword(matched) : {
+            id: supaUser.id,
+            email: supaUser.email,
+            nama: (supaUser.user_metadata?.nama as string) || supaUser.email || 'Pengguna Supabase',
+            role: (supaUser.user_metadata?.role as string) || 'Staff',
+            status: 'Aktif'
+          },
+          tokenClaims: supaUser
+        }
+      });
+      return;
+    }
     res.status(401).json({ success: false, message: 'Token SSO kedaluwarsa atau tidak sah.' });
   }
 });
 
 // Current User Info
-router.get('/me', (req: Request, res: Response): void => {
+router.get('/me', async (req: Request, res: Response): Promise<void> => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).json({ success: false, message: 'Authorization header tidak disertakan.' });
@@ -238,8 +269,37 @@ router.get('/me', (req: Request, res: Response): void => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const user = dbStore.users.find(u => u.id === decoded.id);
-    res.json({ success: true, data: user || decoded });
-  } catch (err) {
+    res.json({ success: true, data: user ? stripPassword(user) : decoded });
+    return;
+  } catch {
+    const supaUser = await verifySupabaseAccessToken(token);
+    if (supaUser) {
+      const matched = dbStore.users.find(
+        u =>
+          u.authUid === supaUser.id ||
+          (supaUser.email && u.email.toLowerCase() === supaUser.email.toLowerCase())
+      );
+      res.json({
+        success: true,
+        data: matched
+          ? stripPassword(matched)
+          : {
+              id: supaUser.id,
+              authUid: supaUser.id,
+              email: supaUser.email || '',
+              nama: (supaUser.user_metadata?.nama as string) || supaUser.email || 'Pengguna SPPG',
+              username: (supaUser.user_metadata?.username as string) || supaUser.email?.split('@')[0] || 'user',
+              role: (supaUser.user_metadata?.role as string) || 'Staff',
+              divisi: (supaUser.user_metadata?.divisi as string) || 'Operasional SPPG',
+              jabatan: (supaUser.user_metadata?.jabatan as string) || 'Staff',
+              status: 'Aktif',
+              foto: '',
+              createdAt: supaUser.created_at || new Date().toISOString(),
+              emailVerified: Boolean(supaUser.email_confirmed_at)
+            }
+      });
+      return;
+    }
     res.status(401).json({ success: false, message: 'Session expired or invalid.' });
   }
 });

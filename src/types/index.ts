@@ -16,6 +16,7 @@ export type UserRole =
 
 export interface User {
   id: string;
+  authUid?: string;
   nama: string;
   username: string;
   email: string;

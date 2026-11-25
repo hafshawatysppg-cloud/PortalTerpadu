@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { User, MenuItem, NotificationItem, PortalSettings, UserRole } from '../types';
+import { User, MenuItem, NotificationItem, PortalSettings } from '../types';
 import { safeParseJson } from '../lib/safeJson';
+import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
+import { fetchSupabaseCollection } from '../lib/supabaseService';
 
 interface AuthContextType {
   user: User | null;
@@ -43,8 +45,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load user from stored token if valid; otherwise user remains null (requires login)
+  const mapSupabaseUserToPortalUser = useCallback(async (supaUser: { id: string; email?: string; user_metadata?: Record<string, any> }): Promise<User> => {
+    try {
+      const users = await fetchSupabaseCollection<User>('users');
+      const matched = users?.find(
+        (u) =>
+          u.authUid === supaUser.id ||
+          (supaUser.email && u.email?.toLowerCase() === supaUser.email.toLowerCase())
+      );
+      if (matched) return matched;
+    } catch {
+      // Ignore table lookup errors if RLS restricts unlinked accounts
+    }
+
+    return {
+      id: supaUser.id,
+      authUid: supaUser.id,
+      nama: (supaUser.user_metadata?.nama as string) || supaUser.email || 'Pengguna SPPG',
+      username: (supaUser.user_metadata?.username as string) || supaUser.email?.split('@')[0] || 'user',
+      email: supaUser.email || '',
+      role: (supaUser.user_metadata?.role as User['role']) || 'Staff',
+      divisi: (supaUser.user_metadata?.divisi as string) || 'Operasional SPPG',
+      jabatan: (supaUser.user_metadata?.jabatan as string) || 'Staff',
+      status: 'Aktif',
+      foto: (supaUser.user_metadata?.foto as string) || '',
+      lastLogin: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      emailVerified: true
+    };
+  }, []);
+
+  // Load user from stored SSO token or active Supabase Auth session
   useEffect(() => {
+    let active = true;
+
     const initAuth = async () => {
       setIsLoading(true);
       try {
@@ -54,29 +88,73 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             headers: { Authorization: `Bearer ${storedToken}` }
           });
           const data = await safeParseJson<{ success?: boolean; data?: User }>(res);
-          if (data?.success && data.data) {
+          if (data?.success && data.data && active) {
             setUser(data.data);
             setToken(storedToken);
-          } else {
-            setUser(null);
-            setToken(null);
-            localStorage.removeItem('pat_sso_token');
+            return;
           }
-        } else {
+          localStorage.removeItem('pat_sso_token');
+        }
+
+        const supa = getSupabaseClient();
+        if (supa && isSupabaseConfigured) {
+          const { data } = await supa.auth.getSession();
+          const session = data?.session;
+          if (session?.user && session.access_token && active) {
+            const portalUser = await mapSupabaseUserToPortalUser(session.user);
+            if (!active) return;
+            setUser(portalUser);
+            setToken(session.access_token);
+            localStorage.setItem('pat_sso_token', session.access_token);
+            return;
+          }
+        }
+
+        if (active) {
           setUser(null);
           setToken(null);
         }
-      } catch (err) {
-        setUser(null);
-        setToken(null);
+      } catch {
+        if (active) {
+          setUser(null);
+          setToken(null);
+        }
         localStorage.removeItem('pat_sso_token');
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
 
-    initAuth();
-  }, []);
+    void initAuth();
+
+    const supa = getSupabaseClient();
+    let subscription: { unsubscribe: () => void } | null = null;
+    if (supa && isSupabaseConfigured) {
+      const { data } = supa.auth.onAuthStateChange((event, session) => {
+        if (!active) return;
+        if (event === 'SIGNED_OUT') {
+          if (!localStorage.getItem('pat_sso_token')) {
+            setUser(null);
+            setToken(null);
+          }
+          return;
+        }
+        if (session?.user && session.access_token && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          localStorage.setItem('pat_sso_token', session.access_token);
+          setToken(session.access_token);
+          void mapSupabaseUserToPortalUser(session.user).then((portalUser) => {
+            if (active) setUser(portalUser);
+          });
+        }
+      });
+      subscription = data.subscription;
+    }
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
+  }, [mapSupabaseUserToPortalUser]);
 
   const setDemoSuperAdmin = useCallback((tok: string) => {
     const defaultUser: User = {
@@ -159,6 +237,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token, refreshMenus, refreshNotifications, refreshSettings]);
 
   const login = useCallback(async (username: string, password = 'password123'): Promise<boolean> => {
+    const supa = getSupabaseClient();
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
@@ -170,21 +249,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken(data.data.token);
         setUser(data.data.user);
         localStorage.setItem('pat_sso_token', data.data.token);
+
+        // Sinkronisasi opsional sesi Supabase Auth jika user memiliki email & Supabase aktif
+        const loginEmail = data.data.user.email || (username.includes('@') ? username : '');
+        if (supa && isSupabaseConfigured && loginEmail && password) {
+          void supa.auth.signInWithPassword({ email: loginEmail, password }).catch(() => {});
+        }
         return true;
+      }
+
+      // Fallback langsung ke Supabase Auth bila login berbasis email Supabase
+      if (supa && isSupabaseConfigured && username.includes('@') && password) {
+        const { data: authData, error } = await supa.auth.signInWithPassword({
+          email: username.trim(),
+          password
+        });
+        if (!error && authData.session?.user) {
+          const portalUser = await mapSupabaseUserToPortalUser(authData.session.user);
+          setToken(authData.session.access_token);
+          setUser(portalUser);
+          localStorage.setItem('pat_sso_token', authData.session.access_token);
+          return true;
+        }
       }
       return false;
     } catch (err) {
       console.error('SSO login error', err);
-      // Fallback in case backend is unreachable
+      if (supa && isSupabaseConfigured && username.includes('@') && password) {
+        try {
+          const { data: authData, error } = await supa.auth.signInWithPassword({
+            email: username.trim(),
+            password
+          });
+          if (!error && authData.session?.user) {
+            const portalUser = await mapSupabaseUserToPortalUser(authData.session.user);
+            setToken(authData.session.access_token);
+            setUser(portalUser);
+            localStorage.setItem('pat_sso_token', authData.session.access_token);
+            return true;
+          }
+        } catch {
+          // Ignore and fallback
+        }
+      }
       setDemoSuperAdmin('demo-sso-jwt-token-2026');
       return true;
     }
-  }, [setDemoSuperAdmin]);
+  }, [mapSupabaseUserToPortalUser, setDemoSuperAdmin]);
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('pat_sso_token');
+    const supa = getSupabaseClient();
+    if (supa && isSupabaseConfigured) {
+      void supa.auth.signOut().catch(() => {});
+    }
   }, []);
 
   const updateCurrentUserProfile = useCallback((updatedData: Partial<User>) => {

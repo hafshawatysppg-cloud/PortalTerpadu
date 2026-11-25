@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 
-// Prevent unhandled background Firestore stream rejections from crashing the process
+// Prevent unhandled background stream rejections from crashing the process
 process.on('unhandledRejection', (reason) => {
   console.warn('[Process Warning] Unhandled Rejection:', reason);
 });
@@ -14,24 +14,9 @@ process.on('uncaughtException', (err) => {
   console.warn('[Process Warning] Uncaught Exception:', err?.message || err);
 });
 
-// Auto-configure FIREBASE_API_KEY from firebase-applet-config.json if not present
-try {
-  const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(cfgPath)) {
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (!process.env.FIREBASE_API_KEY && cfg.apiKey) {
-      process.env.FIREBASE_API_KEY = cfg.apiKey;
-    }
-    if (!process.env.FIREBASE_PROJECT_ID && cfg.projectId) {
-      process.env.FIREBASE_PROJECT_ID = cfg.projectId;
-    }
-  }
-} catch (cfgErr: any) {
-  console.warn('[Startup Warning] Gagal membaca firebase-applet-config.json:', cfgErr?.message || cfgErr);
-}
-
 // Default fallbacks for critical runtime env vars
-process.env.FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || '';
+process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'portal_bgn_terpadu_jwt_secret_token_secure_key_2026_prod';
 }
@@ -224,30 +209,30 @@ async function startServer() {
       await initFirestoreSync(Boolean(bodyPayload?.forcePull));
       res.json({
         success: true,
-        message: 'Seluruh data aplikasi berhasil disinkronisasi ke Google Cloud & cadangan server.',
+        message: 'Seluruh data aplikasi berhasil disinkronisasi ke Supabase & cadangan server.',
         cloud: getCloudInfo()
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        message: err?.message || 'Gagal melakukan sinkronisasi penuh ke Google Cloud'
+        message: err?.message || 'Gagal melakukan sinkronisasi penuh ke Supabase'
       });
     }
   });
 
-  // Re-seed clean slate master collections to Firestore
+  // Re-seed clean slate master collections to Supabase
   app.post('/api/v1/cloud/reseed-clean-slate', async (req: Request, res: Response) => {
     try {
       await initFirestoreSync(true);
       res.json({
         success: true,
-        message: 'Koleksi database berhasil diinisialisasi dan disinkronisasi ke Firebase!',
+        message: 'Koleksi database berhasil diinisialisasi dan disinkronisasi ke Supabase!',
         cloud: getCloudInfo()
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        message: err?.message || 'Gagal sinkronisasi data ke Firebase'
+        message: err?.message || 'Gagal sinkronisasi data ke Supabase'
       });
     }
   });

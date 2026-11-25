@@ -399,11 +399,13 @@ const PortalMain: React.FC = () => {
       />
 
       {firebaseErrorBanner && (() => {
-        const isQuotaBanner = firebaseErrorBanner.toLowerCase().includes('kuota');
+        const isConfigBanner =
+          firebaseErrorBanner.toLowerCase().includes('rls') ||
+          firebaseErrorBanner.toLowerCase().includes('supabase');
         return (
           <div
             className={`fixed top-4 right-4 z-[9999] max-w-md px-4 py-3 rounded-2xl shadow-2xl border flex items-start gap-3 text-xs font-semibold print:hidden ${
-              isQuotaBanner
+              isConfigBanner
                 ? 'bg-amber-50 text-amber-950 border-amber-300 dark:bg-amber-950/95 dark:text-amber-100 dark:border-amber-700'
                 : 'bg-rose-600 text-white border-rose-400'
             }`}
@@ -413,16 +415,16 @@ const PortalMain: React.FC = () => {
             </svg>
             <div className="flex-1 leading-relaxed space-y-1">
               <div>{firebaseErrorBanner}</div>
-              {isQuotaBanner && (
+              {isConfigBanner && (
                 <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] font-medium">
-                  <span>Kuota gratis direset besok, atau</span>
+                  <span>Periksa konfigurasi project atau</span>
                   <a
                     href={FIRESTORE_UPGRADE_URL}
                     target="_blank"
                     rel="noreferrer"
                     className="underline font-bold hover:opacity-80"
                   >
-                    Upgrade Paket Firebase
+                    Buka Dashboard Supabase
                   </a>
                 </div>
               )}
@@ -430,7 +432,7 @@ const PortalMain: React.FC = () => {
             <button
               type="button"
               onClick={() => setFirebaseErrorBanner(null)}
-              className={`${isQuotaBanner ? 'text-amber-700 hover:text-amber-950 dark:text-amber-300 dark:hover:text-white' : 'text-rose-100 hover:text-white'} font-bold px-1 cursor-pointer`}
+              className={`${isConfigBanner ? 'text-amber-700 hover:text-amber-950 dark:text-amber-300 dark:hover:text-white' : 'text-rose-100 hover:text-white'} font-bold px-1 cursor-pointer`}
             >
               ✕
             </button>

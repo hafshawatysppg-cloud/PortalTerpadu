@@ -52,8 +52,8 @@ import { resolveDivisiDistribusiName } from '../utils/divisiDistribusiHelper';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmModal } from '../components/common/ConfirmModal';
 import { useFirestoreRealtime } from '../lib/useFirestoreRealtime';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { getDb } from '../lib/firebase';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { upsertSupabaseDoc, deleteSupabaseDoc } from '../lib/supabaseService';
 import { OperationType, generateUniqueDocId, notifyFirestoreFailure, sanitizeForFirestore } from '../lib/firestoreHelper';
 import {
   PortionValidationBadge,
@@ -1897,17 +1897,16 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
         status: (item.status as 'Aktif' | 'Nonaktif') || 'Aktif'
       }));
 
-      // 1. Direct client-side Firestore write (update dengan merge: true / dokumen baru ID unik)
+      // 1. Direct client-side Supabase write when configured
       try {
-        const fDb = getDb();
-        if (fDb) {
-          await setDoc(doc(fDb, 'beneficiaryGroups', groupId), sanitizeForFirestore(payload), { merge: true });
+        if (isSupabaseConfigured) {
+          await upsertSupabaseDoc('beneficiaryGroups', groupId, sanitizeForFirestore(payload));
           for (const locItem of newLocs) {
-            await setDoc(doc(fDb, 'beneficiaryLocations', locItem.id), sanitizeForFirestore(locItem), { merge: true });
+            await upsertSupabaseDoc('beneficiaryLocations', locItem.id, sanitizeForFirestore(locItem));
           }
         }
       } catch (fErr) {
-        const msg = notifyFirestoreFailure(fErr, isEdit ? OperationType.UPDATE : OperationType.CREATE, `beneficiaryGroups/${groupId}`, 'Gagal menyimpan kelompok penerima manfaat ke Firebase');
+        const msg = notifyFirestoreFailure(fErr, isEdit ? OperationType.UPDATE : OperationType.CREATE, `beneficiaryGroups/${groupId}`, 'Gagal menyimpan kelompok penerima manfaat ke Supabase');
         showToast(msg, 'error');
         return;
       }
@@ -1965,18 +1964,17 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
       danger: true,
       onConfirm: async () => {
         try {
-          // 1. Direct client-side Firestore delete
+          // 1. Direct client-side Supabase delete when configured
           try {
-            const fDb = getDb();
-            if (fDb) {
-              await deleteDoc(doc(fDb, 'beneficiaryGroups', id));
+            if (isSupabaseConfigured) {
+              await deleteSupabaseDoc('beneficiaryGroups', id);
               const locsToDelete = locations.filter(l => l.groupId === id || l.groupNama === nama);
               for (const l of locsToDelete) {
-                await deleteDoc(doc(fDb, 'beneficiaryLocations', l.id));
+                await deleteSupabaseDoc('beneficiaryLocations', l.id);
               }
             }
           } catch (fErr) {
-            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, `beneficiaryGroups/${id}`, 'Gagal menghapus kelompok dari Firebase');
+            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, `beneficiaryGroups/${id}`, 'Gagal menghapus kelompok dari Supabase');
             showToast(msg, 'error');
             return;
           }
@@ -2017,19 +2015,18 @@ export const PenerimaManfaatView: React.FC<PenerimaManfaatViewProps> = ({ curren
           const currentGroups = [...groups];
           const currentLocations = [...locations];
 
-          // Direct client-side Firestore delete
+          // Direct client-side Supabase delete when configured
           try {
-            const fDb = getDb();
-            if (fDb) {
+            if (isSupabaseConfigured) {
               for (const g of currentGroups) {
-                await deleteDoc(doc(fDb, 'beneficiaryGroups', g.id));
+                await deleteSupabaseDoc('beneficiaryGroups', g.id);
               }
               for (const l of currentLocations) {
-                await deleteDoc(doc(fDb, 'beneficiaryLocations', l.id));
+                await deleteSupabaseDoc('beneficiaryLocations', l.id);
               }
             }
           } catch (fErr) {
-            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, 'beneficiaryGroups', 'Gagal menghapus seluruh kelompok dari Firebase');
+            const msg = notifyFirestoreFailure(fErr, OperationType.DELETE, 'beneficiaryGroups', 'Gagal menghapus seluruh kelompok dari Supabase');
             showToast(msg, 'error');
             return;
           }

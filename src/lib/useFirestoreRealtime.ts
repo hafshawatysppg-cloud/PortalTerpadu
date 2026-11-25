@@ -1,14 +1,8 @@
 import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import { getDb } from './firebase';
+import { isSupabaseConfigured } from './supabase';
+import { subscribeSupabaseCollection } from './supabaseService';
 import { safeParseJson } from './safeJson';
-import {
-  OperationType,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
-  notifyFirestoreFailure
-} from './firestoreHelper';
+import { OperationType, notifyFirestoreFailure } from './firestoreHelper';
 
 interface CollectionStoreEntry<T> {
   data: T[];
@@ -17,7 +11,6 @@ interface CollectionStoreEntry<T> {
   subscribers: Set<(items: T[], err: string | null) => void>;
   unsubscribe: (() => void) | null;
   detachTimer: ReturnType<typeof setTimeout> | null;
-  quotaHit: boolean;
   fallbackInFlight: boolean;
   lastFingerprint: string;
 }
@@ -31,18 +24,6 @@ function computeItemsFingerprint<T>(items: T[]): string {
   } catch {
     return String(items.length);
   }
-}
-
-function teardownAllRegistryListeners(): void {
-  collectionRegistry.forEach((entry) => {
-    entry.quotaHit = true;
-    if (entry.unsubscribe) {
-      try {
-        entry.unsubscribe();
-      } catch {}
-      entry.unsubscribe = null;
-    }
-  });
 }
 
 async function fetchServerCollectionFallback<T>(collectionName: string): Promise<T[] | null> {
@@ -94,7 +75,6 @@ function getOrCreateEntry<T>(collectionName: string): CollectionStoreEntry<T> {
       subscribers: new Set(),
       unsubscribe: null,
       detachTimer: null,
-      quotaHit: false,
       fallbackInFlight: false,
       lastFingerprint: ''
     };
@@ -141,109 +121,65 @@ function ensureSharedListener<T extends { id: string }>(
     void runFallback();
   }
 
-  if (entry.unsubscribe || entry.quotaHit || isFirestoreQuotaExhausted()) {
-    if (isFirestoreQuotaExhausted()) {
-      entry.quotaHit = true;
-    }
+  if (entry.unsubscribe || !isSupabaseConfigured) {
     return;
   }
 
   try {
-    const firestore = getDb();
-    if (!firestore) return;
-
-    const colRef = collection(firestore, collectionName);
-    const q = query(colRef);
-
-    entry.unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items: T[] = [];
-        snapshot.forEach((docSnap) => {
-          items.push({
-            id: docSnap.id,
-            ...docSnap.data()
-          } as T);
-        });
-        entry.quotaHit = false;
-        updateEntryData(entry, items, true);
+    entry.unsubscribe = subscribeSupabaseCollection<T>(
+      collectionName,
+      (items) => {
+        if (items.length > 0 || !entry.hasData) {
+          updateEntryData(entry, items, true);
+        }
       },
-      (err) => {
-        const isTransientStreamDrop =
-          err?.message?.includes('RST_STREAM') ||
-          err?.message?.includes('Code: 13') ||
-          err?.message?.includes('client is offline') ||
-          err?.message?.includes('Internal server error');
-
-        if (isFirestoreQuotaError(err)) {
-          markFirestoreQuotaExhausted();
-          teardownAllRegistryListeners();
-          notifyFirestoreFailure(
-            err,
-            OperationType.LIST,
-            collectionName,
-            `Gagal sinkronisasi data [${collectionName}] dari Firebase`
-          );
-          if (entry.error !== null) {
-            entry.error = null;
-            notifySubscribers(entry);
-          }
-        } else {
+      {
+        onError: (err) => {
           const errMsg = notifyFirestoreFailure(
             err,
             OperationType.LIST,
             collectionName,
-            isTransientStreamDrop
-              ? `Koneksi real-time ke [${collectionName}] terganggu`
-              : `Gagal sinkronisasi data [${collectionName}] dari Firebase`
+            `Gagal sinkronisasi real-time [${collectionName}] dari Supabase`
           );
           if (entry.error !== errMsg) {
             entry.error = errMsg;
             notifySubscribers(entry);
           }
-        }
 
-        if (!entry.fallbackInFlight) {
-          entry.fallbackInFlight = true;
-          const recoverFromServer = async () => {
-            try {
-              const serverItems = await fetchServerCollectionFallback<T>(collectionName);
-              if (serverItems && serverItems.length > 0) {
-                updateEntryData(entry, serverItems, true);
-                return;
-              }
-              if (fallbackFetch) {
-                try {
+          if (!entry.fallbackInFlight) {
+            entry.fallbackInFlight = true;
+            const recoverFromServer = async () => {
+              try {
+                const serverItems = await fetchServerCollectionFallback<T>(collectionName);
+                if (serverItems && serverItems.length > 0) {
+                  updateEntryData(entry, serverItems, true);
+                  return;
+                }
+                if (fallbackFetch) {
                   const res = await fallbackFetch();
                   if (Array.isArray(res)) {
                     updateEntryData(entry, res, true);
                   }
-                } catch (fallbackErr) {
-                  console.warn(`Recovery fallback warning for [${collectionName}]:`, fallbackErr);
                 }
-              } else if (serverItems) {
-                updateEntryData(entry, serverItems, true);
+              } catch (fallbackErr) {
+                console.warn(`Recovery fallback warning for [${collectionName}]:`, fallbackErr);
+              } finally {
+                entry.fallbackInFlight = false;
               }
-            } finally {
-              entry.fallbackInFlight = false;
-            }
-          };
-          void recoverFromServer();
+            };
+            void recoverFromServer();
+          }
         }
       }
     );
   } catch (err: any) {
-    if (isFirestoreQuotaError(err)) {
-      markFirestoreQuotaExhausted();
-      teardownAllRegistryListeners();
-    }
     const errMsg = notifyFirestoreFailure(
       err,
       OperationType.LIST,
       collectionName,
-      `Gagal menginisialisasi koneksi Firestore [${collectionName}]`
+      `Gagal menginisialisasi koneksi Supabase [${collectionName}]`
     );
-    if (!isFirestoreQuotaError(err) && entry.error !== errMsg) {
+    if (entry.error !== errMsg) {
       entry.error = errMsg;
       notifySubscribers(entry);
     }
@@ -251,8 +187,8 @@ function ensureSharedListener<T extends { id: string }>(
 }
 
 /**
- * Real-time Firestore collection hook backed directly by onSnapshot and persistentLocalCache
- * (tanpa localStorage caching untuk data operasional).
+ * Real-time collection hook powered by Supabase Realtime (`postgres_changes`)
+ * with Express persistent cache fallback.
  */
 export function useFirestoreRealtime<T extends { id: string }>(
   collectionName: string,

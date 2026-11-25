@@ -30,25 +30,17 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../lib/firebase';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
-  collection,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  writeBatch
-} from 'firebase/firestore';
+  subscribeSupabaseCollection,
+  upsertSupabaseDoc,
+  updateSupabaseDocFields,
+  deleteSupabaseDoc,
+  batchSyncSupabaseDocs
+} from '../../lib/supabaseService';
 import {
   OperationType,
   generateUniqueDocId,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
   notifyFirestoreFailure,
   sanitizeForFirestore
 } from '../../lib/firestoreHelper';
@@ -365,7 +357,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     } catch (_) {}
   };
 
-  // Real-time Firestore listener with quota circuit breaker & server cache fallback
+  // Real-time Supabase listener with server cache fallback
   useEffect(() => {
     let active = true;
     const loadServerFallback = async () => {
@@ -384,69 +376,47 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     };
 
     void loadServerFallback();
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       return () => {
         active = false;
       };
     }
 
-    const q = query(collection(db, 'suhu_masuk_ompreng_v2'), orderBy('tanggal', 'desc'));
-    let unsubscribe: (() => void) | null = null;
-    try {
-      unsubscribe = onSnapshot(
-        q,
-        async (snap) => {
-          if (snap.empty && !isFirestoreQuotaExhausted()) {
-            try {
-              const flagSnap = await getDoc(doc(db, 'app_meta', 'seed_flags'));
-              const alreadySeeded = flagSnap.exists() && Boolean(flagSnap.data()?.suhuOmprengSeeded);
-              if (!alreadySeeded) {
-                const batch = writeBatch(db);
-                for (const item of SEED_DAILY_OMPRENG_RECORDS) {
-                  batch.set(doc(db, 'suhu_masuk_ompreng_v2', item.id), sanitizeForFirestore(item), { merge: true });
-                }
-                await batch.commit();
-                await setDoc(doc(db, 'app_meta', 'seed_flags'), { suhuOmprengSeeded: true }, { merge: true });
-                return;
-              }
-            } catch (seedErr) {
-              if (isFirestoreQuotaError(seedErr)) {
-                markFirestoreQuotaExhausted();
-                try { unsubscribe?.(); } catch (_) {}
-                notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_masuk_ompreng_v2');
-                void loadServerFallback();
-                return;
-              }
-              const msg = notifyFirestoreFailure(seedErr, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menginisialisasi data awal Suhu Masuk Ompreng');
-              showToast(msg, 'error');
-            }
-          }
-          const list: DailySuhuOmprengRecord[] = [];
-          snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DailySuhuOmprengRecord));
-          setDailyRecords(list);
-          void persistSuhuOmprengBackup(list);
+    const unsubscribe = subscribeSupabaseCollection<DailySuhuOmprengRecord>(
+      'suhu_masuk_ompreng_v2',
+      (list) => {
+        if (!active) return;
+        setDailyRecords(list);
+        void persistSuhuOmprengBackup(list);
+      },
+      {
+        orderByColumn: 'tanggal',
+        ascending: false,
+        seedIfEmpty: async () => {
+          await batchSyncSupabaseDocs(
+            'suhu_masuk_ompreng_v2',
+            SEED_DAILY_OMPRENG_RECORDS.map((item) => ({
+              type: 'set' as const,
+              id: item.id,
+              data: sanitizeForFirestore(item)
+            }))
+          );
         },
-        (err) => {
-          if (isFirestoreQuotaError(err)) {
-            markFirestoreQuotaExhausted();
-            try { unsubscribe?.(); } catch (_) {}
-            notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2');
-            void loadServerFallback();
-            return;
-          }
-          const msg = notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2', 'Gagal membaca data Suhu Masuk Ompreng dari Firebase');
+        onError: (err) => {
+          const msg = notifyFirestoreFailure(
+            err,
+            OperationType.LIST,
+            'suhu_masuk_ompreng_v2',
+            'Gagal membaca data Suhu Masuk Ompreng dari Supabase'
+          );
           showToast(msg, 'error');
         }
-      );
-    } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
       }
-      notifyFirestoreFailure(err, OperationType.LIST, 'suhu_masuk_ompreng_v2');
-    }
+    );
+
     return () => {
       active = false;
-      try { unsubscribe?.(); } catch (_) {}
+      unsubscribe();
     };
   }, []);
 
@@ -593,27 +563,22 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
         (b.tanggal || '').localeCompare(a.tanggal || '')
       );
 
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          if (existing) {
-            await updateDoc(doc(db, 'suhu_masuk_ompreng_v2', existing.id), sanitizeForFirestore({
+      if (isSupabaseConfigured) {
+        if (existing) {
+          await updateSupabaseDocFields(
+            'suhu_masuk_ompreng_v2',
+            existing.id,
+            sanitizeForFirestore({
               petugas: recordToSave.petugas,
               petugasRole: recordToSave.petugasRole,
               status: recordToSave.status,
               catatan: recordToSave.catatan,
               updatedAt: recordToSave.updatedAt,
               [targetSesiKey]: updatedSesiData
-            }));
-          } else {
-            await setDoc(doc(db, 'suhu_masuk_ompreng_v2', newDocId), sanitizeForFirestore(recordToSave));
-          }
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'suhu_masuk_ompreng_v2');
-          } else {
-            throw fsErr;
-          }
+            })
+          );
+        } else {
+          await upsertSupabaseDoc('suhu_masuk_ompreng_v2', newDocId, sanitizeForFirestore(recordToSave));
         }
       }
 
@@ -640,7 +605,7 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
 
       onNavigate('/gizi/suhu/makanan/masuk-ompreng/tabel');
     } catch (err) {
-      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menyimpan data suhu masuk ompreng ke Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menyimpan data suhu masuk ompreng ke Supabase');
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
@@ -679,29 +644,20 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     );
   }, [filteredDokumentasiRecords, selectedDokumentasiTanggal]);
 
-  // Delete record in Firestore
+  // Delete record in Supabase
   const handleDeleteDailyRecord = async (record: DailySuhuOmprengRecord) => {
     if (!window.confirm(`Hapus data suhu masuk ompreng tanggal ${formatTanggalTable(record.tanggal)}?`)) return;
     const nextList = dailyRecords.filter((r) => r.id !== record.id);
 
     try {
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          await deleteDoc(doc(db, 'suhu_masuk_ompreng_v2', record.id));
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.DELETE, `suhu_masuk_ompreng_v2/${record.id}`);
-          } else {
-            throw fsErr;
-          }
-        }
+      if (isSupabaseConfigured) {
+        await deleteSupabaseDoc('suhu_masuk_ompreng_v2', record.id);
       }
       setDailyRecords(nextList);
       void persistSuhuOmprengBackup(nextList);
       showToast(`Data suhu masuk ompreng tanggal ${formatTanggalTable(record.tanggal)} berhasil dihapus`, 'success');
     } catch (err) {
-      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_masuk_ompreng_v2/${record.id}`, 'Gagal menghapus data suhu masuk ompreng dari Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `suhu_masuk_ompreng_v2/${record.id}`, 'Gagal menghapus data suhu masuk ompreng dari Supabase');
       showToast(msg, 'error');
     }
   };

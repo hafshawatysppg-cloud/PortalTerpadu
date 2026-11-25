@@ -12,22 +12,15 @@ import {
   Edit3,
   Download
 } from 'lucide-react';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  orderBy
-} from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+  subscribeSupabaseCollection,
+  upsertSupabaseDoc,
+  deleteSupabaseDoc
+} from '../../lib/supabaseService';
 import {
   OperationType,
   generateUniqueDocId,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
   notifyFirestoreFailure,
   sanitizeForFirestore
 } from '../../lib/firestoreHelper';
@@ -117,50 +110,37 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
     };
 
     void loadServerFallback();
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       return () => {
         active = false;
       };
     }
 
-    const q = query(collection(db, 'organoleptik_v1'), orderBy('tanggalPemeriksaan', 'desc'));
-    let unsubscribe: (() => void) | null = null;
-    try {
-      unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          const list: OrganoleptikRecord[] = [];
-          snapshot.forEach((docSnap) => {
-            list.push({ ...(docSnap.data() as OrganoleptikRecord), id: docSnap.id });
-          });
-          setRecords(list);
-          void persistOrganoleptikBackup(list);
-        },
-        (err) => {
-          if (isFirestoreQuotaError(err)) {
-            markFirestoreQuotaExhausted();
-            try {
-              unsubscribe?.();
-            } catch (_) {}
-            notifyFirestoreFailure(err, OperationType.LIST, 'organoleptik_v1', 'Kuota Firebase tercapai');
-            void loadServerFallback();
-            return;
-          }
-          const msg = notifyFirestoreFailure(err, OperationType.LIST, 'organoleptik_v1', 'Gagal membaca data Uji Organoleptik dari Firebase');
+    const unsubscribe = subscribeSupabaseCollection<OrganoleptikRecord>(
+      'organoleptik_v1',
+      (list) => {
+        if (!active) return;
+        setRecords(list);
+        void persistOrganoleptikBackup(list);
+      },
+      {
+        orderByColumn: 'tanggal_pemeriksaan',
+        ascending: false,
+        onError: (err) => {
+          const msg = notifyFirestoreFailure(
+            err,
+            OperationType.LIST,
+            'organoleptik_v1',
+            'Gagal membaca data Uji Organoleptik dari Supabase'
+          );
           showToast(msg, 'error');
         }
-      );
-    } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
       }
-      notifyFirestoreFailure(err, OperationType.LIST, 'organoleptik_v1', 'Gagal membuka listener Uji Organoleptik');
-    }
+    );
+
     return () => {
       active = false;
-      try {
-        unsubscribe?.();
-      } catch (_) {}
+      unsubscribe();
     };
   }, []);
 
@@ -256,38 +236,29 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
       (b.tanggalPemeriksaan || '').localeCompare(a.tanggalPemeriksaan || '')
     );
 
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       setRecords(nextList);
       await persistOrganoleptikBackup(nextList);
       setEditingId(id);
-      showToast('Data Uji Organoleptik disimpan ke cadangan server lokal.');
+      showToast('Data Uji Organoleptik berhasil disimpan!');
       setActiveTab('print');
       return;
     }
 
     try {
-      await setDoc(
-        doc(db, 'organoleptik_v1', id),
-        sanitizeForFirestore(record),
-        isEdit ? { merge: true } : {}
-      );
+      await upsertSupabaseDoc('organoleptik_v1', id, sanitizeForFirestore(record));
       setRecords(nextList);
       void persistOrganoleptikBackup(nextList);
       setEditingId(id);
       showToast('Data Uji Organoleptik berhasil disimpan!');
       setActiveTab('print');
     } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
-        setRecords(nextList);
-        await persistOrganoleptikBackup(nextList);
-        setEditingId(id);
-        notifyFirestoreFailure(err, isEdit ? OperationType.UPDATE : OperationType.CREATE, `organoleptik_v1/${id}`);
-        showToast('Disimpan ke cadangan server lokal (kuota harian Firebase tercapai).');
-        setActiveTab('print');
-        return;
-      }
-      const msg = notifyFirestoreFailure(err, isEdit ? OperationType.UPDATE : OperationType.CREATE, `organoleptik_v1/${id}`, 'Gagal menyimpan data Uji Organoleptik ke Firebase');
+      const msg = notifyFirestoreFailure(
+        err,
+        isEdit ? OperationType.UPDATE : OperationType.CREATE,
+        `organoleptik_v1/${id}`,
+        'Gagal menyimpan data Uji Organoleptik ke Supabase'
+      );
       showToast(msg, 'error');
     }
   };
@@ -308,7 +279,7 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
     if (!window.confirm('Hapus data checklist uji organoleptik ini?')) return;
     const nextList = records.filter((r) => r.id !== id);
 
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       setRecords(nextList);
       await persistOrganoleptikBackup(nextList);
       if (editingId === id) {
@@ -319,7 +290,7 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
     }
 
     try {
-      await deleteDoc(doc(db, 'organoleptik_v1', id));
+      await deleteSupabaseDoc('organoleptik_v1', id);
       setRecords(nextList);
       void persistOrganoleptikBackup(nextList);
       if (editingId === id) {
@@ -327,17 +298,12 @@ export const OrganoleptikView: React.FC<OrganoleptikViewProps> = ({ masterMenus 
       }
       showToast('Data berhasil dihapus.');
     } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
-        setRecords(nextList);
-        await persistOrganoleptikBackup(nextList);
-        if (editingId === id) {
-          handleResetForm();
-        }
-        showToast('Data dihapus pada cadangan server lokal.');
-        return;
-      }
-      const msg = notifyFirestoreFailure(err, OperationType.DELETE, `organoleptik_v1/${id}`, 'Gagal menghapus data Uji Organoleptik dari Firebase');
+      const msg = notifyFirestoreFailure(
+        err,
+        OperationType.DELETE,
+        `organoleptik_v1/${id}`,
+        'Gagal menghapus data Uji Organoleptik dari Supabase'
+      );
       showToast(msg, 'error');
     }
   };

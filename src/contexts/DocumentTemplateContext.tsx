@@ -1,22 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { 
-  MasterDocumentTemplateConfig, 
-  DEFAULT_MASTER_TEMPLATE_CONFIG, 
+import {
+  MasterDocumentTemplateConfig,
+  DEFAULT_MASTER_TEMPLATE_CONFIG,
   DocumentTypeTemplate,
   MasterSignature
 } from '../types/documentTemplate';
 import { useAuth } from '../context/AuthContext';
 import { safeParseJson } from '../lib/safeJson';
-import { db } from '../lib/firebase';
-import {
-  OperationType,
-  isFirestoreQuotaError,
-  isFirestoreQuotaExhausted,
-  markFirestoreQuotaExhausted,
-  notifyFirestoreFailure,
-  sanitizeForFirestore
-} from '../lib/firestoreHelper';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { subscribeSupabaseDoc, upsertSupabaseDoc } from '../lib/supabaseService';
+import { OperationType, notifyFirestoreFailure, sanitizeForFirestore } from '../lib/firestoreHelper';
 
 interface DocumentTemplateContextType {
   config: MasterDocumentTemplateConfig;
@@ -91,7 +84,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
   const configRef = useRef(config);
   configRef.current = config;
 
-  // Fetch initial config from REST API + subscribe real-time from Firestore
+  // Fetch initial config from REST API + subscribe real-time from Supabase
   const refreshConfig = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/document-template');
@@ -110,43 +103,29 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
 
   useEffect(() => {
     refreshConfig();
-    if (isFirestoreQuotaExhausted()) {
+    if (!isSupabaseConfigured) {
       return;
     }
-    let unsub: (() => void) | null = null;
-    try {
-      unsub = onSnapshot(
-        doc(db, 'documentTemplate', 'main'),
-        (snap) => {
-          if (snap.exists()) {
-            setConfig(mergeWithDefaultTemplate(snap.data() as MasterDocumentTemplateConfig));
-            setLoading(false);
-          }
-        },
-        (err) => {
-          if (isFirestoreQuotaError(err)) {
-            markFirestoreQuotaExhausted();
-            try {
-              unsub?.();
-            } catch (_) {}
-          }
-          notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
+    const unsub = subscribeSupabaseDoc<MasterDocumentTemplateConfig>(
+      'documentTemplate',
+      'main',
+      (remoteData) => {
+        if (remoteData) {
+          setConfig(mergeWithDefaultTemplate(remoteData));
+          setLoading(false);
         }
-      );
-    } catch (err) {
-      if (isFirestoreQuotaError(err)) {
-        markFirestoreQuotaExhausted();
+      },
+      (err) => {
+        notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Supabase');
       }
-      notifyFirestoreFailure(err, OperationType.GET, 'documentTemplate/main', 'Gagal menyinkronkan template dokumen dari Firebase');
-    }
+    );
     return () => {
       try {
-        unsub?.();
+        unsub();
       } catch (_) {}
     };
   }, [refreshConfig]);
 
-  // Partial update methods
   const updateConfig = useCallback((partial: Partial<MasterDocumentTemplateConfig>) => {
     setConfig(prev => ({ ...prev, ...partial }));
   }, []);
@@ -216,23 +195,14 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     }));
   }, []);
 
-  // Save directly to Firestore (with merge: true) and sync server REST API
+  // Save directly to Supabase and sync server REST API
   const saveConfig = useCallback(async (customConfig?: MasterDocumentTemplateConfig): Promise<{ success: boolean; message: string }> => {
     setIsSaving(true);
     const targetConfig = mergeWithDefaultTemplate(customConfig || configRef.current);
     try {
       setConfig(targetConfig);
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(targetConfig), { merge: true });
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'documentTemplate/main', 'Kuota Firebase tercapai; menyimpan ke server lokal');
-          } else {
-            throw fsErr;
-          }
-        }
+      if (isSupabaseConfigured) {
+        await upsertSupabaseDoc('documentTemplate', 'main', sanitizeForFirestore({ id: 'main', ...targetConfig }));
       }
 
       const res = await fetch('/api/v1/document-template', {
@@ -249,7 +219,7 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       }
       return { success: true, message: data?.message || 'Konfigurasi template berhasil disimpan' };
     } catch (err: any) {
-      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal menyimpan template dokumen ke Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal menyimpan template dokumen ke Supabase');
       return { success: false, message: msg };
     } finally {
       setIsSaving(false);
@@ -262,17 +232,8 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
     try {
       const defaultPayload = JSON.parse(JSON.stringify(DEFAULT_MASTER_TEMPLATE_CONFIG));
       setConfig(defaultPayload);
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          await setDoc(doc(db, 'documentTemplate', 'main'), sanitizeForFirestore(defaultPayload), { merge: true });
-        } catch (fsErr) {
-          if (isFirestoreQuotaError(fsErr)) {
-            markFirestoreQuotaExhausted();
-            notifyFirestoreFailure(fsErr, OperationType.WRITE, 'documentTemplate/main', 'Kuota Firebase tercapai; reset dilakukan di server lokal');
-          } else {
-            throw fsErr;
-          }
-        }
+      if (isSupabaseConfigured) {
+        await upsertSupabaseDoc('documentTemplate', 'main', sanitizeForFirestore({ id: 'main', ...defaultPayload }));
       }
 
       const res = await fetch('/api/v1/document-template/reset', {
@@ -288,14 +249,13 @@ export const DocumentTemplateProvider: React.FC<{ children: React.ReactNode }> =
       }
       return { success: true, message: data?.message || 'Template berhasil di-reset ke standar default.' };
     } catch (err: any) {
-      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal reset template dokumen di Firebase');
+      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'documentTemplate/main', 'Gagal reset template dokumen di Supabase');
       return { success: false, message: msg };
     } finally {
       setIsSaving(false);
     }
   }, [user?.nama]);
 
-  // Generate automated document number
   const generateDocNumber = useCallback(async (docCode: string): Promise<string> => {
     try {
       const res = await fetch('/api/v1/document-template/generate-number', {
