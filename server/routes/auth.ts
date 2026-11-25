@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { dbStore, JWT_SECRET } from '../db/store';
-import { verifySupabaseAccessToken } from '../db/supabase';
+import { dbStore, JWT_SECRET } from '../services/store';
+import { verifySupabaseAccessToken } from '../services/supabase';
 
 const router = Router();
 

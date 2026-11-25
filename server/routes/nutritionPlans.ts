@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { 
   NutritionPlan, 
   NutritionPlanItem, 
@@ -7,7 +7,7 @@ import {
   MasterMenuResep,
   NutritionPlanRekapItem 
 } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../db/firestore';
+import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../services/syncService';
 
 const router = Router();
 

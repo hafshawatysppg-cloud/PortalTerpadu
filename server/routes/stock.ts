@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { MasterBarang, StockMovement, StockOpnameSession } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc, runStockTransaction, generateUniqueId } from '../db/firestore';
+import { syncSaveDoc, syncDeleteDoc, runStockTransaction, generateUniqueId } from '../services/syncService';
 
 const router = Router();
 

@@ -7,22 +7,14 @@ function readEnvVar(key: string): string {
       return String(metaEnv[key]).trim();
     }
   } catch {
-    // Ignore when running outside Vite ESM
-  }
-
-  try {
-    if (typeof process !== 'undefined' && process.env && typeof process.env[key] === 'string') {
-      return String(process.env[key]).trim();
-    }
-  } catch {
-    // Ignore
+    // Ignore when import.meta.env is unavailable
   }
 
   return '';
 }
 
-const rawSupabaseUrl = readEnvVar('VITE_SUPABASE_URL') || readEnvVar('SUPABASE_URL');
-const rawSupabaseAnonKey = readEnvVar('VITE_SUPABASE_ANON_KEY') || readEnvVar('SUPABASE_ANON_KEY');
+const rawSupabaseUrl = readEnvVar('VITE_SUPABASE_URL');
+const rawSupabaseAnonKey = readEnvVar('VITE_SUPABASE_ANON_KEY');
 
 const FALLBACK_SUPABASE_URL = 'https://placeholder-project.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'placeholder-anon-key';

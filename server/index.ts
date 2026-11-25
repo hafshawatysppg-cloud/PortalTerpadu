@@ -1,50 +1,33 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-import express, { Request, Response } from 'express';
-import path from 'path';
-import fs from 'fs';
+import 'dotenv/config';
+import express, { Request, Response, NextFunction } from 'express';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
-import './db.js';
+import '../db.js';
 
-// Prevent unhandled background stream rejections from crashing the process
-process.on('unhandledRejection', (reason) => {
-  console.warn('[Process Warning] Unhandled Rejection:', reason);
-});
-process.on('uncaughtException', (err) => {
-  console.warn('[Process Warning] Uncaught Exception:', err?.message || err);
-});
-
-// Default fallbacks for critical runtime env vars
-process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
-if (!process.env.JWT_SECRET) {
-  process.env.JWT_SECRET = 'portal_bgn_terpadu_jwt_secret_token_secure_key_2026_prod';
-}
-const DEFAULT_PROD_APP_URL = 'https://sppg-hafshawaty1.com';
-
-import authRoutes from './server/routes/auth';
-import userRoutes from './server/routes/users';
-import roleRoutes from './server/routes/roles';
-import menuRoutes from './server/routes/menus';
-import masterRoutes from './server/routes/master';
-import esuratRoutes from './server/routes/esurat';
-import stockRoutes from './server/routes/stock';
-import notificationRoutes from './server/routes/notifications';
-import logRoutes from './server/routes/logs';
-import searchRoutes from './server/routes/search';
-import settingRoutes from './server/routes/settings';
-import bbmRoutes from './server/routes/bbm';
-import tugasDivisiRoutes from './server/routes/tugasDivisi';
-import penerimaManfaatRoutes from './server/routes/penerimaManfaat';
-import nutritionPlansRoutes from './server/routes/nutritionPlans';
-import barangDatangRoutes from './server/routes/barangDatang';
-import menuHarianRoutes from './server/routes/menuHarian';
-import documentTemplateRoutes from './server/routes/documentTemplate';
-import distribusiRoutes from './server/routes/distribusi';
-import foodWasteRoutes from './server/routes/foodWaste';
-import petugasRoutes from './server/routes/petugas';
-import { swaggerSpec } from './server/docs/swagger';
+import authRoutes from './routes/auth';
+import userRoutes from './routes/users';
+import roleRoutes from './routes/roles';
+import menuRoutes from './routes/menus';
+import masterRoutes from './routes/master';
+import esuratRoutes from './routes/esurat';
+import stockRoutes from './routes/stock';
+import notificationRoutes from './routes/notifications';
+import logRoutes from './routes/logs';
+import searchRoutes from './routes/search';
+import settingRoutes from './routes/settings';
+import bbmRoutes from './routes/bbm';
+import tugasDivisiRoutes from './routes/tugasDivisi';
+import penerimaManfaatRoutes from './routes/penerimaManfaat';
+import nutritionPlansRoutes from './routes/nutritionPlans';
+import barangDatangRoutes from './routes/barangDatang';
+import menuHarianRoutes from './routes/menuHarian';
+import documentTemplateRoutes from './routes/documentTemplate';
+import distribusiRoutes from './routes/distribusi';
+import foodWasteRoutes from './routes/foodWaste';
+import petugasRoutes from './routes/petugas';
+import { swaggerSpec } from './docs/swagger';
 import {
   initFirestoreSync,
   getCloudInfo,
@@ -58,10 +41,29 @@ import {
   saveOperationalSnapshotSlices,
   flushWriteQueue,
   saveSnapshotToDiskNow
-} from './server/db/firestore';
+} from './services/syncService';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Prevent unhandled background stream rejections from crashing the process
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Process Warning] Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.warn('[Process Warning] Uncaught Exception:', err?.message || err);
+});
+
+// Safe fallbacks for runtime environment variables
+process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+if (!process.env.JWT_SECRET) {
+  console.warn('[Startup Warning] JWT_SECRET belum dikonfigurasi, menggunakan kunci fallback sementara.');
+  process.env.JWT_SECRET = 'portal_bgn_terpadu_jwt_secret_token_secure_key_2026_prod';
+}
+const DEFAULT_PROD_APP_URL = 'https://sppg-hafshawaty1.com';
 
 async function startServer() {
-  // Hydrate persistent server cache immediately before accepting requests (0 Firestore reads)
   try {
     hydrateFromLocalSnapshot();
   } catch (hydrateErr: any) {
@@ -69,11 +71,19 @@ async function startServer() {
   }
 
   const app = express();
-  const distPath = path.join(process.cwd(), 'dist');
-  const distIndexHtml = path.join(distPath, 'index.html');
+  const rootDir = __filename.endsWith(path.join('dist', 'server.js'))
+    ? path.resolve(__dirname, '..')
+    : path.resolve(__dirname, '..');
+  const distClientPath = path.resolve(rootDir, 'dist', 'client');
+  const distClientIndexHtml = path.join(distClientPath, 'index.html');
+  const launchedViaRootServerJs = Boolean(
+    process.argv[1] && path.basename(process.argv[1]) === 'server.js'
+  );
   const isProduction =
     process.env.NODE_ENV === 'production' ||
-    Boolean(process.argv[1]?.includes('server.cjs'));
+    __filename.endsWith(path.join('dist', 'server.js')) ||
+    (launchedViaRootServerJs && fs.existsSync(distClientIndexHtml));
+
   const PORT = Number(process.env.PORT) || 3000;
   const APP_URL = process.env.APP_URL || (isProduction ? DEFAULT_PROD_APP_URL : `http://localhost:${PORT}`);
 
@@ -84,35 +94,33 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
   // API Health Check
-  app.get('/api/health', (req: Request, res: Response) => {
-    res.json({
-      status: 'online',
-      appName: 'Portal Administrasi Terpadu',
-      version: '2026.1.0-Enterprise',
-      timestamp: new Date().toISOString()
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.status(200).json({
+      status: 'ok',
+      uptime: process.uptime(),
     });
   });
 
-  // Google Cloud Database Realtime Status Endpoint
-  app.get('/api/v1/cloud/status', (req: Request, res: Response) => {
+  // Cloud Database Status Endpoint
+  app.get('/api/v1/cloud/status', (_req: Request, res: Response) => {
     res.json({
       success: true,
-      cloud: getCloudInfo()
+      cloud: getCloudInfo(),
     });
   });
 
-  // Google Cloud Database Live Connection Test Probe
-  app.post('/api/v1/cloud/test-connection', async (req: Request, res: Response) => {
+  // Cloud Database Live Connection Test Probe
+  app.post('/api/v1/cloud/test-connection', async (_req: Request, res: Response) => {
     const result = await testFirestoreConnection();
     res.json(result);
   });
 
-  // Unified App-State Sync (All sppg_* client localStorage data <-> Google Cloud + Server Disk Snapshot)
-  app.get('/api/v1/cloud/app-state', (req: Request, res: Response) => {
+  // Unified App-State Sync
+  app.get('/api/v1/cloud/app-state', (_req: Request, res: Response) => {
     res.json({
       success: true,
       data: getAppStateEntries(),
-      cloud: getCloudInfo()
+      cloud: getCloudInfo(),
     });
   });
 
@@ -122,42 +130,43 @@ async function startServer() {
       if (typeof bodyPayload === 'string') {
         try {
           bodyPayload = JSON.parse(bodyPayload);
-        } catch (_) {
+        } catch {
           bodyPayload = {};
         }
       }
       const entries = bodyPayload?.entries;
       if (!entries || typeof entries !== 'object') {
-        return res.status(400).json({ success: false, message: 'Payload entries tidak valid' });
+        res.status(400).json({ success: false, message: 'Payload entries tidak valid' });
+        return;
       }
       const userName = (req.headers['x-user-name'] as string) || bodyPayload?.userName || 'Web Client';
       const updatedCount = await saveAppStateEntries(entries, { name: userName });
       res.json({
         success: true,
         updatedCount,
-        cloud: getCloudInfo()
+        cloud: getCloudInfo(),
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        message: err?.message || 'Gagal menyimpan sinkronisasi app-state'
+        message: err?.message || 'Gagal menyimpan sinkronisasi app-state',
       });
     }
   });
 
-  // Server Cached Collection Snapshot Fallback (avoids burning Firestore quota on read)
+  // Server Cached Collection Snapshot Fallback
   app.get('/api/v1/cloud/collection/:name', (req: Request, res: Response) => {
     const rawName = req.params.name;
     const aliasMap: Record<string, string> = {
       distribution_reports: 'distributionReports',
-      divisiTaskRecords: 'tugasDivisi'
+      divisiTaskRecords: 'tugasDivisi',
     };
     const resolvedName = aliasMap[rawName] || rawName;
     const data = getCollectionSnapshot(resolvedName);
     res.json({
       success: true,
       collection: rawName,
-      data: Array.isArray(data) ? data : []
+      data: Array.isArray(data) ? data : [],
     });
   });
 
@@ -165,7 +174,7 @@ async function startServer() {
     const rawName = req.params.name;
     const aliasMap: Record<string, string> = {
       distribution_reports: 'distributionReports',
-      divisiTaskRecords: 'tugasDivisi'
+      divisiTaskRecords: 'tugasDivisi',
     };
     const resolvedName = aliasMap[rawName] || rawName;
     const items = Array.isArray(req.body?.data) ? req.body.data : [];
@@ -173,11 +182,11 @@ async function startServer() {
     res.json({ success: true, collection: rawName, count: items.length });
   });
 
-  // Operational Snapshot Cache (Akuntan, Master Menu, Siklus Menu, dll.)
+  // Operational Snapshot Cache
   app.get('/api/v1/cloud/operational-snapshot', (_req: Request, res: Response) => {
     res.json({
       success: true,
-      data: getOperationalSnapshot()
+      data: getOperationalSnapshot(),
     });
   });
 
@@ -189,20 +198,20 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Flush queued writes, persist disk snapshot, and optionally force-pull from Firestore
+  // Flush queued writes, persist disk snapshot, and sync with Supabase
   app.post('/api/v1/cloud/sync-all', async (req: Request, res: Response) => {
     try {
       let bodyPayload = req.body;
       if (typeof bodyPayload === 'string') {
         try {
           bodyPayload = JSON.parse(bodyPayload);
-        } catch (_) {
+        } catch {
           bodyPayload = {};
         }
       }
       if (bodyPayload?.entries && typeof bodyPayload.entries === 'object') {
         await saveAppStateEntries(bodyPayload.entries, {
-          name: (req.headers['x-user-name'] as string) || 'Manual Cloud Sync'
+          name: (req.headers['x-user-name'] as string) || 'Manual Cloud Sync',
         });
       }
       await flushWriteQueue();
@@ -211,35 +220,35 @@ async function startServer() {
       res.json({
         success: true,
         message: 'Seluruh data aplikasi berhasil disinkronisasi ke Supabase & cadangan server.',
-        cloud: getCloudInfo()
+        cloud: getCloudInfo(),
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        message: err?.message || 'Gagal melakukan sinkronisasi penuh ke Supabase'
+        message: err?.message || 'Gagal melakukan sinkronisasi penuh ke Supabase',
       });
     }
   });
 
   // Re-seed clean slate master collections to Supabase
-  app.post('/api/v1/cloud/reseed-clean-slate', async (req: Request, res: Response) => {
+  app.post('/api/v1/cloud/reseed-clean-slate', async (_req: Request, res: Response) => {
     try {
       await initFirestoreSync(true);
       res.json({
         success: true,
         message: 'Koleksi database berhasil diinisialisasi dan disinkronisasi ke Supabase!',
-        cloud: getCloudInfo()
+        cloud: getCloudInfo(),
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        message: err?.message || 'Gagal sinkronisasi data ke Supabase'
+        message: err?.message || 'Gagal sinkronisasi data ke Supabase',
       });
     }
   });
 
   // Swagger Specs Endpoint
-  app.get('/api/docs/swagger.json', (req: Request, res: Response) => {
+  app.get('/api/docs/swagger.json', (_req: Request, res: Response) => {
     res.json(swaggerSpec);
   });
 
@@ -269,55 +278,60 @@ async function startServer() {
   app.use('/api/v1/petugas', petugasRoutes);
   app.use('/api/petugas', petugasRoutes);
 
-  // Prevent any unmatched /api/* endpoint from falling through to Vite/SPA HTML (index.html)
+  // Prevent any unmatched /api/* endpoint from falling through to SPA HTML
   app.all('/api/*', (req: Request, res: Response) => {
     res.status(404).json({
       success: false,
-      message: `Endpoint API tidak ditemukan: ${req.method} ${req.originalUrl}`
+      message: `Endpoint API tidak ditemukan: ${req.method} ${req.originalUrl}`,
     });
   });
 
   // Global JSON error handler for /api/* routes
-  app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api')) {
       res.status(err?.status || 500).json({
         success: false,
-        message: err?.message || 'Terjadi kesalahan internal pada server API'
+        message: err?.message || 'Terjadi kesalahan internal pada server API',
       });
       return;
     }
     next(err);
   });
 
-  // Development vs Production Environment Setup
+  // Development vs Production Frontend Serving
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa'
+      appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath, { index: 'index.html' }));
+    if (fs.existsSync(distClientPath)) {
+      app.use(express.static(distClientPath, { index: 'index.html' }));
     }
     app.get('*', (_req: Request, res: Response) => {
-      if (fs.existsSync(distIndexHtml)) {
-        res.sendFile(distIndexHtml);
+      if (fs.existsSync(distClientIndexHtml)) {
+        res.sendFile(distClientIndexHtml);
       } else {
-        res.status(503).send('Aplikasi sedang disiapkan. Silakan jalankan build atau muat ulang beberapa saat lagi.');
+        res
+          .status(503)
+          .send('Aplikasi sedang disiapkan. Silakan jalankan build atau muat ulang beberapa saat lagi.');
       }
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Portal Enterprise Gateway] Running on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'}, APP_URL=${APP_URL})`);
-    // Initialize Google Cloud Firestore synchronization in background after port is bound
+    console.log(
+      `[Portal Enterprise Gateway] Running on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'}, APP_URL=${APP_URL})`
+    );
     setTimeout(() => {
       try {
-        initFirestoreSync().catch(err => console.warn('Firestore initialization warning:', err?.message || err));
+        initFirestoreSync().catch((err) =>
+          console.warn('Supabase sync initialization warning:', err?.message || err)
+        );
       } catch (err: any) {
-        console.warn('Firestore startup warning:', err?.message || err);
+        console.warn('Supabase sync startup warning:', err?.message || err);
       }
     }, 200);
   });

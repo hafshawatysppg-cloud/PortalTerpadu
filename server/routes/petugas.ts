@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { dbStore, angkaKeTerbilang } from '../db/store';
+import { dbStore, angkaKeTerbilang } from '../services/store';
 import { Petugas, SlipGajiHarian } from '../../src/types';
 import {
   syncSaveDoc,
@@ -9,7 +9,7 @@ import {
   syncSaveBatchNow,
   syncDeleteDocNow,
   saveSnapshotToDiskNow
-} from '../db/firestore';
+} from '../services/syncService';
 
 const router = Router();
 

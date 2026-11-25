@@ -21,21 +21,21 @@ export const InstallationDocView: React.FC = () => {
           <Terminal className="w-4 h-4 text-emerald-600" /> 1. Persyaratan Lingkungan (System Requirements)
         </h3>
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong>Node.js:</strong> v18.0.0 atau lebih tinggi (direkomendasikan Node 20 LTS)</li>
-          <li><strong>NPM / PNPM:</strong> npm v9+</li>
-          <li><strong>Port Binding:</strong> Default port 3000 (0.0.0.0)</li>
-          <li><strong>Memory Minimum:</strong> 1 GB RAM (direkomendasikan 2 GB)</li>
+          <li><strong>Node.js:</strong> v20.0.0 atau v22 LTS (Pure ESM)</li>
+          <li><strong>NPM:</strong> npm v9+</li>
+          <li><strong>Port Binding:</strong> Dinamis via <code>PORT</code> (default 3000 pada 0.0.0.0)</li>
+          <li><strong>Entry Point Produksi:</strong> <code>server.js</code></li>
         </ul>
 
         <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2 pt-4">
-          <Code2 className="w-4 h-4 text-blue-600" /> 2. Langkah Instalasi & Build Production
+          <Code2 className="w-4 h-4 text-blue-600" /> 2. Langkah Instalasi &amp; Build Production
         </h3>
         <div className="p-4 bg-slate-950 text-slate-200 rounded-lg font-mono text-[11px] space-y-2">
-          <div># 1. Clone repository & install dependencies</div>
+          <div># 1. Clone repository &amp; install dependencies</div>
           <div className="text-emerald-400">npm install</div>
           <div className="pt-2"># 2. Jalankan Mode Pengembangan (Development)</div>
           <div className="text-emerald-400">npm run dev</div>
-          <div className="pt-2"># 3. Build Production (Vite + esbuild CJS Bundle)</div>
+          <div className="pt-2"># 3. Build Production (Vite Client + esbuild ESM Bundle)</div>
           <div className="text-emerald-400">npm run build</div>
           <div className="pt-2"># 4. Jalankan Standalone Production Server</div>
           <div className="text-emerald-400">npm start</div>
@@ -47,8 +47,9 @@ export const InstallationDocView: React.FC = () => {
         <div className="p-4 bg-slate-950 text-slate-200 rounded-lg font-mono text-[11px]">
           <div>PORT=3000</div>
           <div>NODE_ENV=production</div>
-          <div>JWT_SECRET=super-secret-key-portal-terpadu-2026</div>
-          <div>GEMINI_API_KEY=your_gemini_api_key_here</div>
+          <div>JWT_SECRET=YOUR_JWT_SECRET_HERE</div>
+          <div>VITE_SUPABASE_URL=YOUR_SUPABASE_URL_HERE</div>
+          <div>VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY_HERE</div>
         </div>
       </div>
     </div>

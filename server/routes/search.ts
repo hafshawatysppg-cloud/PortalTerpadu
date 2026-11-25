@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { GlobalSearchResult } from '../../src/types';
 
 const router = Router();

@@ -23,20 +23,6 @@ async function loadKepalaSppgSignatureBytes(): Promise<Uint8Array | null> {
         const buf = await res.arrayBuffer();
         return new Uint8Array(buf);
       }
-      return null;
-    }
-
-    const fsModule = await import(/* @vite-ignore */ 'node:fs');
-    const pathModule = await import(/* @vite-ignore */ 'node:path');
-    const filePath = pathModule.join(
-      process.cwd(),
-      'public',
-      'assets',
-      'aistudio',
-      'Untitled_design__4__71e57967.png'
-    );
-    if (fsModule.existsSync(filePath)) {
-      return new Uint8Array(fsModule.readFileSync(filePath));
     }
     return null;
   } catch {

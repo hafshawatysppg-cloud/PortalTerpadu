@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
-import { syncSaveDoc } from '../db/firestore';
+import { dbStore } from '../services/store';
+import { syncSaveDoc } from '../services/syncService';
 import { DEFAULT_MASTER_TEMPLATE_CONFIG, MasterDocumentTemplateConfig } from '../../src/types';
 
 const router = Router();

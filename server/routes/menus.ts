@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { dbStore, initialMenus } from '../db/store';
+import { dbStore, initialMenus } from '../services/store';
 import { MenuItem } from '../../src/types';
 
 const router = Router();

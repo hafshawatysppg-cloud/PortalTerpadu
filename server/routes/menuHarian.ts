@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { MenuHarianRecord } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc } from '../db/firestore';
+import { syncSaveDoc, syncDeleteDoc } from '../services/syncService';
 
 const router = Router();
 

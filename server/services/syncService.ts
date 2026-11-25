@@ -1,8 +1,8 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { dbStore, initialMenus } from './store';
-import { MasterBarang } from '../../src/types';
+import type { MasterBarang } from '../../src/types';
 import {
   getServerSupabaseClient,
   getServerSupabaseMetadata,
@@ -13,7 +13,7 @@ import {
   fetchSupabaseCollection,
   fetchSupabaseDoc,
   upsertSupabaseDoc
-} from '../../src/lib/supabaseService';
+} from './supabaseData';
 
 let isConnected = isServerSupabaseConfigured;
 let lastFullSyncAt = 0;

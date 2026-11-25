@@ -289,16 +289,16 @@ export const PortalSettingsView: React.FC = () => {
                 </div>
 
                 <div className="p-2 bg-slate-100 dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
-                  <div className="text-[9px] font-sans text-slate-400 font-bold">Shared / Publish App Redirect URI:</div>
+                  <div className="text-[9px] font-sans text-slate-400 font-bold">Production Hostinger Redirect URI:</div>
                   <div className="select-all break-all text-indigo-600 dark:text-indigo-400 font-bold">
-                    https://ais-pre-k4w35jyvnwrt25kbn6ydlk-9009902503.asia-southeast1.run.app/api/v1/auth/github/callback
+                    https://sppg-hafshawaty1.com/api/v1/auth/github/callback
                   </div>
                 </div>
 
                 <div className="p-2 bg-slate-100 dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
-                  <div className="text-[9px] font-sans text-slate-400 font-bold">Development Redirect URI:</div>
+                  <div className="text-[9px] font-sans text-slate-400 font-bold">Local Development Redirect URI:</div>
                   <div className="select-all break-all text-blue-600 dark:text-blue-400 font-bold">
-                    https://ais-dev-k4w35jyvnwrt25kbn6ydlk-9009902503.asia-southeast1.run.app/api/v1/auth/github/callback
+                    http://localhost:3000/api/v1/auth/github/callback
                   </div>
                 </div>
               </div>
@@ -312,28 +312,28 @@ export const PortalSettingsView: React.FC = () => {
               </div>
             </div>
 
-            {/* AI Studio GitHub Export Guidance */}
+            {/* GitHub Auto-Deploy Guidance */}
             <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
               <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <HelpCircle className="w-4 h-4 text-blue-500" /> Penautan Repositori Kode ke GitHub
+                <HelpCircle className="w-4 h-4 text-blue-500" /> Auto-Deploy GitHub &amp; Hostinger Node.js
               </div>
               <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                Untuk menyimpan dan mengekspor source code proyek ini langsung ke akun GitHub Anda:
+                Untuk menyinkronkan repositori GitHub dengan layanan Node.js Web App di Hostinger:
               </p>
               <ol className="list-decimal list-inside space-y-1.5 text-slate-600 dark:text-slate-400 text-[11px]">
-                <li>Buka menu <strong>Settings &gt; Export to GitHub</strong> pada bilah kanan atas AI Studio UI.</li>
-                <li>Pilih <strong>Connect GitHub Account</strong> dan selesaikan izin otorisasi.</li>
-                <li>Pilih nama repositori target (misal: <code>portal-administrasi-terpadu</code>) dan klik <strong>Export</strong>.</li>
+                <li>Hubungkan repositori GitHub ke panel Hostinger Node.js Web App.</li>
+                <li>Atur Build Command ke <code>npm run build</code> dan Entry File ke <code>server.js</code>.</li>
+                <li>Isi variabel environment di panel Hostinger sesuai <code>.env.example</code>.</li>
               </ol>
 
               <div className="pt-3">
                 <a
-                  href="https://github.com/apps/google-ai-studio"
+                  href="https://github.com/settings/developers"
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-[11px] transition"
                 >
-                  <ExternalLink className="w-3 h-3 text-amber-400" /> Buka Otorisasi AI Studio App di GitHub
+                  <ExternalLink className="w-3 h-3 text-amber-400" /> Buka GitHub Developer Settings
                 </a>
               </div>
             </div>

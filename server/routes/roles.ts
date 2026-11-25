@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
-import { syncSaveDoc } from '../db/firestore';
+import { dbStore } from '../services/store';
+import { syncSaveDoc } from '../services/syncService';
 
 const router = Router();
 

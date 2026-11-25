@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { verifySupabaseAccessToken } from '../../server/db/supabase';
-import { JWT_SECRET } from '../../server/db/store';
+import { verifySupabaseAccessToken } from '../services/supabase';
+import { JWT_SECRET } from '../services/store';
 
 export interface AuthenticatedUser {
   id: string;

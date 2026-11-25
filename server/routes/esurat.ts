@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { SuratMasuk, SuratKeluar, Disposisi } from '../../src/types';
-import { syncSaveDoc } from '../db/firestore';
+import { syncSaveDoc } from '../services/syncService';
 
 const router = Router();
 

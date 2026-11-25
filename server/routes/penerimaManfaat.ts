@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { dbStore } from '../db/store';
+import { dbStore } from '../services/store';
 import { DailyBeneficiaryRecord, BeneficiaryGroup, BeneficiaryLocation, BeneficiaryAuditLog, BastDocument, KategoriLembaga } from '../../src/types';
-import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../db/firestore';
-import { createBastWordDocument } from '../../src/utils/bastDocxGenerator';
+import { syncSaveDoc, syncDeleteDoc, syncSaveBatch } from '../services/syncService';
+import { createBastWordDocument } from '../services/bastDocxService';
 import { Packer } from 'docx';
 
 const router = Router();
