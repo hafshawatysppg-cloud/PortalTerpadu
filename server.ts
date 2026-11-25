@@ -5,6 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
+import './db.js';
 
 // Prevent unhandled background stream rejections from crashing the process
 process.on('unhandledRejection', (reason) => {
