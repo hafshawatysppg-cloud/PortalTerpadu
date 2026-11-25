@@ -15,7 +15,16 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    esbuild: {
+      target: 'es2022',
+    },
+    optimizeDeps: {
+      esbuildOptions: {
+        target: 'es2022',
+      },
+    },
     build: {
+      target: 'es2022',
       outDir: 'dist/client',
       emptyOutDir: false,
       chunkSizeWarningLimit: 2000,
