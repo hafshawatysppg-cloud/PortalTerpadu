@@ -7,16 +7,17 @@ declare global {
 }
 
 export const createPool = () => {
-  if (!process.env.SQL_HOST) {
+  const sqlHost = process.env.SQL_HOST?.trim();
+  if (!sqlHost) {
     return null;
   }
   if (!global._postgresPool) {
     try {
       global._postgresPool = new Pool({
-        host: process.env.SQL_HOST,
-        user: process.env.SQL_USER,
+        host: sqlHost,
+        user: process.env.SQL_USER?.trim(),
         password: process.env.SQL_PASSWORD,
-        database: process.env.SQL_DB_NAME,
+        database: process.env.SQL_DB_NAME?.trim(),
         max: 10,
         connectionTimeoutMillis: 15000,
       });

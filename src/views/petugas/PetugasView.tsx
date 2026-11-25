@@ -2905,6 +2905,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({ currentPath = '/petuga
                     >
                       <option value="Tunai">Tunai (Cash Harian)</option>
                       <option value="BRI">Bank BRI</option>
+                      <option value="BNI">Bank BNI</option>
                       <option value="BCA">Bank BCA</option>
                       <option value="Mandiri">Bank Mandiri</option>
                       <option value="BSI">Bank BSI</option>

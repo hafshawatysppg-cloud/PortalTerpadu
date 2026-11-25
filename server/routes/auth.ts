@@ -84,7 +84,7 @@ router.get('/github/url', (req: Request, res: Response): void => {
   const clientId = process.env.GITHUB_CLIENT_ID || 'demo_github_client_id';
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.get('host');
-  const baseUrl = process.env.APP_URL || `${protocol}://${host}`;
+  const baseUrl = process.env.APP_URL || (host ? `${protocol}://${host}` : 'https://sppg-hafshawaty1.com');
   const redirectUri = `${baseUrl}/api/v1/auth/github/callback`;
 
   const params = new URLSearchParams({

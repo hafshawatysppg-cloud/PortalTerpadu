@@ -1037,6 +1037,8 @@ export async function initFirestoreSync(force = false) {
     dbStore.sanitizeCategories();
     saveSnapshotToDiskNow();
     console.log(`✅ Google Cloud Sync Complete (${SYNCED_COLLECTIONS.length} collections, ${Object.keys(dbStore.appStateSync).length} app-state keys)!`);
+  } catch (err: any) {
+    console.warn('⚠️ Firestore sync notice (server continues on local cache):', err?.message || err);
   } finally {
     isSyncing = false;
   }

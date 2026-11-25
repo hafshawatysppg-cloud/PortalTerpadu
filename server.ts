@@ -22,13 +22,20 @@ try {
     if (!process.env.FIREBASE_API_KEY && cfg.apiKey) {
       process.env.FIREBASE_API_KEY = cfg.apiKey;
     }
+    if (!process.env.FIREBASE_PROJECT_ID && cfg.projectId) {
+      process.env.FIREBASE_PROJECT_ID = cfg.projectId;
+    }
   }
-} catch (_) {}
+} catch (cfgErr: any) {
+  console.warn('[Startup Warning] Gagal membaca firebase-applet-config.json:', cfgErr?.message || cfgErr);
+}
 
-// Default fallback for JWT Secret
+// Default fallbacks for critical runtime env vars
+process.env.FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || '';
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'portal_bgn_terpadu_jwt_secret_token_secure_key_2026_prod';
 }
+const DEFAULT_PROD_APP_URL = 'https://sppg-hafshawaty1.com';
 
 import authRoutes from './server/routes/auth';
 import userRoutes from './server/routes/users';
@@ -69,17 +76,20 @@ import {
 
 async function startServer() {
   // Hydrate persistent server cache immediately before accepting requests (0 Firestore reads)
-  hydrateFromLocalSnapshot();
+  try {
+    hydrateFromLocalSnapshot();
+  } catch (hydrateErr: any) {
+    console.warn('[Startup Warning] Gagal memuat local snapshot:', hydrateErr?.message || hydrateErr);
+  }
 
   const app = express();
-  // Dynamic port: 3000 for local dev behind nginx, or process.env.PORT (8080) for Cloud Run production
   const distPath = path.join(process.cwd(), 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
   const isProduction =
-    (process.env.NODE_ENV === 'production' ||
-      process.argv[1]?.includes('server.cjs')) &&
-    fs.existsSync(distIndexHtml);
-  const PORT = isProduction ? (Number(process.env.PORT) || 8080) : 3000;
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.argv[1]?.includes('server.cjs'));
+  const PORT = Number(process.env.PORT) || 3000;
+  const APP_URL = process.env.APP_URL || (isProduction ? DEFAULT_PROD_APP_URL : `http://localhost:${PORT}`);
 
   // Middleware
   app.use(cors());
@@ -302,19 +312,31 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(distPath));
-    app.get('*', (req: Request, res: Response) => {
-      res.sendFile(distIndexHtml);
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath, { index: 'index.html' }));
+    }
+    app.get('*', (_req: Request, res: Response) => {
+      if (fs.existsSync(distIndexHtml)) {
+        res.sendFile(distIndexHtml);
+      } else {
+        res.status(503).send('Aplikasi sedang disiapkan. Silakan jalankan build atau muat ulang beberapa saat lagi.');
+      }
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Portal Enterprise Gateway] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[Portal Enterprise Gateway] Running on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'}, APP_URL=${APP_URL})`);
     // Initialize Google Cloud Firestore synchronization in background after port is bound
     setTimeout(() => {
-      initFirestoreSync().catch(err => console.error('Firestore initialization warning:', err));
+      try {
+        initFirestoreSync().catch(err => console.warn('Firestore initialization warning:', err?.message || err));
+      } catch (err: any) {
+        console.warn('Firestore startup warning:', err?.message || err);
+      }
     }, 200);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[Startup Warning] Server initialization issue:', err);
+});
