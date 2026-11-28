@@ -36,6 +36,13 @@ const logoImg = '/badan-gizi-nasional-seeklogo.png';
 import { BarangDatang, JenisBarangDatang, KualitasProdukBarangDatang } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { DAFTAR_SATUAN_BARANG } from '../../constants/satuanBarang';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import {
+  compressImageToJpeg,
+  isGasUploadConfigured,
+  isSafeImageSrc,
+  uploadImageToGoogleDrive,
+} from '../../utils/driveUpload';
 
 interface BarangDatangViewProps {
   currentPath?: string;
@@ -215,6 +222,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
   const [keterangan, setKeterangan] = useState<string>('');
   const [petugas, setPetugas] = useState<string>(user?.nama || user?.username || 'Petugas Logistik');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
+  const [pendingFotoFile, setPendingFotoFile] = useState<File | null>(null);
   const [isCompressingPhoto, setIsCompressingPhoto] = useState<boolean>(false);
 
   // Filters State for 'data' tab
@@ -243,6 +252,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
   const [editKeterangan, setEditKeterangan] = useState<string>('');
   const [editPetugas, setEditPetugas] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
+  const [editSubmitStage, setEditSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
+  const [pendingEditFotoFile, setPendingEditFotoFile] = useState<File | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
   const editCameraInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -299,7 +310,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     }
   }, [errorToast]);
 
-  // Handle Foto Upload (dengan kompresi otomatis)
+  // Handle Foto Upload (kompresi client-side & simpan File untuk Google Drive saat submit)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -311,16 +322,22 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     }
 
     setIsCompressingPhoto(true);
+    setPendingFotoFile(file);
     try {
-      const compressed = await compressImage(file);
-      if (!compressed) {
-        throw new Error('Gagal membaca file gambar');
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setDokumentasiUrl(compressed.dataUrl);
+      setSuccessToast(`Foto dokumentasi siap diunggah (${compressed.sizeKb} KB)!`);
+    } catch {
+      try {
+        const compressed = await compressImage(file);
+        if (!compressed) throw new Error('Gagal membaca file gambar');
+        setDokumentasiUrl(compressed);
+        setSuccessToast('Foto dokumentasi berhasil dimuat dan siap disimpan!');
+      } catch (err) {
+        console.error('Error membaca foto:', err);
+        setErrorToast('Gagal membaca file gambar');
+        setPendingFotoFile(null);
       }
-      setDokumentasiUrl(compressed);
-      setSuccessToast('Foto dokumentasi berhasil dimuat dan siap disimpan!');
-    } catch (err) {
-      console.error('Error membaca foto:', err);
-      setErrorToast('Gagal membaca file gambar');
     } finally {
       setIsCompressingPhoto(false);
     }
@@ -354,6 +371,19 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
     setSubmitting(true);
     try {
+      let finalDokumentasiUrl = dokumentasiUrl;
+
+      if (pendingFotoFile && isGasUploadConfigured()) {
+        setSubmitStage('uploading');
+        const uploaded = await uploadImageToGoogleDrive(pendingFotoFile, {
+          category: 'Logistik',
+          tanggal: tanggalInput,
+          fileName: namaBarang.trim(),
+        });
+        finalDokumentasiUrl = uploaded.imageUrl;
+      }
+
+      setSubmitStage('saving');
       const payload = {
         hari: dateInfo.hari,
         tanggal: tanggalInput,
@@ -363,14 +393,15 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         satuan: effectiveSatuan,
         jenisBarang,
         kualitasProduk,
-        dokumentasiUrl,
+        dokumentasiUrl: finalDokumentasiUrl,
+        image_url: finalDokumentasiUrl,
         keterangan: keterangan.trim(),
         petugas: (user?.nama || user?.username || petugas).trim() || 'Petugas Logistik'
       };
 
       const res = await fetch('/api/v1/barang-datang', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -392,6 +423,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       setJumlahMasuk('');
       setKualitasProduk('Baik');
       setDokumentasiUrl('');
+      setPendingFotoFile(null);
       setKeterangan('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -407,6 +439,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       setErrorToast(err?.message || 'Terjadi kesalahan sistem saat menyimpan data');
     } finally {
       setSubmitting(false);
+      setSubmitStage('idle');
     }
   };
 
@@ -414,7 +447,8 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
   const handleDelete = async (id: string) => {
     try {
       const res = await fetch(`/api/v1/barang-datang/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       const contentType = res.headers.get('content-type') || '';
       const json = contentType.includes('application/json') ? await res.json() : null;
@@ -450,12 +484,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     setEditJenisBarang(item.jenisBarang);
     setEditKualitasProduk(item.kualitasProduk || 'Baik');
     setEditDokumentasiUrl(item.dokumentasiUrl || '');
+    setPendingEditFotoFile(null);
     setEditKeterangan(item.keterangan || '');
     setEditPetugas(item.petugas || user?.nama || user?.username || 'Petugas Logistik');
     setEditModalOpen(true);
   };
 
-  // Handle Edit File Upload (dengan kompresi otomatis)
+  // Handle Edit File Upload (kompresi client-side & simpan File untuk Google Drive saat simpan edit)
   const handleEditFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -466,16 +501,22 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     }
 
     setIsCompressingPhoto(true);
+    setPendingEditFotoFile(file);
     try {
-      const compressed = await compressImage(file);
-      if (!compressed) {
-        throw new Error('Gagal memproses file foto');
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setEditDokumentasiUrl(compressed.dataUrl);
+      setSuccessToast(`Foto dokumentasi baru siap diunggah (${compressed.sizeKb} KB)!`);
+    } catch {
+      try {
+        const compressed = await compressImage(file);
+        if (!compressed) throw new Error('Gagal memproses file foto');
+        setEditDokumentasiUrl(compressed);
+        setSuccessToast('Foto dokumentasi baru berhasil dipilih dan dioptimalkan!');
+      } catch (err) {
+        console.error('Error proses foto edit:', err);
+        setErrorToast('Gagal memproses file foto');
+        setPendingEditFotoFile(null);
       }
-      setEditDokumentasiUrl(compressed);
-      setSuccessToast('Foto dokumentasi baru berhasil dipilih dan dioptimalkan!');
-    } catch (err) {
-      console.error('Error proses foto edit:', err);
-      setErrorToast('Gagal memproses file foto');
     } finally {
       setIsCompressingPhoto(false);
     }
@@ -502,7 +543,20 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
     setEditSubmitting(true);
     try {
-      const payload: Partial<BarangDatang> = {
+      let finalEditDokumentasiUrl = editDokumentasiUrl;
+
+      if (pendingEditFotoFile && isGasUploadConfigured()) {
+        setEditSubmitStage('uploading');
+        const uploaded = await uploadImageToGoogleDrive(pendingEditFotoFile, {
+          category: 'Logistik',
+          tanggal: editTanggal,
+          fileName: editNamaBarang.trim(),
+        });
+        finalEditDokumentasiUrl = uploaded.imageUrl;
+      }
+
+      setEditSubmitStage('saving');
+      const payload: Partial<BarangDatang> & { image_url?: string } = {
         hari: editDateInfo.hari,
         tanggal: editTanggal,
         hariTanggalFormatted: editDateInfo.formatted,
@@ -511,14 +565,15 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
         satuan: effectiveSatuan,
         jenisBarang: editJenisBarang,
         kualitasProduk: editKualitasProduk,
-        dokumentasiUrl: editDokumentasiUrl,
+        dokumentasiUrl: finalEditDokumentasiUrl,
+        image_url: finalEditDokumentasiUrl,
         keterangan: editKeterangan.trim(),
         petugas: editPetugas.trim() || 'Petugas Logistik'
       };
 
       const res = await fetch(`/api/v1/barang-datang/${editingItem.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -536,11 +591,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
       setSuccessToast(`Data kedatangan "${editNamaBarang}" berhasil diperbarui!`);
       setEditModalOpen(false);
       setEditingItem(null);
+      setPendingEditFotoFile(null);
     } catch (err: any) {
       console.error(err);
       setErrorToast(err?.message || 'Terjadi kesalahan saat menyimpan perubahan');
     } finally {
       setEditSubmitting(false);
+      setEditSubmitStage('idle');
     }
   };
 
@@ -595,9 +652,9 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
     const namaPJ = user?.nama || user?.username || 'Qoidul Muttaqin';
 
     const rowsHtml = itemsData.map((item, idx) => {
-      const fotoHtml = item.dokumentasiUrl ? `
+      const fotoHtml = isSafeImageSrc(item.dokumentasiUrl) ? `
         <div style="display:flex;justify-content:center;align-items:center;padding:4px;">
-          <img src="${item.dokumentasiUrl}" alt="${item.namaBarang}" style="max-height:125px;max-width:145px;object-fit:contain;border:1px solid #cbd5e1;border-radius:4px;" />
+          <img src="${item.dokumentasiUrl}" alt="${item.namaBarang}" referrerpolicy="no-referrer" style="max-height:125px;max-width:145px;object-fit:contain;border:1px solid #cbd5e1;border-radius:4px;" />
         </div>
       ` : `<div style="color:#94a3b8;font-size:10px;text-align:center;">-</div>`;
 
@@ -1655,12 +1712,13 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                       </div>
                     )}
 
-                    {dokumentasiUrl ? (
+                    {isSafeImageSrc(dokumentasiUrl) ? (
                       <div className="space-y-3">
                         <div className="relative rounded-xl overflow-hidden max-h-64 bg-slate-950 flex items-center justify-center border border-slate-200 dark:border-slate-700">
                           <img
                             src={dokumentasiUrl}
                             alt="Dokumentasi Barang Masuk"
+                            referrerPolicy="no-referrer"
                             className="w-full h-auto max-h-64 object-contain"
                           />
                           <div className="absolute top-2 right-2 flex items-center gap-1 bg-black/60 backdrop-blur-md rounded-lg p-1">
@@ -1668,6 +1726,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                               type="button"
                               onClick={() => {
                                 setDokumentasiUrl('');
+                                setPendingFotoFile(null);
                                 if (fileInputRef.current) fileInputRef.current.value = '';
                                 if (cameraInputRef.current) cameraInputRef.current.value = '';
                               }}
@@ -1746,7 +1805,10 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                           <input
                             type="url"
                             value={dokumentasiUrl}
-                            onChange={(e) => setDokumentasiUrl(e.target.value)}
+                            onChange={(e) => {
+                              setPendingFotoFile(null);
+                              setDokumentasiUrl(e.target.value);
+                            }}
                             placeholder="https://example.com/foto-barang.jpg"
                             className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 outline-none"
                           />
@@ -1812,7 +1874,11 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                       {submitting ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Menyimpan Data...</span>
+                          <span>
+                            {submitStage === 'uploading'
+                              ? 'Mengunggah foto ke Google Drive...'
+                              : 'Menyimpan data ke database...'}
+                          </span>
                         </>
                       ) : isCompressingPhoto ? (
                         <>
@@ -1896,9 +1962,9 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                   </span>
                 </div>
 
-                {dokumentasiUrl ? (
+                {isSafeImageSrc(dokumentasiUrl) ? (
                   <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 h-32 bg-slate-900 flex items-center justify-center">
-                    <img src={dokumentasiUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <img src={dokumentasiUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
@@ -2312,7 +2378,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
                           {/* Dokumentasi Barang Masuk */}
                           <td className="py-3.5 px-4 text-center">
-                            {item.dokumentasiUrl ? (
+                            {isSafeImageSrc(item.dokumentasiUrl) ? (
                               <button
                                 type="button"
                                 onClick={() => setPreviewItem(item)}
@@ -2322,6 +2388,7 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                                 <img
                                   src={item.dokumentasiUrl}
                                   alt="Dokumentasi"
+                                  referrerPolicy="no-referrer"
                                   className="w-full h-full object-cover"
                                 />
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
@@ -2469,11 +2536,12 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
 
             <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
               {/* Foto Dokumentasi */}
-              {previewItem.dokumentasiUrl ? (
+              {isSafeImageSrc(previewItem.dokumentasiUrl) ? (
                 <div className="rounded-2xl overflow-hidden bg-slate-950 border border-slate-200 dark:border-slate-800">
                   <img
                     src={previewItem.dokumentasiUrl}
                     alt="Dokumentasi Barang Masuk"
+                    referrerPolicy="no-referrer"
                     className="w-full h-auto max-h-80 object-contain mx-auto"
                   />
                 </div>
@@ -2786,17 +2854,21 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                   Dokumentasi Barang Masuk
                 </label>
 
-                {editDokumentasiUrl ? (
+                {isSafeImageSrc(editDokumentasiUrl) ? (
                   <div className="space-y-2">
                     <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 max-h-48 flex items-center justify-center">
                       <img
                         src={editDokumentasiUrl}
                         alt="Preview Foto"
+                        referrerPolicy="no-referrer"
                         className="max-h-48 w-auto object-contain"
                       />
                       <button
                         type="button"
-                        onClick={() => setEditDokumentasiUrl('')}
+                        onClick={() => {
+                          setEditDokumentasiUrl('');
+                          setPendingEditFotoFile(null);
+                        }}
                         className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 shadow"
                         title="Hapus foto ini"
                       >
@@ -2929,7 +3001,11 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                   {editSubmitting ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Menyimpan...</span>
+                      <span>
+                        {editSubmitStage === 'uploading'
+                          ? 'Mengunggah foto ke Google Drive...'
+                          : 'Menyimpan data ke database...'}
+                      </span>
                     </>
                   ) : (
                     <>
@@ -3073,11 +3149,12 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                       </span>
                     </td>
                     <td className="border border-slate-950 p-2 align-middle text-center">
-                      {item.dokumentasiUrl ? (
+                      {isSafeImageSrc(item.dokumentasiUrl) ? (
                         <div className="flex justify-center items-center">
                           <img
                             src={item.dokumentasiUrl}
                             alt={item.namaBarang}
+                            referrerPolicy="no-referrer"
                             className="max-h-28 max-w-36 object-contain rounded border border-slate-300 shadow-xs"
                           />
                         </div>
@@ -3204,11 +3281,12 @@ export const BarangDatangView: React.FC<BarangDatangViewProps> = ({ currentPath,
                   {item.kualitasProduk || 'Baik'}
                 </td>
                 <td className="border border-slate-950 p-2 align-middle text-center">
-                  {item.dokumentasiUrl ? (
+                  {isSafeImageSrc(item.dokumentasiUrl) ? (
                     <div className="flex justify-center items-center">
                       <img
                         src={item.dokumentasiUrl}
                         alt={item.namaBarang}
+                        referrerPolicy="no-referrer"
                         className="max-h-28 max-w-36 object-contain border border-slate-300"
                       />
                     </div>

@@ -35,6 +35,13 @@ import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
 import { GlobalReportHeader } from '../../components/document/GlobalReportHeader';
 import { GlobalReportFooter } from '../../components/document/GlobalReportFooter';
 import { DocumentSignatures } from '../../components/document/DocumentSignatures';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import {
+  compressImageToJpeg,
+  isGasUploadConfigured,
+  isSafeImageSrc,
+  uploadImageToGoogleDrive,
+} from '../../utils/driveUpload';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwgdnw6oZl3-Nji0JZbE7jCDgLr2Uw_DP9wQBrhcShq3CXTXqQdK016eA-jLjWrme8/exec';
 
@@ -146,6 +153,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
   const [dailyBeneficiaries, setDailyBeneficiaries] = useState<DailyBeneficiaryRecord[]>([]);
   const [isSyncedFromDaily, setIsSyncedFromDaily] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
   const [dokPengirimanFile, setDokPengirimanFile] = useState<File | null>(null);
   const [dokPenjemputanFile, setDokPenjemputanFile] = useState<File | null>(null);
   const [waSubmitStatus, setWaSubmitStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -336,13 +344,13 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     }
   };
 
-  // Image File Upload Helper
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'dokPengiriman' | 'dokPenjemputan') => {
+  // Image File Upload Helper (compress client-side & stage File for Google Drive upload on submit)
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'dokPengiriman' | 'dokPenjemputan') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Ukuran foto maksimal 5MB.', 'error');
+    if (file.size > 15 * 1024 * 1024) {
+      showToast('Ukuran foto maksimal 15MB.', 'error');
       return;
     }
 
@@ -352,13 +360,19 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
       setDokPenjemputanFile(file);
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      setFormData(prev => ({ ...prev, [field]: base64 }));
-      showToast('Foto dokumentasi berhasil diunggah.', 'info');
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setFormData(prev => ({ ...prev, [field]: compressed.dataUrl }));
+      showToast(`Foto dokumentasi siap diunggah (${compressed.sizeKb} KB).`, 'info');
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setFormData(prev => ({ ...prev, [field]: base64 }));
+        showToast('Foto dokumentasi berhasil dimuat.', 'info');
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Kirim Laporan beserta Foto Terkompresi ke Google Apps Script -> WhatsApp (via Fonnte)
@@ -460,17 +474,44 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
 
     setIsSubmitting(true);
 
-    const payload = {
-      ...formData,
-      driverNama,
-      driverFoto,
-      driverKendaraan
-    };
-
     try {
+      let finalDokPengiriman = formData.dokPengiriman;
+      let finalDokPenjemputan = formData.dokPenjemputan;
+
+      if ((dokPengirimanFile || dokPenjemputanFile) && isGasUploadConfigured()) {
+        setSubmitStage('uploading');
+        if (dokPengirimanFile) {
+          const uploadedKirim = await uploadImageToGoogleDrive(dokPengirimanFile, {
+            category: 'Laporan Distribusi',
+            tanggal: formData.tanggal,
+            fileName: `pengiriman_${formData.namaInstansi}`,
+          });
+          finalDokPengiriman = uploadedKirim.imageUrl;
+        }
+        if (dokPenjemputanFile) {
+          const uploadedJemput = await uploadImageToGoogleDrive(dokPenjemputanFile, {
+            category: 'Laporan Distribusi',
+            tanggal: formData.tanggal,
+            fileName: `penjemputan_${formData.namaInstansi}`,
+          });
+          finalDokPenjemputan = uploadedJemput.imageUrl;
+        }
+      }
+
+      setSubmitStage('saving');
+      const payload = {
+        ...formData,
+        dokPengiriman: finalDokPengiriman,
+        dokPenjemputan: finalDokPenjemputan,
+        image_url: finalDokPengiriman || finalDokPenjemputan || '',
+        driverNama,
+        driverFoto,
+        driverKendaraan
+      };
+
       const res = await fetch('/api/v1/distribusi/reports', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -478,6 +519,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
 
       if (json.success && json.data) {
         setReports(prev => [json.data, ...prev]);
+        showToast(`Laporan distribusi ${formData.namaInstansi} berhasil disimpan ke database.`, 'success');
 
         const keteranganWa = formData.catatan?.trim()
           ? `${formData.catatan.trim()} | Driver: ${driverNama} (${driverKendaraan}) | Antar: ${formData.jamPengiriman} | Jemput: ${formData.jamPenjemputan}`
@@ -504,13 +546,14 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
         setWaSubmitStatus({ type: 'error', text: failMsg });
         showToast(failMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving distribution report:', err);
-      const netMsg = 'Terjadi kesalahan jaringan saat menyimpan laporan.';
+      const netMsg = err?.message || 'Terjadi kesalahan jaringan saat menyimpan laporan.';
       setWaSubmitStatus({ type: 'error', text: netMsg });
       showToast(netMsg, 'error');
     } finally {
       setIsSubmitting(false);
+      setSubmitStage('idle');
     }
   };
 
@@ -617,7 +660,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
         // Edit Driver
         const res = await fetch(`/api/v1/distribusi/drivers/${editingDriver.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(driverFormData)
         });
         const json = await res.json();
@@ -629,7 +672,7 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
         // Add New Driver
         const res = await fetch('/api/v1/distribusi/drivers', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(driverFormData)
         });
         const json = await res.json();
@@ -649,7 +692,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     if (!window.confirm(`Apakah Anda yakin ingin menghapus data driver ${driverNama}?`)) return;
 
     try {
-      const res = await fetch(`/api/v1/distribusi/drivers/${driverId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/distribusi/drivers/${driverId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         setDrivers(prev => prev.filter(d => d.id !== driverId));
         showToast(`Driver ${driverNama} berhasil dihapus.`, 'info');
@@ -663,7 +709,10 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
     if (!window.confirm(`Hapus laporan distribusi untuk ${namaInstansi}?`)) return;
 
     try {
-      const res = await fetch(`/api/v1/distribusi/reports/${reportId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/distribusi/reports/${reportId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         setReports(prev => prev.filter(r => r.id !== reportId));
         showToast('Laporan distribusi berhasil dihapus.', 'info');
@@ -980,11 +1029,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                   </button>
                 </label>
 
-                {formData.dokPengiriman ? (
+                {isSafeImageSrc(formData.dokPengiriman) ? (
                   <div className="relative rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 group h-40 bg-slate-900">
                     <img
                       src={formData.dokPengiriman}
                       alt="Dokumentasi Pengiriman"
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                     />
                     <button
@@ -1030,11 +1080,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                   </button>
                 </label>
 
-                {formData.dokPenjemputan ? (
+                {isSafeImageSrc(formData.dokPenjemputan) ? (
                   <div className="relative rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 group h-40 bg-slate-900">
                     <img
                       src={formData.dokPenjemputan}
                       alt="Dokumentasi Penjemputan"
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                     />
                     <button
@@ -1110,7 +1161,9 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-5 h-5 animate-spin" />
-                    Mengirim ke WA...
+                    {submitStage === 'uploading'
+                      ? 'Mengunggah foto ke Google Drive...'
+                      : 'Menyimpan data ke database...'}
                   </>
                 ) : (
                   <>
@@ -1279,8 +1332,8 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                         </td>
                         <td className="p-3.5">
                           <div className="flex items-center gap-2">
-                            {rep.driverFoto ? (
-                              <img src={rep.driverFoto} alt={rep.driverNama} className="w-7 h-7 rounded-full object-cover border border-slate-300" />
+                            {isSafeImageSrc(rep.driverFoto) ? (
+                              <img src={rep.driverFoto} alt={rep.driverNama} referrerPolicy="no-referrer" className="w-7 h-7 rounded-full object-cover border border-slate-300" />
                             ) : (
                               <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
                                 {rep.driverNama?.charAt(0) || 'D'}
@@ -1398,8 +1451,9 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                   {/* Foto Driver */}
                   <div className="relative">
                     <img
-                      src={drv.foto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'}
+                      src={isSafeImageSrc(drv.foto) ? drv.foto : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'}
                       alt={drv.nama}
+                      referrerPolicy="no-referrer"
                       className="w-16 h-16 rounded-2xl object-cover border-2 border-blue-500/30 shadow-sm"
                     />
                     <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-900 ${
@@ -1532,8 +1586,8 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <span className="text-xs font-semibold block mb-1.5 text-slate-700 dark:text-slate-300">1. Foto Pengiriman</span>
-                    {selectedReportDetail.dokPengiriman ? (
-                      <img src={selectedReportDetail.dokPengiriman} alt="Foto Pengiriman" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
+                    {isSafeImageSrc(selectedReportDetail.dokPengiriman) ? (
+                      <img src={selectedReportDetail.dokPengiriman} alt="Foto Pengiriman" referrerPolicy="no-referrer" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
                     ) : (
                       <div className="w-full h-48 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-xs text-slate-400">
                         Tidak ada foto pengiriman
@@ -1542,8 +1596,8 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-semibold block mb-1.5 text-slate-700 dark:text-slate-300">2. Foto Penjemputan</span>
-                    {selectedReportDetail.dokPenjemputan ? (
-                      <img src={selectedReportDetail.dokPenjemputan} alt="Foto Penjemputan" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
+                    {isSafeImageSrc(selectedReportDetail.dokPenjemputan) ? (
+                      <img src={selectedReportDetail.dokPenjemputan} alt="Foto Penjemputan" referrerPolicy="no-referrer" className="w-full h-48 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" />
                     ) : (
                       <div className="w-full h-48 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-xs text-slate-400">
                         Tidak ada foto penjemputan
@@ -1655,11 +1709,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                           <span className="text-amber-800 block">Jemput: {r.jamPenjemputan || '-'}</span>
                         </td>
                         <td className="border border-slate-300 p-1.5 text-center align-middle">
-                          {r.dokPengiriman ? (
+                          {isSafeImageSrc(r.dokPengiriman) ? (
                             <div className="flex flex-col items-center justify-center">
                               <img
                                 src={r.dokPengiriman}
                                 alt="Dokumentasi Pengiriman"
+                                referrerPolicy="no-referrer"
                                 className="w-20 h-16 object-cover rounded border border-slate-400 print:w-20 print:h-16 shadow-sm"
                               />
                               <span className="text-[9px] text-slate-600 font-semibold mt-0.5">Serah Terima</span>
@@ -1669,11 +1724,12 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                           )}
                         </td>
                         <td className="border border-slate-300 p-1.5 text-center align-middle">
-                          {r.dokPenjemputan ? (
+                          {isSafeImageSrc(r.dokPenjemputan) ? (
                             <div className="flex flex-col items-center justify-center">
                               <img
                                 src={r.dokPenjemputan}
                                 alt="Dokumentasi Penjemputan"
+                                referrerPolicy="no-referrer"
                                 className="w-20 h-16 object-cover rounded border border-slate-400 print:w-20 print:h-16 shadow-sm"
                               />
                               <span className="text-[9px] text-slate-600 font-semibold mt-0.5">Penjemputan</span>
@@ -1760,8 +1816,9 @@ export const LaporanDistribusiView: React.FC<LaporanDistribusiViewProps> = ({
                 <div className="flex items-center gap-4 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
                   <div className="relative flex-shrink-0">
                     <img
-                      src={driverFormData.foto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'}
+                      src={isSafeImageSrc(driverFormData.foto) ? driverFormData.foto : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'}
                       alt="Preview Foto Driver"
+                      referrerPolicy="no-referrer"
                       className="w-16 h-16 rounded-xl object-cover border-2 border-blue-500/40 shadow-sm"
                     />
                     {driverFormData.foto && (

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { dbStore } from '../services/store';
 import { MenuHarianRecord } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc } from '../services/syncService';
+import { isMysqlConfigured, mysqlMenuHarian, sanitizeMysqlImageUrl } from '../db';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -31,10 +33,25 @@ function formatIndonesianDate(dateStr: string): { hari: string; formatted: strin
 }
 
 // GET all menu harian with optional filters
-router.get('/', (req: Request, res: Response): void => {
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   const { tanggal, startDate, endDate, search } = req.query;
 
   let results = [...dbStore.menuHarian];
+  if (isMysqlConfigured()) {
+    try {
+      const mysqlRows = await mysqlMenuHarian.list();
+      if (Array.isArray(mysqlRows) && mysqlRows.length > 0) {
+        const mergedMap = new Map<string, MenuHarianRecord>();
+        for (const row of results) mergedMap.set(row.id, row);
+        for (const row of mysqlRows as unknown as MenuHarianRecord[]) {
+          mergedMap.set(row.id, row);
+        }
+        results = Array.from(mergedMap.values());
+      }
+    } catch (err: any) {
+      console.warn('[MySQL] Fallback to memory store on GET /menu-harian:', err?.message || err);
+    }
+  }
 
   if (tanggal && typeof tanggal === 'string' && tanggal.trim() !== '') {
     results = results.filter(m => m.tanggalOperasional === tanggal.trim());
@@ -84,7 +101,7 @@ router.get('/:id', (req: Request, res: Response): void => {
 });
 
 // POST create new menu harian
-router.post('/', async (req: Request, res: Response): Promise<void> => {
+router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       tanggalOperasional,
@@ -157,12 +174,16 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       },
       rincianKomponen: rincianKomponen || {},
       catatanGizi: catatanGizi ? String(catatanGizi).trim() : '',
-      fotoMenuUrl: fotoMenuUrl || '',
+      fotoMenuUrl: sanitizeMysqlImageUrl(fotoMenuUrl) || fotoMenuUrl || '',
       fotoFileName: fotoFileName || '',
       fotoFileSizeKb: Number(fotoFileSizeKb) || 0,
       petugas: petugas?.trim() || 'Ahli Gizi SPPG',
       createdBy: petugas?.trim() || 'Ahli Gizi SPPG'
     });
+
+    if (isMysqlConfigured()) {
+      await mysqlMenuHarian.upsert(newItem);
+    }
 
     await syncSaveDoc('menuHarian', newItem.id, newItem, {
       name: newItem.petugas,
@@ -197,7 +218,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 });
 
 // PUT update menu harian
-router.put('/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const updates = { ...req.body } as Partial<MenuHarianRecord>;
@@ -210,8 +231,18 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
     const updated = dbStore.updateMenuHarian(id, updates);
     if (!updated) {
+      if (isMysqlConfigured()) {
+        const upsertedRecord = { ...updates, id } as Record<string, any>;
+        await mysqlMenuHarian.upsert(upsertedRecord);
+        res.json({ success: true, message: 'Data Menu Harian berhasil diperbarui', data: upsertedRecord });
+        return;
+      }
       res.status(404).json({ success: false, message: 'Data menu harian tidak ditemukan' });
       return;
+    }
+
+    if (isMysqlConfigured()) {
+      await mysqlMenuHarian.upsert(updated);
     }
 
     await syncSaveDoc('menuHarian', id, updated, {
@@ -231,11 +262,12 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 // DELETE menu harian
-router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const deletedFromMysql = isMysqlConfigured() ? await mysqlMenuHarian.delete(id) : false;
     const deleted = dbStore.deleteMenuHarian(id);
-    if (!deleted) {
+    if (!deleted && !deletedFromMysql) {
       res.status(404).json({ success: false, message: 'Data menu harian tidak ditemukan' });
       return;
     }

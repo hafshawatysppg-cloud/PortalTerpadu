@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { dbStore } from '../services/store';
 import { DriverStaff, DistributionReport } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc } from '../services/syncService';
+import { isMysqlConfigured, mysqlLaporanDistribusi } from '../db';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -13,7 +15,7 @@ router.get('/drivers', (req: Request, res: Response): void => {
 });
 
 // POST /api/v1/distribusi/drivers
-router.post('/drivers', async (req: Request, res: Response): Promise<void> => {
+router.post('/drivers', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { nama, telepon, noSim, kendaraan, platNomor, foto, status, catatan } = req.body;
 
   if (!nama) {
@@ -43,7 +45,7 @@ router.post('/drivers', async (req: Request, res: Response): Promise<void> => {
 });
 
 // PUT /api/v1/distribusi/drivers/:id
-router.put('/drivers/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/drivers/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.drivers.findIndex(d => d.id === id);
 
@@ -64,7 +66,7 @@ router.put('/drivers/:id', async (req: Request, res: Response): Promise<void> =>
 });
 
 // DELETE /api/v1/distribusi/drivers/:id
-router.delete('/drivers/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/drivers/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.drivers.findIndex(d => d.id === id);
 
@@ -83,10 +85,25 @@ router.delete('/drivers/:id', async (req: Request, res: Response): Promise<void>
 // --- DISTRIBUTION REPORTS ENDPOINTS ---
 
 // GET /api/v1/distribusi/reports
-router.get('/reports', (req: Request, res: Response): void => {
+router.get('/reports', async (req: Request, res: Response): Promise<void> => {
   const { tanggal, startDate, endDate, search } = req.query;
 
   let results = [...dbStore.distributionReports];
+  if (isMysqlConfigured()) {
+    try {
+      const mysqlRows = await mysqlLaporanDistribusi.list();
+      if (Array.isArray(mysqlRows) && mysqlRows.length > 0) {
+        const merged = new Map<string, DistributionReport>();
+        for (const r of results) merged.set(r.id, r);
+        for (const r of mysqlRows as unknown as DistributionReport[]) {
+          merged.set(r.id, r);
+        }
+        results = Array.from(merged.values());
+      }
+    } catch (err: any) {
+      console.warn('[MySQL] Fallback to memory store on GET /distribusi/reports:', err?.message || err);
+    }
+  }
 
   if (tanggal && typeof tanggal === 'string') {
     results = results.filter(r => r.tanggal === tanggal);
@@ -115,7 +132,7 @@ router.get('/reports', (req: Request, res: Response): void => {
 });
 
 // POST /api/v1/distribusi/reports
-router.post('/reports', async (req: Request, res: Response): Promise<void> => {
+router.post('/reports', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const {
     tanggal,
     driverId,
@@ -159,6 +176,9 @@ router.post('/reports', async (req: Request, res: Response): Promise<void> => {
   };
 
   dbStore.distributionReports.unshift(newReport);
+  if (isMysqlConfigured()) {
+    await mysqlLaporanDistribusi.upsert(newReport);
+  }
   await syncSaveDoc('distributionReports', newReport.id, newReport);
   await syncSaveDoc('distribution_reports', newReport.id, newReport);
 
@@ -168,7 +188,7 @@ router.post('/reports', async (req: Request, res: Response): Promise<void> => {
 });
 
 // PUT /api/v1/distribusi/reports/:id
-router.put('/reports/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/reports/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.distributionReports.findIndex(r => r.id === id);
 
@@ -183,6 +203,9 @@ router.put('/reports/:id', async (req: Request, res: Response): Promise<void> =>
     updatedAt: new Date().toISOString()
   };
 
+  if (isMysqlConfigured()) {
+    await mysqlLaporanDistribusi.upsert(dbStore.distributionReports[index]);
+  }
   await syncSaveDoc('distributionReports', id, dbStore.distributionReports[index]);
   await syncSaveDoc('distribution_reports', id, dbStore.distributionReports[index]);
 
@@ -192,16 +215,17 @@ router.put('/reports/:id', async (req: Request, res: Response): Promise<void> =>
 });
 
 // DELETE /api/v1/distribusi/reports/:id
-router.delete('/reports/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/reports/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const index = dbStore.distributionReports.findIndex(r => r.id === id);
+  const deletedFromMysql = isMysqlConfigured() ? await mysqlLaporanDistribusi.delete(id) : false;
 
-  if (index === -1) {
+  if (index === -1 && !deletedFromMysql) {
     res.status(404).json({ success: false, message: 'Laporan tidak ditemukan.' });
     return;
   }
 
-  const deletedReport = dbStore.distributionReports.splice(index, 1)[0];
+  const deletedReport = index >= 0 ? dbStore.distributionReports.splice(index, 1)[0] : ({ id } as DistributionReport);
   await syncDeleteDoc('distributionReports', id);
   await syncDeleteDoc('distribution_reports', id);
 

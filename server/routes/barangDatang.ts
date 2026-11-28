@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { dbStore } from '../services/store';
 import { BarangDatang, JenisBarangDatang, KualitasProdukBarangDatang } from '../../src/types';
 import { syncSaveDoc, syncDeleteDoc } from '../services/syncService';
+import { isMysqlConfigured, mysqlBarangDatang } from '../db';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -35,10 +37,25 @@ function formatIndonesianDate(dateStr: string): string {
 }
 
 // GET all barang datang with optional filters
-router.get('/', (req: Request, res: Response): void => {
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   const { tanggal, startDate, endDate, jenisBarang, kualitasProduk, search } = req.query;
 
   let results = [...dbStore.barangDatang];
+  if (isMysqlConfigured()) {
+    try {
+      const mysqlRows = await mysqlBarangDatang.list();
+      if (Array.isArray(mysqlRows) && mysqlRows.length > 0) {
+        const merged = new Map<string, BarangDatang>();
+        for (const row of results) merged.set(row.id, row);
+        for (const row of mysqlRows as unknown as BarangDatang[]) {
+          merged.set(row.id, row);
+        }
+        results = Array.from(merged.values());
+      }
+    } catch (err: any) {
+      console.warn('[MySQL] Fallback to memory store on GET /barang-datang:', err?.message || err);
+    }
+  }
 
   // Specific date filter
   if (tanggal && typeof tanggal === 'string' && tanggal.trim() !== '') {
@@ -103,7 +120,7 @@ router.get('/:id', (req: Request, res: Response): void => {
 });
 
 // POST create new barang datang
-router.post('/', async (req: Request, res: Response): Promise<void> => {
+router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       hari,
@@ -164,6 +181,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       createdBy: petugas?.trim() || 'Petugas Logistik'
     });
 
+    if (isMysqlConfigured()) {
+      await mysqlBarangDatang.upsert(newItem);
+    }
+
     // Realtime Cloud Firestore Synchronization (Non-blocking background sync)
     const firestoreData = { ...newItem };
     if (firestoreData.dokumentasiUrl && firestoreData.dokumentasiUrl.length > 500000) {
@@ -204,7 +225,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 });
 
 // PUT update barang datang
-router.put('/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const updates = req.body as Partial<BarangDatang>;
@@ -216,8 +237,18 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
     const updated = dbStore.updateBarangDatang(id, updates);
     if (!updated) {
+      if (isMysqlConfigured()) {
+        const record = { ...updates, id } as Record<string, any>;
+        await mysqlBarangDatang.upsert(record);
+        res.json({ success: true, message: 'Data kedatangan barang berhasil diperbarui', data: record });
+        return;
+      }
       res.status(404).json({ success: false, message: 'Data kedatangan barang tidak ditemukan' });
       return;
+    }
+
+    if (isMysqlConfigured()) {
+      await mysqlBarangDatang.upsert(updated);
     }
 
     // Realtime Cloud Firestore Synchronization (Non-blocking background sync)
@@ -242,11 +273,12 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 // DELETE barang datang
-router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const deletedFromMysql = isMysqlConfigured() ? await mysqlBarangDatang.delete(id) : false;
     const deleted = dbStore.deleteBarangDatang(id);
-    if (!deleted) {
+    if (!deleted && !deletedFromMysql) {
       res.status(404).json({ success: false, message: 'Data kedatangan barang tidak ditemukan' });
       return;
     }

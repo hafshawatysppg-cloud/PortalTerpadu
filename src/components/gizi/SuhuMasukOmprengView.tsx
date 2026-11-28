@@ -45,6 +45,13 @@ import {
   sanitizeForFirestore
 } from '../../lib/firestoreHelper';
 import { safeParseJson } from '../../lib/safeJson';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import {
+  compressImageToJpeg,
+  isGasUploadConfigured,
+  isSafeImageSrc,
+  uploadImageToGoogleDrive,
+} from '../../utils/driveUpload';
 
 interface SuhuMasukOmprengViewProps {
   currentPath: string;
@@ -346,12 +353,17 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; suhu?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
+  const [pendingPokokFile, setPendingPokokFile] = useState<File | null>(null);
+  const [pendingHewaniFile, setPendingHewaniFile] = useState<File | null>(null);
+  const [pendingNabatiFile, setPendingNabatiFile] = useState<File | null>(null);
+  const [pendingSayuranFile, setPendingSayuranFile] = useState<File | null>(null);
 
   const persistSuhuOmprengBackup = async (list: DailySuhuOmprengRecord[]) => {
     try {
       await fetch('/api/v1/cloud/collection/suhu_masuk_ompreng_v2', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ data: list })
       });
     } catch (_) {}
@@ -437,6 +449,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     setProteinHewaniSesi(sesiLabel);
     setProteinNabatiSesi(sesiLabel);
     setSayuranSesi(sesiLabel);
+    setPendingPokokFile(null);
+    setPendingHewaniFile(null);
+    setPendingNabatiFile(null);
+    setPendingSayuranFile(null);
 
     // If current date already has data for this session, load it into inputs
     const existing = dailyRecords.find(r => r.tanggal === formTanggal);
@@ -460,8 +476,12 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     }
   };
 
-  // Generic photo file handler for any sub category
-  const handleUploadPhoto = (e: React.ChangeEvent<HTMLInputElement>, setter: (url: string) => void) => {
+  // Generic photo file handler for any sub category (compress client-side & stage File for Google Drive)
+  const handleUploadPhoto = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (url: string) => void,
+    pendingSetter: (file: File | null) => void
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -470,17 +490,24 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setter(reader.result);
-        showToast('Foto dokumentasi suhu masuk ompreng berhasil diunggah', 'success');
-      }
-    };
-    reader.readAsDataURL(file);
+    pendingSetter(file);
+    try {
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setter(compressed.dataUrl);
+      showToast(`Foto dokumentasi siap diunggah (${compressed.sizeKb} KB)`, 'success');
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setter(reader.result);
+          showToast('Foto dokumentasi suhu masuk ompreng berhasil dimuat', 'success');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
-  // Submit form: saves or updates the record for that date
+  // Submit form: Stage 1 upload new photos to Google Drive, Stage 2 save to database
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -488,7 +515,6 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
     try {
       if (!formTanggal) {
         showToast('Tanggal pemeriksaan wajib diisi', 'error');
-        setIsSubmitting(false);
         return;
       }
 
@@ -503,25 +529,72 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       const targetSesiKey: SesiKey =
         makananPokokSesi === 'Sesi 1' ? 'sesi1' : makananPokokSesi === 'Sesi 2' ? 'sesi2' : 'sesi3';
 
+      let resolvedPokokFoto = makananPokokFoto || '';
+      let resolvedHewaniFoto = proteinHewaniFoto || '';
+      let resolvedNabatiFoto = proteinNabatiFoto || '';
+      let resolvedSayuranFoto = sayuranFoto || '';
+
+      const hasPendingUploads = Boolean(
+        pendingPokokFile || pendingHewaniFile || pendingNabatiFile || pendingSayuranFile
+      );
+
+      if (hasPendingUploads && isGasUploadConfigured()) {
+        setSubmitStage('uploading');
+        if (pendingPokokFile) {
+          const uploaded = await uploadImageToGoogleDrive(pendingPokokFile, {
+            category: 'Suhu Masuk Ompreng',
+            tanggal: formTanggal,
+            fileName: `ompreng_${targetSesiKey}_makanan_pokok`,
+          });
+          resolvedPokokFoto = uploaded.imageUrl;
+        }
+        if (pendingHewaniFile) {
+          const uploaded = await uploadImageToGoogleDrive(pendingHewaniFile, {
+            category: 'Suhu Masuk Ompreng',
+            tanggal: formTanggal,
+            fileName: `ompreng_${targetSesiKey}_protein_hewani`,
+          });
+          resolvedHewaniFoto = uploaded.imageUrl;
+        }
+        if (pendingNabatiFile) {
+          const uploaded = await uploadImageToGoogleDrive(pendingNabatiFile, {
+            category: 'Suhu Masuk Ompreng',
+            tanggal: formTanggal,
+            fileName: `ompreng_${targetSesiKey}_protein_nabati`,
+          });
+          resolvedNabatiFoto = uploaded.imageUrl;
+        }
+        if (pendingSayuranFile) {
+          const uploaded = await uploadImageToGoogleDrive(pendingSayuranFile, {
+            category: 'Suhu Masuk Ompreng',
+            tanggal: formTanggal,
+            fileName: `ompreng_${targetSesiKey}_sayuran`,
+          });
+          resolvedSayuranFoto = uploaded.imageUrl;
+        }
+      }
+
+      setSubmitStage('saving');
+
       const updatedSesiData: SesiGroupData = {
         makananPokok: {
           suhu: isNaN(suhuPokok) ? null : suhuPokok,
-          fotoUrl: makananPokokFoto || '',
+          fotoUrl: resolvedPokokFoto,
           namaMenu: makananPokokNama || ''
         },
         proteinHewani: {
           suhu: isNaN(suhuHewani) ? null : suhuHewani,
-          fotoUrl: proteinHewaniFoto || '',
+          fotoUrl: resolvedHewaniFoto,
           namaMenu: proteinHewaniNama || ''
         },
         proteinNabati: {
           suhu: isNaN(suhuNabati) ? null : suhuNabati,
-          fotoUrl: proteinNabatiFoto || '',
+          fotoUrl: resolvedNabatiFoto,
           namaMenu: proteinNabatiNama || ''
         },
         sayuran: {
           suhu: isNaN(suhuSayur) ? null : suhuSayur,
-          fotoUrl: sayuranFoto || '',
+          fotoUrl: resolvedSayuranFoto,
           namaMenu: sayuranNama || ''
         },
         waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
@@ -582,6 +655,21 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
         }
       }
 
+      // Sync ke backend MySQL (hanya menyimpan URL Google Drive, tanpa Base64 mentah)
+      try {
+        await fetch('/api/mysql/suhu-ompreng', {
+          method: 'POST',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            ...recordToSave,
+            jenisPengukuran: 'Masuk Ompreng',
+            sesi: makananPokokSesi,
+          }),
+        });
+      } catch (mysqlErr) {
+        console.warn('MySQL sync suhu ompreng skipped/failed:', mysqlErr);
+      }
+
       setDailyRecords(nextList);
       void persistSuhuOmprengBackup(nextList);
 
@@ -602,13 +690,18 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       setSayuranFoto('');
       setSayuranNama('');
       setFormCatatan('');
+      setPendingPokokFile(null);
+      setPendingHewaniFile(null);
+      setPendingNabatiFile(null);
+      setPendingSayuranFile(null);
 
       onNavigate('/gizi/suhu/makanan/masuk-ompreng/tabel');
-    } catch (err) {
-      const msg = notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menyimpan data suhu masuk ompreng ke Supabase');
+    } catch (err: any) {
+      const msg = err?.message || notifyFirestoreFailure(err, OperationType.WRITE, 'suhu_masuk_ompreng_v2', 'Gagal menyimpan data suhu masuk ompreng');
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
+      setSubmitStage('idle');
     }
   };
 
@@ -653,6 +746,12 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
       if (isSupabaseConfigured) {
         await deleteSupabaseDoc('suhu_masuk_ompreng_v2', record.id);
       }
+      try {
+        await fetch(`/api/mysql/suhu-ompreng/${encodeURIComponent(record.id)}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+      } catch (_) {}
       setDailyRecords(nextList);
       void persistSuhuOmprengBackup(nextList);
       showToast(`Data suhu masuk ompreng tanggal ${formatTanggalTable(record.tanggal)} berhasil dihapus`, 'success');
@@ -949,14 +1048,15 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleUploadPhoto(e, setMakananPokokFoto)}
+                    onChange={(e) => handleUploadPhoto(e, setMakananPokokFoto, setPendingPokokFile)}
                   />
 
-                  {makananPokokFoto ? (
+                  {isSafeImageSrc(makananPokokFoto) ? (
                     <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 h-36 bg-slate-900 flex items-center justify-center group">
                       <img
                         src={makananPokokFoto}
                         alt="Dokumentasi Makanan Pokok Masuk Ompreng"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -969,7 +1069,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                         </button>
                         <button
                           type="button"
-                          onClick={() => setMakananPokokFoto('')}
+                          onClick={() => {
+                            setMakananPokokFoto('');
+                            setPendingPokokFile(null);
+                          }}
                           className="p-1 bg-rose-600 text-white rounded-lg cursor-pointer shadow-md"
                           title="Hapus"
                         >
@@ -1066,14 +1169,15 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleUploadPhoto(e, setProteinHewaniFoto)}
+                    onChange={(e) => handleUploadPhoto(e, setProteinHewaniFoto, setPendingHewaniFile)}
                   />
 
-                  {proteinHewaniFoto ? (
+                  {isSafeImageSrc(proteinHewaniFoto) ? (
                     <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 h-36 bg-slate-900 flex items-center justify-center group">
                       <img
                         src={proteinHewaniFoto}
                         alt="Dokumentasi Protein Hewani Masuk Ompreng"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -1086,7 +1190,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                         </button>
                         <button
                           type="button"
-                          onClick={() => setProteinHewaniFoto('')}
+                          onClick={() => {
+                            setProteinHewaniFoto('');
+                            setPendingHewaniFile(null);
+                          }}
                           className="p-1 bg-rose-600 text-white rounded-lg cursor-pointer shadow-md"
                           title="Hapus"
                         >
@@ -1183,14 +1290,15 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleUploadPhoto(e, setProteinNabatiFoto)}
+                    onChange={(e) => handleUploadPhoto(e, setProteinNabatiFoto, setPendingNabatiFile)}
                   />
 
-                  {proteinNabatiFoto ? (
+                  {isSafeImageSrc(proteinNabatiFoto) ? (
                     <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 h-36 bg-slate-900 flex items-center justify-center group">
                       <img
                         src={proteinNabatiFoto}
                         alt="Dokumentasi Protein Nabati Masuk Ompreng"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -1203,7 +1311,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                         </button>
                         <button
                           type="button"
-                          onClick={() => setProteinNabatiFoto('')}
+                          onClick={() => {
+                            setProteinNabatiFoto('');
+                            setPendingNabatiFile(null);
+                          }}
                           className="p-1 bg-rose-600 text-white rounded-lg cursor-pointer shadow-md"
                           title="Hapus"
                         >
@@ -1300,14 +1411,15 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleUploadPhoto(e, setSayuranFoto)}
+                    onChange={(e) => handleUploadPhoto(e, setSayuranFoto, setPendingSayuranFile)}
                   />
 
-                  {sayuranFoto ? (
+                  {isSafeImageSrc(sayuranFoto) ? (
                     <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 h-36 bg-slate-900 flex items-center justify-center group">
                       <img
                         src={sayuranFoto}
                         alt="Dokumentasi Sayuran Masuk Ompreng"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -1320,7 +1432,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                         </button>
                         <button
                           type="button"
-                          onClick={() => setSayuranFoto('')}
+                          onClick={() => {
+                            setSayuranFoto('');
+                            setPendingSayuranFile(null);
+                          }}
                           className="p-1 bg-rose-600 text-white rounded-lg cursor-pointer shadow-md"
                           title="Hapus"
                         >
@@ -1367,6 +1482,10 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                   setProteinHewaniFoto('');
                   setProteinNabatiFoto('');
                   setSayuranFoto('');
+                  setPendingPokokFile(null);
+                  setPendingHewaniFile(null);
+                  setPendingNabatiFile(null);
+                  setPendingSayuranFile(null);
                 }}
                 className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-200 cursor-pointer"
               >
@@ -1376,12 +1495,16 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-extrabold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center gap-2"
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-extrabold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Menyimpan Data...</span>
+                    <span>
+                      {submitStage === 'uploading'
+                        ? 'Mengunggah foto ke Google Drive...'
+                        : 'Menyimpan data ke database...'}
+                    </span>
                   </>
                 ) : (
                   <>
@@ -1865,20 +1988,21 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
                           const item = sesiData?.[cat.key];
                           return (
                             <td key={cat.key} className="border border-black p-2 align-middle">
-                              {item?.fotoUrl ? (
+                              {isSafeImageSrc(item?.fotoUrl) ? (
                                 <div
                                   onClick={() =>
                                     setLightboxImage({
-                                      url: item.fotoUrl!,
+                                      url: item!.fotoUrl!,
                                       title: `${cat.label} - Sesi ${sesiNum}`,
-                                      suhu: formatSuhu(item.suhu),
+                                      suhu: formatSuhu(item!.suhu),
                                     })
                                   }
                                   className="cursor-pointer group flex flex-col items-center justify-center"
                                 >
                                   <img
-                                    src={item.fotoUrl}
+                                    src={item!.fotoUrl}
                                     alt={`${cat.label} Sesi ${sesiNum}`}
+                                    referrerPolicy="no-referrer"
                                     className="max-h-48 max-w-full object-contain mx-auto rounded-none group-hover:opacity-90 transition-opacity"
                                   />
                                 </div>
@@ -1932,11 +2056,14 @@ export const SuhuMasukOmprengView: React.FC<SuhuMasukOmprengViewProps> = ({ curr
               </button>
             </div>
             <div className="p-4 bg-black flex items-center justify-center max-h-[75vh] overflow-hidden">
-              <img
-                src={lightboxImage.url}
-                alt="Detail Suhu Masuk Ompreng"
-                className="max-h-[70vh] max-w-full object-contain"
-              />
+              {isSafeImageSrc(lightboxImage.url) && (
+                <img
+                  src={lightboxImage.url}
+                  alt="Detail Suhu Masuk Ompreng"
+                  referrerPolicy="no-referrer"
+                  className="max-h-[70vh] max-w-full object-contain"
+                />
+              )}
             </div>
           </div>
         </div>

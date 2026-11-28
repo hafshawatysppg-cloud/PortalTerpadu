@@ -18,6 +18,86 @@ import {
 let isConnected = isServerSupabaseConfigured;
 let lastFullSyncAt = 0;
 const SYNC_COOLDOWN_MS = 10 * 60 * 1000;
+let remoteSupabaseReachable: boolean | null = null;
+let lastReachabilityCheckAt = 0;
+const UNREACHABLE_COOLDOWN_MS = 5 * 60 * 1000;
+let offlineNoticeLogged = false;
+
+function isSupabaseNetworkError(err: any): boolean {
+  const msg = String(err?.message || err || '').toLowerCase();
+  const details = String(err?.details || '').toLowerCase();
+  const causeCode = String(err?.cause?.code || err?.code || '').toUpperCase();
+  return (
+    msg.includes('fetch failed') ||
+    msg.includes('network') ||
+    msg.includes('enotfound') ||
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout') ||
+    msg.includes('eai_again') ||
+    msg.includes('abort') ||
+    details.includes('fetch failed') ||
+    details.includes('enotfound') ||
+    [
+      'ENOTFOUND',
+      'ECONNREFUSED',
+      'ETIMEDOUT',
+      'ENETUNREACH',
+      'EHOSTUNREACH',
+      'EAI_AGAIN',
+      'UND_ERR_CONNECT_TIMEOUT'
+    ].includes(causeCode)
+  );
+}
+
+function markSupabaseUnreachable(): void {
+  remoteSupabaseReachable = false;
+  lastReachabilityCheckAt = Date.now();
+  isConnected = false;
+  if (!offlineNoticeLogged) {
+    offlineNoticeLogged = true;
+    console.log('ℹ️ Supabase remote host unreachable — running seamlessly on persistent local snapshot cache.');
+  }
+}
+
+async function probeSupabaseReachability(client: SupabaseClient, forceProbe = false): Promise<boolean> {
+  const now = Date.now();
+  if (!forceProbe && remoteSupabaseReachable === false && now - lastReachabilityCheckAt < UNREACHABLE_COOLDOWN_MS) {
+    return false;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      const { error } = await client
+        .from('app_state_sync')
+        .select('id')
+        .limit(1)
+        .abortSignal(controller.signal);
+
+      if (error && isSupabaseNetworkError(error)) {
+        markSupabaseUnreachable();
+        return false;
+      }
+      remoteSupabaseReachable = true;
+      lastReachabilityCheckAt = now;
+      offlineNoticeLogged = false;
+      isConnected = true;
+      return true;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err: any) {
+    if (isSupabaseNetworkError(err)) {
+      markSupabaseUnreachable();
+      return false;
+    }
+    remoteSupabaseReachable = true;
+    lastReachabilityCheckAt = now;
+    isConnected = true;
+    return true;
+  }
+}
 
 const operationalSnapshot: Record<string, any> = {};
 
@@ -181,10 +261,11 @@ export function getFirestoreDb(): SupabaseClient | null {
 export function getCloudInfo() {
   const client = getFirestoreDb();
   const meta = getServerSupabaseMetadata();
+  const activelyReachable = Boolean(client) && remoteSupabaseReachable !== false;
   return {
     provider: 'supabase',
-    isConnected: Boolean(client),
-    status: client ? 'online' : 'local-cache',
+    isConnected: activelyReachable,
+    status: activelyReachable ? 'online' : 'local-cache',
     quotaExceeded: false,
     lastQuotaErrorAt: null,
     lastFullSyncAt: lastFullSyncAt ? new Date(lastFullSyncAt).toISOString() : null,
@@ -202,9 +283,9 @@ export function getCloudInfo() {
     githubOAuthConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     syncedCollectionsCount: SYNCED_COLLECTIONS.length,
     collections: SYNCED_COLLECTIONS.map((s) => s.coll),
-    mode: client
+    mode: activelyReachable
       ? 'Supabase PostgreSQL + Realtime + Server Persistent Snapshot Cache'
-      : 'Server Persistent Snapshot Cache (Menunggu konfigurasi VITE_SUPABASE_URL)',
+      : 'Server Persistent Snapshot Cache (Mode Lokal / Offline Cache)',
     writeQueue: getQueueStatus()
   };
 }
@@ -232,14 +313,28 @@ export async function testFirestoreConnection(): Promise<{
 
   try {
     const nowIso = new Date().toISOString();
-    const { error: readErr } = await client
-      .from('app_state_sync')
-      .select('id')
-      .limit(1);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    let readErr: any = null;
+    try {
+      const res = await client
+        .from('app_state_sync')
+        .select('id')
+        .limit(1)
+        .abortSignal(controller.signal);
+      readErr = res.error;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (readErr) {
       throw readErr;
     }
+
+    remoteSupabaseReachable = true;
+    lastReachabilityCheckAt = Date.now();
+    offlineNoticeLogged = false;
+    isConnected = true;
 
     const latency = Date.now() - start;
     return {
@@ -251,6 +346,9 @@ export async function testFirestoreConnection(): Promise<{
       probeTimestamp: nowIso
     };
   } catch (err: any) {
+    if (isSupabaseNetworkError(err)) {
+      markSupabaseUnreachable();
+    }
     return {
       success: false,
       latencyMs: Date.now() - start,
@@ -299,7 +397,7 @@ export async function flushWriteQueue(): Promise<void> {
   if (isFlushing || pendingWriteQueue.size === 0) return;
 
   const client = getFirestoreDb();
-  if (!client) {
+  if (!client || (remoteSupabaseReachable === false && Date.now() - lastReachabilityCheckAt < UNREACHABLE_COOLDOWN_MS)) {
     pendingWriteQueue.clear();
     scheduleSnapshotSave(150);
     return;
@@ -339,6 +437,12 @@ export async function flushWriteQueue(): Promise<void> {
     }
 
     for (const [collectionName, groupItems] of grouped.entries()) {
+      if (remoteSupabaseReachable === false) {
+        for (const g of groupItems) {
+          pendingWriteQueue.delete(g.key);
+        }
+        continue;
+      }
       try {
         await batchSyncSupabaseDocs(
           collectionName,
@@ -350,8 +454,12 @@ export async function flushWriteQueue(): Promise<void> {
         }
         totalWritesCommitted += groupItems.length;
       } catch (err: any) {
-        writeErrors++;
-        console.warn(`⚠️ Supabase batch sync notice (${collectionName}):`, err?.message || err);
+        if (isSupabaseNetworkError(err)) {
+          markSupabaseUnreachable();
+        } else {
+          writeErrors++;
+          console.warn(`⚠️ Supabase batch sync notice (${collectionName}):`, err?.message || err);
+        }
         for (const g of groupItems) {
           pendingWriteQueue.delete(g.key);
         }
@@ -523,16 +631,20 @@ export async function runStockTransaction(params: {
   const tanggal = `${nowIso.split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
   const movementId = customMovementId || generateUniqueId('MOV');
 
-  // Read from Supabase if available, otherwise from local dbStore
+  // Read from Supabase if available and reachable, otherwise from local dbStore
   let itemData: MasterBarang | null = dbStore.barang.find((b) => b.id === barangId) || null;
-  if (client) {
+  if (client && remoteSupabaseReachable !== false) {
     try {
       const remoteItem = await fetchSupabaseDoc<MasterBarang>('barang', barangId, client);
       if (remoteItem) {
         itemData = remoteItem;
       }
     } catch (err: any) {
-      console.warn(`Supabase stock lookup notice for ${barangId}:`, err?.message || err);
+      if (isSupabaseNetworkError(err)) {
+        markSupabaseUnreachable();
+      } else {
+        console.warn(`Supabase stock lookup notice for ${barangId}:`, err?.message || err);
+      }
     }
   }
 
@@ -601,13 +713,17 @@ export async function runStockTransaction(params: {
   dbStore.stockMovements.unshift(movement as any);
   scheduleSnapshotSave(150);
 
-  // Persist to Supabase directly when configured
-  if (client) {
+  // Persist to Supabase directly when configured and reachable
+  if (client && remoteSupabaseReachable !== false) {
     try {
       await upsertSupabaseDoc('barang', barangId, { ...updatedBarang, updatedBy: petugas }, client);
       await upsertSupabaseDoc('stock_movements', movementId, movement, client);
     } catch (err: any) {
-      console.warn(`Supabase stock transaction sync notice for ${barangId}:`, err?.message || err);
+      if (isSupabaseNetworkError(err)) {
+        markSupabaseUnreachable();
+      } else {
+        console.warn(`Supabase stock transaction sync notice for ${barangId}:`, err?.message || err);
+      }
     }
   }
 
@@ -689,7 +805,22 @@ export async function initFirestoreSync(force = false) {
   console.log('🔄 Initializing Supabase PostgreSQL Synchronization...');
 
   try {
+    const reachable = await probeSupabaseReachability(client, force);
+    if (!reachable) {
+      for (const defMenu of initialMenus) {
+        if (!dbStore.menus.some((m) => m.id === defMenu.id || m.path === defMenu.path)) {
+          dbStore.menus.push({ ...defMenu });
+        }
+      }
+      dbStore.sanitizeCategories();
+      saveSnapshotToDiskNow();
+      return;
+    }
+
+    let abortedDueToNetwork = false;
+
     const syncSingleItem = async (item: { key: string; coll: string; isSingleDoc?: boolean }) => {
+      if (abortedDueToNetwork) return;
       try {
         if (item.isSingleDoc) {
           const existingDoc = await fetchSupabaseDoc(item.coll, 'main', client);
@@ -698,7 +829,12 @@ export async function initFirestoreSync(force = false) {
             if (initialSettings) {
               await upsertSupabaseDoc(item.coll, 'main', JSON.parse(JSON.stringify(initialSettings)), client).catch(
                 (err) => {
-                  console.error(`⚠️ Error seeding single doc ${item.coll}/main:`, err);
+                  if (isSupabaseNetworkError(err)) {
+                    abortedDueToNetwork = true;
+                    markSupabaseUnreachable();
+                  } else {
+                    console.warn(`⚠️ Error seeding single doc ${item.coll}/main:`, err?.message || err);
+                  }
                 }
               );
             }
@@ -723,7 +859,12 @@ export async function initFirestoreSync(force = false) {
               data: JSON.parse(JSON.stringify(docData))
             }));
             await batchSyncSupabaseDocs(item.coll, ops, client).catch((err) => {
-              console.error(`⚠️ Error batch-seeding collection ${item.coll}:`, err);
+              if (isSupabaseNetworkError(err)) {
+                abortedDueToNetwork = true;
+                markSupabaseUnreachable();
+              } else {
+                console.warn(`⚠️ Error batch-seeding collection ${item.coll}:`, err?.message || err);
+              }
             });
           }
         } else {
@@ -742,31 +883,43 @@ export async function initFirestoreSync(force = false) {
           }
         }
       } catch (err: any) {
-        console.warn(`⚠️ Warning syncing collection ${item.coll}:`, err?.message || err);
+        if (isSupabaseNetworkError(err)) {
+          abortedDueToNetwork = true;
+          markSupabaseUnreachable();
+        } else {
+          console.warn(`⚠️ Warning syncing collection ${item.coll}:`, err?.message || err);
+        }
       }
     };
 
     const concurrency = 6;
     for (let i = 0; i < SYNCED_COLLECTIONS.length; i += concurrency) {
+      if (abortedDueToNetwork) break;
       const batch = SYNCED_COLLECTIONS.slice(i, i + concurrency);
       await Promise.allSettled(batch.map((item) => syncSingleItem(item)));
     }
 
-    try {
-      const appStateRows = await fetchSupabaseCollection<{ id: string; key: string; value: string }>(
-        'app_state_sync',
-        { client }
-      );
-      if (Array.isArray(appStateRows)) {
-        for (const row of appStateRows) {
-          if (row?.key && typeof row.value === 'string') {
-            dbStore.appStateSync[row.key] = row.value;
+    if (!abortedDueToNetwork) {
+      try {
+        const appStateRows = await fetchSupabaseCollection<{ id: string; key: string; value: string }>(
+          'app_state_sync',
+          { client }
+        );
+        if (Array.isArray(appStateRows)) {
+          for (const row of appStateRows) {
+            if (row?.key && typeof row.value === 'string') {
+              dbStore.appStateSync[row.key] = row.value;
+            }
           }
         }
+        lastFullSyncAt = Date.now();
+      } catch (err: any) {
+        if (isSupabaseNetworkError(err)) {
+          markSupabaseUnreachable();
+        } else {
+          console.warn('⚠️ App state sync warning:', err?.message || err);
+        }
       }
-      lastFullSyncAt = Date.now();
-    } catch (err: any) {
-      console.warn('⚠️ App state sync warning:', err?.message || err);
     }
 
     for (const defMenu of initialMenus) {
@@ -777,11 +930,17 @@ export async function initFirestoreSync(force = false) {
 
     dbStore.sanitizeCategories();
     saveSnapshotToDiskNow();
-    console.log(
-      `✅ Supabase Sync Complete (${SYNCED_COLLECTIONS.length} collections, ${Object.keys(dbStore.appStateSync).length} app-state keys)!`
-    );
+    if (!abortedDueToNetwork) {
+      console.log(
+        `✅ Supabase Sync Complete (${SYNCED_COLLECTIONS.length} collections, ${Object.keys(dbStore.appStateSync).length} app-state keys)!`
+      );
+    }
   } catch (err: any) {
-    console.warn('⚠️ Supabase sync notice (server continues on local cache):', err?.message || err);
+    if (isSupabaseNetworkError(err)) {
+      markSupabaseUnreachable();
+    } else {
+      console.warn('⚠️ Supabase sync notice (server continues on local cache):', err?.message || err);
+    }
   } finally {
     isSyncing = false;
   }

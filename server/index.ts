@@ -27,6 +27,8 @@ import documentTemplateRoutes from './routes/documentTemplate';
 import distribusiRoutes from './routes/distribusi';
 import foodWasteRoutes from './routes/foodWaste';
 import petugasRoutes from './routes/petugas';
+import mysqlOperationalRoutes from './routes/mysqlOperational';
+import { initMysqlTables } from './db';
 import { swaggerSpec } from './docs/swagger';
 import {
   initFirestoreSync,
@@ -68,6 +70,12 @@ async function startServer() {
     hydrateFromLocalSnapshot();
   } catch (hydrateErr: any) {
     console.warn('[Startup Warning] Gagal memuat local snapshot:', hydrateErr?.message || hydrateErr);
+  }
+
+  try {
+    await initMysqlTables();
+  } catch (mysqlErr: any) {
+    console.warn('[Startup Warning] Gagal inisialisasi tabel MySQL:', mysqlErr?.message || mysqlErr);
   }
 
   const app = express();
@@ -277,6 +285,7 @@ async function startServer() {
   app.use('/api/food-waste', foodWasteRoutes);
   app.use('/api/v1/petugas', petugasRoutes);
   app.use('/api/petugas', petugasRoutes);
+  app.use('/api/mysql', mysqlOperationalRoutes);
 
   // Prevent any unmatched /api/* endpoint from falling through to SPA HTML
   app.all('/api/*', (req: Request, res: Response) => {

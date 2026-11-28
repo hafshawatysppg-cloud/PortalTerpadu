@@ -53,19 +53,49 @@ if (!isKeyValid) {
   }
 }
 
+function isNetworkUnreachable(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  const details = String(err?.details || '').toLowerCase();
+  return (
+    msg.includes('fetch failed') ||
+    msg.includes('enotfound') ||
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout') ||
+    msg.includes('abort') ||
+    details.includes('fetch failed') ||
+    details.includes('enotfound')
+  );
+}
+
 export async function testDbConnection() {
   if (!supabase) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const { data, error } = await supabase.from('users').select('*').limit(1);
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .limit(1)
+      .abortSignal(controller.signal);
     if (error) {
-      console.warn('Connection error:', error.message || String(error));
+      if (isNetworkUnreachable(error)) {
+        console.log('ℹ️ Supabase direct probe offline/unreachable; using local snapshot cache.');
+      } else {
+        console.warn('Connection notice:', error.message || String(error));
+      }
     } else {
       console.log('Connected:', data);
     }
     return { data, error };
   } catch (err) {
-    console.warn('Connection error:', err?.message || String(err));
+    if (isNetworkUnreachable(err)) {
+      console.log('ℹ️ Supabase direct probe offline/unreachable; using local snapshot cache.');
+    } else {
+      console.warn('Connection notice:', err?.message || String(err));
+    }
     return { data: null, error: err };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -26,6 +26,13 @@ import {
 import { MenuHarianRecord, NilaiGiziPorsi } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useFirestoreRealtime } from '../../lib/useFirestoreRealtime';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import {
+  compressImageToJpeg,
+  isGasUploadConfigured,
+  isSafeImageSrc,
+  uploadImageToGoogleDrive
+} from '../../utils/driveUpload';
 import {
   getSiklusMenuForDate,
   getAllAvailableSiklusDates,
@@ -152,6 +159,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
   // Upload Foto Menu State (Bottom section)
   const [fotoMenuUrl, setFotoMenuUrl] = useState<string>('');
+  const [pendingFotoFile, setPendingFotoFile] = useState<File | null>(null);
   const [fotoFileName, setFotoFileName] = useState<string>('');
   const [fotoFileSizeKb, setFotoFileSizeKb] = useState<number>(0);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
@@ -161,6 +169,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
   const [records, setRecords] = useState<MenuHarianRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   // Filter & Preview Modal State
@@ -285,6 +294,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
       if (!editingId) {
         setFotoMenuUrl('');
+        setPendingFotoFile(null);
         setFotoFileName('');
         setFotoFileSizeKb(0);
         if (fileInputRef.current) {
@@ -355,78 +365,32 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
     showToast('Nilai gizi Porsi Kecil otomatis diestimasi (70% dari Porsi Besar). Silakan sesuaikan bila perlu.', 'info');
   };
 
-  // Compress image to stay within 0.1 MB - 0.5 MB target (and Firestore safe size)
-  const processAndCompressImage = (file: File) => {
+  // Compress image preview client-side (max width 1024px, JPEG 0.8) and keep File for Drive upload on submit
+  const processAndCompressImage = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       showToast('Format file harus berupa gambar (JPG, JPEG, PNG, WEBP).', 'error');
       return;
     }
 
     setIsCompressingPhoto(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const rawDataUrl = event.target?.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1024;
-        const MAX_HEIGHT = 1024;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height = Math.round((height * MAX_WIDTH) / width);
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width = Math.round((width * MAX_HEIGHT) / height);
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          let quality = 0.82;
-          let compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-
-          // Ensure size is under ~450 KB
-          while (compressedDataUrl.length * 0.75 > 450 * 1024 && quality > 0.35) {
-            quality -= 0.12;
-            compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-          }
-
-          const approxSizeKb = Math.max(1, Math.round((compressedDataUrl.length * 0.75) / 1024));
-          setFotoMenuUrl(compressedDataUrl);
-          setFotoFileName(file.name);
-          setFotoFileSizeKb(approxSizeKb);
-          setIsCompressingPhoto(false);
-          showToast(`Foto menu "${file.name}" (${approxSizeKb} KB) berhasil diunggah.`, 'info');
-        } else {
-          const approxSizeKb = Math.max(1, Math.round(file.size / 1024));
-          setFotoMenuUrl(rawDataUrl);
-          setFotoFileName(file.name);
-          setFotoFileSizeKb(approxSizeKb);
-          setIsCompressingPhoto(false);
-        }
-      };
-      img.onerror = () => {
-        setIsCompressingPhoto(false);
-        showToast('Gagal memuat file gambar.', 'error');
-      };
-      img.src = rawDataUrl;
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setPendingFotoFile(file);
+      setFotoMenuUrl(compressed.dataUrl);
+      setFotoFileName(file.name);
+      setFotoFileSizeKb(compressed.sizeKb);
+      showToast(`Foto menu "${file.name}" (${compressed.sizeKb} KB) siap diunggah.`, 'info');
+    } catch {
+      showToast('Gagal memuat atau mengompresi file gambar.', 'error');
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processAndCompressImage(file);
+      void processAndCompressImage(file);
     }
   };
 
@@ -435,7 +399,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
     setIsDraggingFile(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      processAndCompressImage(file);
+      void processAndCompressImage(file);
     }
   };
 
@@ -443,6 +407,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
     setEditingId(null);
     setTanggalOperasional(todayStr);
     setFotoMenuUrl('');
+    setPendingFotoFile(null);
     setFotoFileName('');
     setFotoFileSizeKb(0);
     if (fileInputRef.current) {
@@ -481,6 +446,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
     setSayurKomponen(rec.rincianKomponen?.sayur || '');
     setBuahSusuKomponen(rec.rincianKomponen?.buahSusu || '');
     setFotoMenuUrl(rec.fotoMenuUrl || '');
+    setPendingFotoFile(null);
     setFotoFileName(rec.fotoFileName || '');
     setFotoFileSizeKb(rec.fotoFileSizeKb || 0);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -519,6 +485,21 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
     setIsSubmitting(true);
     try {
+      let finalFotoMenuUrl = fotoMenuUrl;
+
+      // Stage 1: Upload photo to Google Drive only if user chose a new File
+      if (pendingFotoFile && isGasUploadConfigured()) {
+        setSubmitStage('uploading');
+        const driveResult = await uploadImageToGoogleDrive(pendingFotoFile, {
+          category: 'Menu Harian',
+          tanggal: tanggalOperasional,
+          fileName: pendingFotoFile.name || namaMenu.trim()
+        });
+        finalFotoMenuUrl = driveResult.imageUrl;
+      }
+
+      // Stage 2: Save record to backend API & MySQL
+      setSubmitStage('saving');
       const payload = {
         tanggalOperasional,
         namaMenu: namaMenu.trim(),
@@ -538,7 +519,8 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
           buahSusu: buahSusuKomponen.trim()
         },
         catatanGizi: catatanGizi.trim(),
-        fotoMenuUrl,
+        fotoMenuUrl: finalFotoMenuUrl,
+        image_url: finalFotoMenuUrl,
         fotoFileName,
         fotoFileSizeKb,
         petugas: user?.nama || 'Ahli Gizi SPPG'
@@ -553,7 +535,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -570,17 +552,21 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
       } else {
         showToast(json.message || 'Gagal menyimpan Menu Harian.', 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving Menu Harian:', err);
-      showToast('Terjadi kesalahan jaringan saat menyimpan data.', 'error');
+      showToast(err?.message || 'Terjadi kesalahan saat mengunggah foto atau menyimpan data.', 'error');
     } finally {
       setIsSubmitting(false);
+      setSubmitStage('idle');
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch(`/api/v1/menu-harian/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/menu-harian/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       const json = await res.json();
       if (res.ok && json.success) {
         showToast('Data Menu Harian berhasil dihapus.', 'info');
@@ -1336,11 +1322,14 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
             ) : (
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-4">
                 <div className="w-full sm:w-56 rounded-xl overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shrink-0 flex items-center justify-center">
-                  <img
-                    src={fotoMenuUrl}
-                    alt="Preview Foto Menu"
-                    className="w-full h-auto max-h-56 object-contain block"
-                  />
+                  {isSafeImageSrc(fotoMenuUrl) && (
+                    <img
+                      src={fotoMenuUrl}
+                      alt="Preview Foto Menu"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-auto max-h-56 object-contain block"
+                    />
+                  )}
                 </div>
                 <div className="flex-1 space-y-2 text-center sm:text-left">
                   <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
@@ -1369,6 +1358,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       type="button"
                       onClick={() => {
                         setFotoMenuUrl('');
+                        setPendingFotoFile(null);
                         setFotoFileName('');
                         setFotoFileSizeKb(0);
                         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1402,8 +1392,16 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
               disabled={isSubmitting}
               className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-blue-500/20 transition cursor-pointer"
             >
-              <Save className="w-4 h-4" />
-              <span>{isSubmitting ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Menu Harian'}</span>
+              {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>
+                {submitStage === 'uploading'
+                  ? 'Mengunggah foto ke Google Drive...'
+                  : submitStage === 'saving' || isSubmitting
+                    ? 'Menyimpan data ke database...'
+                    : editingId
+                      ? 'Simpan Perubahan'
+                      : 'Simpan Menu Harian'}
+              </span>
             </button>
           </div>
         </div>
@@ -1496,7 +1494,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                       </td>
 
                       <td className="py-3.5 px-3 align-top">
-                        {rec.fotoMenuUrl ? (
+                        {rec.fotoMenuUrl && isSafeImageSrc(rec.fotoMenuUrl) ? (
                           <button
                             type="button"
                             onClick={() => setPreviewRecord(rec)}
@@ -1505,6 +1503,7 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
                             <img
                               src={rec.fotoMenuUrl}
                               alt={rec.namaMenu}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                             />
                           </button>
@@ -1644,11 +1643,12 @@ export const MenuHarianView: React.FC<MenuHarianViewProps> = ({
               </div>
 
               <div className="p-5 space-y-4 overflow-y-auto">
-                {previewRecord.fotoMenuUrl && (
+                {previewRecord.fotoMenuUrl && isSafeImageSrc(previewRecord.fotoMenuUrl) && (
                   <div className="w-full rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
                     <img
                       src={previewRecord.fotoMenuUrl}
                       alt={previewRecord.namaMenu}
+                      referrerPolicy="no-referrer"
                       className="w-full h-auto max-h-[65vh] object-contain block"
                     />
                   </div>

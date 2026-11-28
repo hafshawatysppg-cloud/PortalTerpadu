@@ -20,7 +20,10 @@ import {
   Link,
   X,
   FileSpreadsheet,
-  FileText
+  FileText,
+  Camera,
+  Image as ImageIcon,
+  RefreshCw
 } from 'lucide-react';
 import { MasterMenuRecord } from '../../types/masterMenu';
 import {
@@ -35,6 +38,13 @@ import {
   subscribeOperationalSlice
 } from '../../lib/firestoreOperationalStore';
 import { generateUniqueDocId } from '../../lib/firestoreHelper';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import {
+  compressImageToJpeg,
+  isGasUploadConfigured,
+  isSafeImageSrc,
+  uploadImageToGoogleDrive
+} from '../../utils/driveUpload';
 
 export interface SiklusIngredientRow {
   id: string;
@@ -57,6 +67,7 @@ export interface SiklusMenuData {
   porsiBesar: SiklusIngredientRow[];
   customColumns: { id: string; label: string; unit: string }[];
   isLocked?: boolean;
+  imageUrl?: string;
 }
 
 interface SiklusMenuViewProps {
@@ -229,18 +240,29 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
   const [localPorsiKecil, setLocalPorsiKecil] = useState<SiklusIngredientRow[]>([]);
   const [localPorsiBesar, setLocalPorsiBesar] = useState<SiklusIngredientRow[]>([]);
   const [customColumns, setCustomColumns] = useState<{ id: string; label: string; unit: string }[]>([]);
+  const [siklusImageUrl, setSiklusImageUrl] = useState<string>('');
+  const [pendingSiklusFile, setPendingSiklusFile] = useState<File | null>(null);
+  const [isSavingCycle, setIsSavingCycle] = useState<boolean>(false);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'saving'>('idle');
+  const siklusFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Update local editable arrays and lock status when currentCycleData changes
   useEffect(() => {
+    setPendingSiklusFile(null);
+    if (siklusFileInputRef.current) {
+      siklusFileInputRef.current.value = '';
+    }
     if (currentCycleData) {
       setLocalPorsiKecil(currentCycleData.porsiKecil || []);
       setLocalPorsiBesar(currentCycleData.porsiBesar || []);
       setCustomColumns(currentCycleData.customColumns || []);
+      setSiklusImageUrl(currentCycleData.imageUrl || '');
       setIsLocked(Boolean(currentCycleData.isLocked));
     } else {
       setLocalPorsiKecil([]);
       setLocalPorsiBesar([]);
       setCustomColumns([]);
+      setSiklusImageUrl('');
       setIsLocked(false);
     }
   }, [currentCycleData]);
@@ -464,33 +486,84 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
     triggerToast(`Kolom "${label}" telah dihapus.`);
   };
 
-  // Save current cycle data and LOCK IT permanently in Firestore
+  const handleSiklusPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      triggerToast('Format file dokumentasi harus berupa gambar (JPG, PNG, WEBP).', 'error');
+      return;
+    }
+    try {
+      const compressed = await compressImageToJpeg(file, 1024, 0.8);
+      setPendingSiklusFile(file);
+      setSiklusImageUrl(compressed.dataUrl);
+      triggerToast(`Foto Siklus Menu (${compressed.sizeKb} KB) siap diunggah saat Simpan & Kunci.`);
+    } catch {
+      triggerToast('Gagal memuat gambar dokumentasi Siklus Menu.', 'error');
+    }
+  };
+
+  // Save current cycle data, upload photo if new, and LOCK IT in Firestore + MySQL
   const handleSaveAndLockCycle = async () => {
     if (!currentMasterMenu) {
       triggerToast('Gagal menyimpan: Master Menu untuk tanggal ini belum ada.', 'error');
       return;
     }
 
-    const payload: SiklusMenuData = {
-      id: savedCycles[selectedDate]?.id,
-      tanggal: selectedDate,
-      porsiKecil: localPorsiKecil,
-      porsiBesar: localPorsiBesar,
-      customColumns,
-      isLocked: true
-    };
-
+    setIsSavingCycle(true);
     try {
+      let finalImageUrl = siklusImageUrl;
+
+      if (pendingSiklusFile && isGasUploadConfigured()) {
+        setSubmitStage('uploading');
+        const driveResult = await uploadImageToGoogleDrive(pendingSiklusFile, {
+          category: 'Siklus Menu',
+          tanggal: selectedDate,
+          fileName: pendingSiklusFile.name || `siklus_menu_${selectedDate}`
+        });
+        finalImageUrl = driveResult.imageUrl;
+      }
+
+      setSubmitStage('saving');
+      const payload: SiklusMenuData = {
+        id: savedCycles[selectedDate]?.id,
+        tanggal: selectedDate,
+        porsiKecil: localPorsiKecil,
+        porsiBesar: localPorsiBesar,
+        customColumns,
+        isLocked: true,
+        imageUrl: finalImageUrl
+      };
+
       const savedDoc = await saveSiklusMenuCycleDoc(selectedDate, payload);
+
+      try {
+        await fetch('/api/mysql/siklus-menu', {
+          method: 'POST',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            ...savedDoc,
+            image_url: finalImageUrl
+          })
+        });
+      } catch (mysqlErr) {
+        console.warn('Siklus Menu MySQL sync warning:', mysqlErr);
+      }
+
       setSavedCycles(prev => ({
         ...prev,
         [selectedDate]: savedDoc
       }));
+      setSiklusImageUrl(finalImageUrl);
+      setPendingSiklusFile(null);
       setIsLocked(true);
-      triggerToast(`Kandungan Gizi tanggal ${formatDateIndo(selectedDate)} berhasil disimpan ke Firebase & dikunci!`);
+      triggerToast(`Kandungan Gizi tanggal ${formatDateIndo(selectedDate)} berhasil disimpan & dikunci!`);
     } catch (err: any) {
       console.error('Gagal menyimpan Siklus Menu:', err);
-      triggerToast(err?.message || 'Gagal menyimpan Siklus Menu ke Firebase', 'error');
+      triggerToast(err?.message || 'Gagal menyimpan Siklus Menu', 'error');
+    } finally {
+      setIsSavingCycle(false);
+      setSubmitStage('idle');
     }
   };
 
@@ -1160,11 +1233,18 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveAndLockCycle}
-                  className="px-4.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-xs font-black shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all"
+                  disabled={isSavingCycle}
+                  className="px-4.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 text-white rounded-2xl text-xs font-black shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all"
                   title="Simpan perubahan dan kunci data tabel"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>Simpan & Kunci</span>
+                  {isSavingCycle ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>
+                    {submitStage === 'uploading'
+                      ? 'Mengunggah foto ke Google Drive...'
+                      : submitStage === 'saving' || isSavingCycle
+                        ? 'Menyimpan data ke database...'
+                        : 'Simpan & Kunci'}
+                  </span>
                 </button>
               )
             )}
@@ -1277,6 +1357,71 @@ export const SiklusMenuView: React.FC<SiklusMenuViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Dokumentasi Foto Siklus Menu (Opsional, Auto-Upload Google Drive) */}
+        {currentMasterMenu && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-3">
+              <input
+                ref={siklusFileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                className="hidden"
+                onChange={handleSiklusPhotoSelect}
+              />
+              {siklusImageUrl && isSafeImageSrc(siklusImageUrl) ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={siklusImageUrl}
+                    alt={`Dokumentasi Siklus Menu ${selectedDate}`}
+                    referrerPolicy="no-referrer"
+                    className="w-12 h-12 rounded-xl object-cover border border-emerald-200 dark:border-emerald-800 shadow-2xs"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Foto Dokumentasi Siklus Menu</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {pendingSiklusFile ? 'Siap diunggah ke folder "Siklus Menu" saat Simpan & Kunci' : 'Tersimpan pada jadwal ini'}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-500">
+                  <Camera className="w-4 h-4 text-emerald-600" />
+                  <span className="font-semibold">Dokumentasi Foto Siklus Menu (Opsional)</span>
+                </div>
+              )}
+            </div>
+
+            {!isLocked && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => siklusFileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{siklusImageUrl ? 'Ganti Foto Siklus' : 'Unggah Foto Siklus'}</span>
+                </button>
+                {siklusImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSiklusImageUrl('');
+                      setPendingSiklusFile(null);
+                      if (siklusFileInputRef.current) siklusFileInputRef.current.value = '';
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs cursor-pointer"
+                  >
+                    Hapus
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
