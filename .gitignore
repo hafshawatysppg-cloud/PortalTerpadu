@@ -8,3 +8,4 @@ coverage/
 .env*
 !.env.example
 .cloud-sync-cache/
+.aistudio/
